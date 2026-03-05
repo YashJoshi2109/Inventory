@@ -30,9 +30,10 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent))
 import inventory_manager as im
 
-app      = Flask(__name__)
-DB_PATH  = Path(__file__).parent / "Lab_Inventory_Barcode_System.xlsx"
-DASH_PATH = Path(__file__).parent / "dashboard.html"
+app       = Flask(__name__)
+_ROOT     = Path(__file__).resolve().parent
+DB_PATH   = _ROOT / "Lab_Inventory_Barcode_System.xlsx"
+DASH_PATH = _ROOT / "dashboard.html"
 
 
 def cors(response):
@@ -47,7 +48,8 @@ def to_json(obj):
 @app.route("/")
 def dashboard():
     if DASH_PATH.exists():
-        return send_file(str(DASH_PATH))
+        return Response(DASH_PATH.read_text(encoding="utf-8"),
+                        mimetype="text/html")
     return "<h1>Place dashboard.html in the same folder as app.py</h1>", 404
 
 

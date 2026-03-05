@@ -34,7 +34,7 @@ import json
 import sys
 from pathlib import Path
 
-DB_PATH = Path(__file__).parent / "Lab_Inventory_Barcode_System.xlsx"
+DB_PATH = Path(__file__).resolve().parent / "Lab_Inventory_Barcode_System.xlsx"
 
 # Column indices (1-based), matching template exactly
 # Items_Master: SKU(1) Desc(2) Cat(3) UnitCost(4) SalesPrice(5) ReorderLvl(6)
