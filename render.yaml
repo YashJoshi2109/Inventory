@@ -1,0 +1,47 @@
+services:
+  - type: web
+    name: sierlab-inventory-backend
+    runtime: python
+    region: oregon
+    plan: free
+    rootDir: backend
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT --workers 2
+    healthCheckPath: /health
+    envVars:
+      - key: ENVIRONMENT
+        value: production
+      - key: POSTGRES_HOST
+        value: aws-1-us-east-1.pooler.supabase.com
+      - key: POSTGRES_PORT
+        value: "5432"
+      - key: POSTGRES_DB
+        value: postgres
+      - key: POSTGRES_USER
+        value: postgres.vcyvsjasentcicsnpylz
+      - key: POSTGRES_PASSWORD
+        sync: false          # set manually in Render dashboard
+      - key: DATABASE_SSL
+        value: "true"
+      - key: SECRET_KEY
+        sync: false          # set manually in Render dashboard
+      - key: ACCESS_TOKEN_EXPIRE_MINUTES
+        value: "60"
+      - key: REFRESH_TOKEN_EXPIRE_DAYS
+        value: "30"
+      - key: CORS_ORIGINS
+        sync: false          # set after Vercel URL is known
+      - key: UPLOAD_DIR
+        value: /tmp/uploads
+      - key: BARCODE_DIR
+        value: /tmp/uploads/barcodes
+      - key: MAX_UPLOAD_SIZE_MB
+        value: "50"
+      - key: AI_ANOMALY_DETECTION_ENABLED
+        value: "true"
+      - key: AI_FORECAST_ENABLED
+        value: "true"
+      - key: MQTT_ENABLED
+        value: "false"
+      - key: ALERT_EMAIL_ENABLED
+        value: "false"

@@ -1,0 +1,56 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    color-scheme: dark;
+  }
+
+  * {
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  html {
+    scroll-behavior: smooth;
+  }
+
+  body {
+    @apply bg-surface text-slate-100;
+    font-family: "Inter", system-ui, sans-serif;
+  }
+
+  /* Safe area padding for iOS PWA */
+  .safe-bottom {
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+
+  /* Hide scrollbar but keep scroll */
+  .scrollbar-none {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+  .scrollbar-none::-webkit-scrollbar {
+    display: none;
+  }
+}
+
+@layer components {
+  /* Scan line animation used in BarcodeScanner */
+  @keyframes scanLine {
+    0% { top: 5%; opacity: 1; }
+    45% { opacity: 1; }
+    50% { top: 95%; opacity: 0.5; }
+    51% { top: 5%; opacity: 0; }
+    55% { opacity: 1; }
+    100% { top: 5%; opacity: 1; }
+  }
+
+  .animate-scan-line {
+    animation: scanLine 2.5s ease-in-out infinite;
+    position: absolute;
+    left: 10%;
+    right: 10%;
+    height: 2px;
+  }
+}

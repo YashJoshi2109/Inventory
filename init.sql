@@ -1,0 +1,12 @@
+-- ─── SIER Lab Inventory — init.sql ───────────────────────────────────────────
+-- This file was previously used to bootstrap a local TimescaleDB Docker container.
+-- The project now uses Supabase (cloud PostgreSQL) as the database backend.
+--
+-- Schema is managed entirely through Alembic migrations:
+--   cd backend && alembic upgrade head
+--
+-- Extensions enabled by the Alembic migration (001_initial_schema.py):
+--   pg_trgm   — fuzzy text search on item names/SKUs
+--   uuid-ossp — UUID generation helper
+--
+-- Both extensions are available on the Supabase free tier.

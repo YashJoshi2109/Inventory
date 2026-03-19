@@ -1,1 +1,31 @@
+# ─── Environment ──────────────────────────────────────────────────────────────
+.env
+.env.local
+.env.*.local
+
+# ─── Python ───────────────────────────────────────────────────────────────────
+backend/.venv/
+backend/__pycache__/
+backend/**/__pycache__/
+backend/**/*.py[cod]
+backend/*.egg-info/
+backend/.pytest_cache/
+backend/uploads/
+
+# ─── Node ─────────────────────────────────────────────────────────────────────
+node_modules/
+frontend/node_modules/
+frontend/dist/
+frontend/.vite/
+
+# ─── Vercel ───────────────────────────────────────────────────────────────────
 .vercel
+
+# ─── OS ───────────────────────────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+
+# ─── IDE ──────────────────────────────────────────────────────────────────────
+.cursor/
+*.swp
+*.swo
