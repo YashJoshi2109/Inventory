@@ -11,6 +11,8 @@ services:
     envVars:
       - key: ENVIRONMENT
         value: production
+      - key: PYTHON_VERSION
+        value: "3.11.9"
       - key: POSTGRES_HOST
         value: aws-1-us-east-1.pooler.supabase.com
       - key: POSTGRES_PORT
