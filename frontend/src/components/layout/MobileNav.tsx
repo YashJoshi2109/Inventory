@@ -26,9 +26,11 @@ export function MobileNav() {
   });
   const alertCount = alerts?.filter((a) => !a.is_resolved).length ?? 0;
 
-  const isMoreActive = useMemo(() => {
+  const isMoreRouteActive = useMemo(() => {
     return location.pathname.startsWith("/ai") || location.pathname.startsWith("/alerts");
   }, [location.pathname]);
+
+  const isMoreActive = isMoreRouteActive || moreOpen;
 
   useEffect(() => {
     // Close More menu on route change
