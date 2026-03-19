@@ -68,6 +68,9 @@ class Settings(BaseSettings):
         "http://localhost:5173",
         "http://localhost:80",
     ]
+    # If your frontend uses multiple dynamic hosts (e.g. Vercel preview deployments),
+    # prefer a regex. Example: r"^https://.*\.vercel\.app$"
+    CORS_ORIGIN_REGEX: str | None = r"^https://.*\.vercel\.app$"
 
     # File storage
     UPLOAD_DIR: str = "./uploads"
