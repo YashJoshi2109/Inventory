@@ -17,7 +17,7 @@ const titles: Record<string, string> = {
 
 export function TopBar() {
   const { pathname } = useLocation();
-  const title = titles[pathname] ?? "SIER Lab";
+  const title = titles[pathname] ?? "SEAR Lab";
   const navigate = useNavigate();
   const [query, setQuery] = useState("");
 

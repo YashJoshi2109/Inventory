@@ -44,8 +44,28 @@ export function ItemDetail() {
     return <div className="p-6 text-red-400">Item not found.</div>;
   }
 
-  const openImage = (url: string) => {
+  const openBlob = (blob: Blob) => {
+    const url = URL.createObjectURL(blob);
     window.open(url, "_blank", "noopener,noreferrer");
+    setTimeout(() => URL.revokeObjectURL(url), 60_000);
+  };
+
+  const downloadBarcode = async () => {
+    try {
+      const blob = await itemsApi.downloadBarcodePng(item.id);
+      openBlob(blob);
+    } catch {
+      toast.error("Failed to load barcode");
+    }
+  };
+
+  const downloadQr = async () => {
+    try {
+      const blob = await itemsApi.downloadQrPng(item.id);
+      openBlob(blob);
+    } catch {
+      toast.error("Failed to load QR code");
+    }
   };
 
   const printSingleLabelSheet = async () => {
@@ -86,14 +106,14 @@ export function ItemDetail() {
             <Button
               variant="secondary"
               leftIcon={<Barcode size={14} />}
-              onClick={() => openImage(itemsApi.getBarcodePng(item.id))}
+              onClick={downloadBarcode}
             >
               Item Barcode
             </Button>
             <Button
               variant="secondary"
               leftIcon={<QrCode size={14} />}
-              onClick={() => openImage(itemsApi.getQrPng(item.id))}
+              onClick={downloadQr}
             >
               Item QR
             </Button>

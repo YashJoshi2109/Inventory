@@ -45,7 +45,7 @@ export function Login() {
           <div className="w-14 h-14 bg-brand-600 rounded-2xl flex items-center justify-center mb-4 shadow-lg shadow-brand-600/30">
             <Beaker size={28} className="text-white" />
           </div>
-          <h1 className="text-2xl font-bold text-white">SIER Lab Inventory</h1>
+          <h1 className="text-2xl font-bold text-white">SEAR Lab Inventory</h1>
           <p className="text-slate-400 text-sm mt-1">AI-powered laboratory inventory control</p>
         </div>
 
@@ -87,7 +87,7 @@ export function Login() {
         </div>
 
         <p className="text-center text-xs text-slate-600 mt-6">
-          SIER Lab Inventory Control System v1.0 — Secure Access
+          SEAR Lab Inventory Control System v1.0 — Secure Access
         </p>
       </div>
     </div>

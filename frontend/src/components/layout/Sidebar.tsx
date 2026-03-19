@@ -40,7 +40,7 @@ export function Sidebar() {
           <Beaker size={18} className="text-white" />
         </div>
         <div>
-          <p className="text-sm font-bold text-white">SIER Lab</p>
+          <p className="text-sm font-bold text-white">SEAR Lab</p>
           <p className="text-xs text-slate-500">Inventory v1.0</p>
         </div>
       </div>

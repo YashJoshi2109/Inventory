@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { apiClient } from "@/api/client";
+import { itemsApi } from "@/api/items";
 import { Card, CardContent, CardHeader } from "@/components/ui/Card";
 import { Badge } from "@/components/ui/Badge";
 import { Spinner } from "@/components/ui/Spinner";
@@ -264,15 +265,22 @@ function AreaCard({ area }: { area: Area }) {
                     </div>
                     <p className="text-sm text-slate-300">{loc.name}</p>
                   </div>
-                  <a
-                    href={`/api/v1/barcodes/location/${loc.id}/qr/png`}
-                    target="_blank"
-                    rel="noreferrer"
+                  <button
+                    onClick={async () => {
+                      try {
+                        const blob = await itemsApi.downloadLocationQrPng(loc.id);
+                        const url = URL.createObjectURL(blob);
+                        window.open(url, "_blank", "noopener,noreferrer");
+                        setTimeout(() => URL.revokeObjectURL(url), 60_000);
+                      } catch {
+                        toast.error("Failed to load QR code");
+                      }
+                    }}
                     className="p-1.5 rounded-lg hover:bg-surface-hover text-slate-400 hover:text-white transition-colors"
                     title="Download QR label"
                   >
                     <QrCode size={15} />
-                  </a>
+                  </button>
                 </div>
               ))}
             </div>

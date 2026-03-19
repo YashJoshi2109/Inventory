@@ -65,6 +65,18 @@ export const itemsApi = {
     return data;
   },
 
-  getBarcodePng: (id: number): string => `/api/v1/barcodes/item/${id}/png`,
-  getQrPng: (id: number): string => `/api/v1/barcodes/item/${id}/qr/png`,
+  downloadBarcodePng: async (id: number): Promise<Blob> => {
+    const { data } = await apiClient.get(`/barcodes/item/${id}/png`, { responseType: "blob" });
+    return data;
+  },
+
+  downloadQrPng: async (id: number): Promise<Blob> => {
+    const { data } = await apiClient.get(`/barcodes/item/${id}/qr/png`, { responseType: "blob" });
+    return data;
+  },
+
+  downloadLocationQrPng: async (locationId: number): Promise<Blob> => {
+    const { data } = await apiClient.get(`/barcodes/location/${locationId}/qr/png`, { responseType: "blob" });
+    return data;
+  },
 };

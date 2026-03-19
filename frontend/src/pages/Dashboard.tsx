@@ -4,7 +4,7 @@ import { Card, CardContent, CardHeader } from "@/components/ui/Card";
 import { Spinner } from "@/components/ui/Spinner";
 import { Badge } from "@/components/ui/Badge";
 import {
-  Package, TrendingDown, AlertTriangle, DollarSign,
+  Package, TrendingDown, AlertTriangle,
   ArrowUpRight, ArrowDownRight, ArrowLeftRight, Activity,
 } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
@@ -137,10 +137,10 @@ export function Dashboard() {
           color="bg-red-600"
         />
         <KpiCard
-          title="Inventory Value"
-          value={`$${Number(stats.total_inventory_value).toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`}
-          subtitle={`${stats.transactions_today} transactions today`}
-          icon={DollarSign}
+          title="Today's Activity"
+          value={stats.transactions_today.toString()}
+          subtitle="transactions today"
+          icon={Activity}
           color="bg-emerald-600"
         />
       </div>
