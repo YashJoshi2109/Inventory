@@ -3,12 +3,11 @@ import { dashboardApi } from "@/api/transactions";
 import { Card, CardContent, CardHeader } from "@/components/ui/Card";
 import { Spinner } from "@/components/ui/Spinner";
 import { Badge } from "@/components/ui/Badge";
-import { StatusBadge } from "@/components/ui/StatusBadge";
 import {
   Package, TrendingDown, AlertTriangle, DollarSign,
   ArrowUpRight, ArrowDownRight, ArrowLeftRight, Activity,
 } from "lucide-react";
-import { formatDistanceToNow, format } from "date-fns";
+import { formatDistanceToNow } from "date-fns";
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
   ResponsiveContainer, PieChart, Pie, Cell,

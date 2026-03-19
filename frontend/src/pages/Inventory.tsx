@@ -1,17 +1,16 @@
 import { useState } from "react";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useQuery } from "@tanstack/react-query";
 import { useSearchParams, Link } from "react-router-dom";
 import { itemsApi } from "@/api/items";
-import { Card, CardContent, CardHeader } from "@/components/ui/Card";
+import { Card } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
-import { Input } from "@/components/ui/Input";
 import { Badge } from "@/components/ui/Badge";
 import { StatusBadge } from "@/components/ui/StatusBadge";
 import { Spinner } from "@/components/ui/Spinner";
 import { EmptyState } from "@/components/ui/EmptyState";
 import {
-  Search, Plus, Filter, Download, QrCode,
-  ChevronLeft, ChevronRight, Package, TrendingDown,
+  Search, Plus, QrCode,
+  ChevronLeft, ChevronRight, Package,
 } from "lucide-react";
 import { clsx } from "clsx";
 import type { ItemSummary } from "@/types";
