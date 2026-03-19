@@ -9,6 +9,20 @@ export interface ItemsListParams {
   page_size?: number;
 }
 
+export interface ItemCreatePayload {
+  sku: string;
+  name: string;
+  description?: string;
+  category_id?: number;
+  unit?: string;
+  unit_cost?: number;
+  sale_price?: number;
+  reorder_level?: number;
+  reorder_qty?: number;
+  lead_days?: number;
+  supplier?: string;
+}
+
 export const itemsApi = {
   list: async (params: ItemsListParams = {}): Promise<PaginatedResponse<ItemSummary>> => {
     const { data } = await apiClient.get<PaginatedResponse<ItemSummary>>("/items", { params });
@@ -20,7 +34,7 @@ export const itemsApi = {
     return data;
   },
 
-  create: async (payload: Partial<Item>): Promise<Item> => {
+  create: async (payload: ItemCreatePayload): Promise<Item> => {
     const { data } = await apiClient.post<Item>("/items", payload);
     return data;
   },
@@ -41,6 +55,13 @@ export const itemsApi = {
 
   getCategories: async (): Promise<Category[]> => {
     const { data } = await apiClient.get<Category[]>("/items/categories");
+    return data;
+  },
+
+  printLabelSheet: async (itemIds: number[]): Promise<Blob> => {
+    const { data } = await apiClient.post("/barcodes/labels/print", itemIds, {
+      responseType: "blob",
+    });
     return data;
   },
 

@@ -89,6 +89,23 @@ export const scanApi = {
     const { data } = await apiClient.post<InventoryEvent>("/scans/adjustment", payload);
     return data;
   },
+
+  apply: async (payload: {
+    item_barcode: string;
+    rack_barcode: string;
+    event_type: "stock_in" | "stock_out" | "transfer";
+    destination_rack_barcode?: string;
+    quantity: number;
+    reason?: string;
+    reference?: string;
+    borrower?: string;
+    notes?: string;
+    override_negative?: boolean;
+    scan_session_id?: string;
+  }): Promise<InventoryEvent> => {
+    const { data } = await apiClient.post<InventoryEvent>("/scans/apply", payload);
+    return data;
+  },
 };
 
 export const dashboardApi = {

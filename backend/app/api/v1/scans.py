@@ -18,6 +18,7 @@ from app.api.v1.auth import CurrentUser
 from app.core.database import DbSession
 from app.schemas.transaction import (
     AdjustmentRequest,
+    BarcodeScanApplyRequest,
     InventoryEventRead,
     ScanLookupRequest,
     StockInRequest,
@@ -119,4 +120,21 @@ async def adjustment(body: AdjustmentRequest, session: DbSession, current_user: 
     svc = InventoryService(session)
     event = await svc.adjustment(body, current_user.id)
     await session.refresh(event, ["item", "to_location", "actor"])
+    return _event_to_read(event, session)
+
+
+@router.post(
+    "/apply",
+    response_model=InventoryEventRead,
+    status_code=status.HTTP_201_CREATED,
+)
+async def apply_scan_event(
+    body: BarcodeScanApplyRequest,
+    session: DbSession,
+    current_user: CurrentUser,
+) -> InventoryEventRead:
+    svc = InventoryService(session)
+    actor_roles = [ur.role.name for ur in current_user.roles if ur.role]
+    event = await svc.apply_barcode_scan(body, current_user.id, actor_roles)
+    await session.refresh(event, ["item", "from_location", "to_location", "actor"])
     return _event_to_read(event, session)

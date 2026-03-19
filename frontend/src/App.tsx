@@ -4,6 +4,7 @@ import { Layout } from "@/components/layout/Layout";
 import { Login } from "@/pages/Login";
 import { Dashboard } from "@/pages/Dashboard";
 import { Inventory } from "@/pages/Inventory";
+import { ItemDetail } from "@/pages/ItemDetail";
 import { Scan } from "@/pages/Scan";
 import { Transactions } from "@/pages/Transactions";
 import { Locations } from "@/pages/Locations";
@@ -54,6 +55,7 @@ export default function App() {
             <Route index element={<Navigate to="/dashboard" replace />} />
             <Route path="dashboard" element={<Dashboard />} />
             <Route path="inventory" element={<Inventory />} />
+            <Route path="inventory/:id" element={<ItemDetail />} />
             <Route path="scan" element={<Scan />} />
             <Route path="transactions" element={<Transactions />} />
             <Route path="locations" element={<Locations />} />

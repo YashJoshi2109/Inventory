@@ -1,10 +1,14 @@
-import { useState, useCallback, useRef } from "react";
-import { motion, AnimatePresence } from "framer-motion";
+import { useCallback, useState } from "react";
 import { clsx } from "clsx";
 import toast from "react-hot-toast";
 import {
-  ArrowUpRight, ArrowDownRight, ArrowLeftRight,
-  CheckCircle2, XCircle, RotateCcw, Package, MapPin,
+  ArrowUpRight,
+  ArrowDownRight,
+  ArrowLeftRight,
+  CheckCircle2,
+  RotateCcw,
+  Package,
+  MapPin,
 } from "lucide-react";
 import { BarcodeScanner } from "@/components/scanner/BarcodeScanner";
 import { Button } from "@/components/ui/Button";
@@ -14,20 +18,19 @@ import { Badge } from "@/components/ui/Badge";
 import { scanApi } from "@/api/transactions";
 import type { ScanResult } from "@/types";
 
-type WorkflowMode = "select" | "stock-in" | "stock-out" | "transfer";
+type WorkflowMode = "stock-in" | "stock-out" | "transfer";
 type ScanStep =
-  | "scan-location"
   | "scan-item"
-  | "confirm"
-  | "scan-dest-location"
-  | "done";
+  | "scan-rack"
+  | "scan-dest-rack"
+  | "confirm";
 
 interface WorkflowState {
   mode: WorkflowMode;
   step: ScanStep;
-  location: ScanResult | null;
   item: ScanResult | null;
-  destLocation: ScanResult | null;
+  rack: ScanResult | null;
+  destRack: ScanResult | null;
   quantity: string;
   reference: string;
   borrower: string;
@@ -37,11 +40,11 @@ interface WorkflowState {
 }
 
 const INITIAL_STATE: WorkflowState = {
-  mode: "select",
-  step: "scan-location",
-  location: null,
+  mode: "stock-out",
+  step: "scan-item",
   item: null,
-  destLocation: null,
+  rack: null,
+  destRack: null,
   quantity: "1",
   reference: "",
   borrower: "",
@@ -69,15 +72,20 @@ export function Scan() {
         }
 
         setState((prev) => {
-          if (prev.step === "scan-location" && result.result_type === "location") {
-            return { ...prev, location: result, step: "scan-item" };
-          }
           if (prev.step === "scan-item" && result.result_type === "item") {
-            return { ...prev, item: result, step: "confirm" };
+            return { ...prev, item: result, step: "scan-rack" };
           }
-          if (prev.step === "scan-dest-location" && result.result_type === "location") {
-            return { ...prev, destLocation: result, step: "confirm" };
+          if (prev.step === "scan-rack" && result.result_type === "location") {
+            return {
+              ...prev,
+              rack: result,
+              step: prev.mode === "transfer" ? "scan-dest-rack" : "confirm",
+            };
           }
+          if (prev.step === "scan-dest-rack" && result.result_type === "location") {
+            return { ...prev, destRack: result, step: "confirm" };
+          }
+          toast.error("Scanned barcode type does not match this step");
           return prev;
         });
 
@@ -94,42 +102,38 @@ export function Scan() {
   );
 
   const commit = async () => {
-    if (!state.item?.id || !state.location?.id) return;
+    if (!state.item || !state.rack) return;
     setLoading(true);
 
     try {
-      if (state.mode === "stock-in") {
-        await scanApi.stockIn({
-          item_id: state.item.id,
-          location_id: state.location.id,
-          quantity: parseFloat(state.quantity),
-          reference: state.reference || undefined,
-          notes: state.notes || undefined,
-          scan_session_id: state.scanSessionId,
-        });
-      } else if (state.mode === "stock-out") {
-        await scanApi.stockOut({
-          item_id: state.item.id,
-          location_id: state.location.id,
-          quantity: parseFloat(state.quantity),
-          reference: state.reference || undefined,
-          borrower: state.borrower || undefined,
-          notes: state.notes || undefined,
-          scan_session_id: state.scanSessionId,
-        });
-      } else if (state.mode === "transfer" && state.destLocation?.id) {
-        await scanApi.transfer({
-          item_id: state.item.id,
-          from_location_id: state.location.id,
-          to_location_id: state.destLocation.id,
-          quantity: parseFloat(state.quantity),
-          notes: state.notes || undefined,
-          scan_session_id: state.scanSessionId,
-        });
+      if (state.mode === "transfer" && !state.destRack) {
+        toast.error("Scan destination rack before transfer");
+        return;
       }
 
+      await scanApi.apply({
+        item_barcode: state.item.code,
+        rack_barcode: `LOC:${state.rack.code}`,
+        event_type:
+          state.mode === "stock-in"
+            ? "stock_in"
+            : state.mode === "stock-out"
+              ? "stock_out"
+              : "transfer",
+        destination_rack_barcode: state.destRack ? `LOC:${state.destRack.code}` : undefined,
+        quantity: parseFloat(state.quantity),
+        reference: state.reference || undefined,
+        borrower: state.borrower || undefined,
+        notes: state.notes || undefined,
+        scan_session_id: state.scanSessionId,
+      });
+
       toast.success("Transaction recorded");
-      setState({ ...INITIAL_STATE, mode: state.mode, scanSessionId: crypto.randomUUID() });
+      setState({
+        ...INITIAL_STATE,
+        mode: state.mode,
+        scanSessionId: crypto.randomUUID(),
+      });
     } catch (err: unknown) {
       const msg = (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail;
       if (typeof msg === "object" && msg !== null && "code" in msg) {
@@ -143,11 +147,7 @@ export function Scan() {
     }
   };
 
-  const reset = () => setState(INITIAL_STATE);
-
-  if (state.mode === "select") {
-    return <ModeSelect onSelect={(mode) => setState({ ...INITIAL_STATE, mode })} />;
-  }
+  const reset = () => setState({ ...INITIAL_STATE, mode: state.mode, scanSessionId: crypto.randomUUID() });
 
   return (
     <div className="flex flex-col h-full max-w-lg mx-auto">
@@ -157,36 +157,34 @@ export function Scan() {
           <RotateCcw size={18} />
         </button>
         <h2 className="text-base font-semibold text-white flex-1">
-          {state.mode === "stock-in" && "Stock In"}
-          {state.mode === "stock-out" && "Stock Out"}
-          {state.mode === "transfer" && "Transfer"}
+          Scanner Workflow
         </h2>
         <StepIndicator mode={state.mode} step={state.step} />
       </div>
 
       <div className="flex-1 overflow-y-auto p-4 space-y-4 pb-24">
-        {/* Location scanned */}
-        {state.location && (
-          <ScanResultCard result={state.location} label="Location" />
-        )}
-
         {/* Item scanned */}
         {state.item && (
           <ScanResultCard result={state.item} label="Item" />
         )}
 
-        {/* Dest location (transfer only) */}
-        {state.destLocation && (
-          <ScanResultCard result={state.destLocation} label="Destination" />
+        {/* Rack scanned */}
+        {state.rack && (
+          <ScanResultCard result={state.rack} label="Rack" />
+        )}
+
+        {/* Destination rack (transfer only) */}
+        {state.destRack && (
+          <ScanResultCard result={state.destRack} label="Destination Rack" />
         )}
 
         {/* Scanner or confirmation */}
-        {state.step !== "confirm" && state.step !== "done" ? (
+        {state.step !== "confirm" ? (
           <div className="space-y-3">
             <p className="text-sm text-slate-400 text-center">
-              {state.step === "scan-location" && "Scan the location / bin label"}
               {state.step === "scan-item" && "Scan the item barcode"}
-              {state.step === "scan-dest-location" && "Scan the destination location"}
+              {state.step === "scan-rack" && "Scan the rack / bin barcode"}
+              {state.step === "scan-dest-rack" && "Scan destination rack barcode"}
             </p>
 
             {scanning ? (
@@ -212,13 +210,24 @@ export function Scan() {
         ) : state.step === "confirm" ? (
           <ConfirmForm
             state={state}
+            onModeChange={(mode) => {
+              setState((prev) => {
+                if (mode === "transfer" && !prev.destRack) {
+                  return { ...prev, mode, step: "scan-dest-rack" };
+                }
+                if (mode !== "transfer") {
+                  return { ...prev, mode, destRack: null, step: "confirm" };
+                }
+                return { ...prev, mode, step: "confirm" };
+              });
+            }}
             onQuantityChange={(q) => setState((p) => ({ ...p, quantity: q }))}
             onReferenceChange={(r) => setState((p) => ({ ...p, reference: r }))}
             onBorrowerChange={(b) => setState((p) => ({ ...p, borrower: b }))}
             onNotesChange={(n) => setState((p) => ({ ...p, notes: n }))}
             onScanDestination={
-              state.mode === "transfer" && !state.destLocation
-                ? () => setState((p) => ({ ...p, step: "scan-dest-location" }))
+              state.mode === "transfer" && !state.destRack
+                ? () => setState((p) => ({ ...p, step: "scan-dest-rack" }))
                 : undefined
             }
             onCommit={commit}
@@ -226,58 +235,6 @@ export function Scan() {
           />
         ) : null}
       </div>
-    </div>
-  );
-}
-
-function ModeSelect({ onSelect }: { onSelect: (mode: WorkflowMode) => void }) {
-  const modes = [
-    {
-      mode: "stock-in" as const,
-      label: "Stock In",
-      description: "Receive items into a location",
-      icon: ArrowUpRight,
-      color: "bg-emerald-600 hover:bg-emerald-700",
-    },
-    {
-      mode: "stock-out" as const,
-      label: "Stock Out",
-      description: "Remove items from inventory",
-      icon: ArrowDownRight,
-      color: "bg-red-600 hover:bg-red-700",
-    },
-    {
-      mode: "transfer" as const,
-      label: "Transfer",
-      description: "Move between locations",
-      icon: ArrowLeftRight,
-      color: "bg-blue-600 hover:bg-blue-700",
-    },
-  ];
-
-  return (
-    <div className="flex flex-col items-center justify-center h-full p-6 pb-24 space-y-4 max-w-sm mx-auto">
-      <h2 className="text-xl font-bold text-white">Select Operation</h2>
-      <p className="text-sm text-slate-400 text-center mb-2">Choose the type of inventory transaction</p>
-      {modes.map(({ mode, label, description, icon: Icon, color }) => (
-        <button
-          key={mode}
-          onClick={() => onSelect(mode)}
-          className={clsx(
-            "w-full flex items-center gap-4 p-4 rounded-xl text-white transition-all",
-            "active:scale-[0.98]",
-            color
-          )}
-        >
-          <div className="w-10 h-10 bg-white/20 rounded-lg flex items-center justify-center shrink-0">
-            <Icon size={20} />
-          </div>
-          <div className="text-left">
-            <p className="font-semibold">{label}</p>
-            <p className="text-sm text-white/70">{description}</p>
-          </div>
-        </button>
-      ))}
     </div>
   );
 }
@@ -306,7 +263,13 @@ function ManualEntry({ onSubmit }: { onSubmit: (v: string) => void }) {
   const [value, setValue] = useState("");
   return (
     <form
-      onSubmit={(e) => { e.preventDefault(); if (value.trim()) onSubmit(value.trim()); }}
+      onSubmit={(e) => {
+        e.preventDefault();
+        const clean = value.trim();
+        if (!clean) return;
+        onSubmit(clean);
+        setValue("");
+      }}
       className="flex gap-2"
     >
       <Input
@@ -321,9 +284,10 @@ function ManualEntry({ onSubmit }: { onSubmit: (v: string) => void }) {
 }
 
 function ConfirmForm({
-  state, onQuantityChange, onReferenceChange, onBorrowerChange, onNotesChange, onScanDestination, onCommit, loading,
+  state, onModeChange, onQuantityChange, onReferenceChange, onBorrowerChange, onNotesChange, onScanDestination, onCommit, loading,
 }: {
   state: WorkflowState;
+  onModeChange: (mode: WorkflowMode) => void;
   onQuantityChange: (q: string) => void;
   onReferenceChange: (r: string) => void;
   onBorrowerChange: (b: string) => void;
@@ -332,13 +296,38 @@ function ConfirmForm({
   onCommit: () => void;
   loading: boolean;
 }) {
+  const modeButtons: Array<{ id: WorkflowMode; label: string; icon: React.ElementType; className: string }> = [
+    { id: "stock-in", label: "Add", icon: ArrowUpRight, className: "text-emerald-400 border-emerald-500/50 bg-emerald-500/10" },
+    { id: "stock-out", label: "Remove", icon: ArrowDownRight, className: "text-red-400 border-red-500/50 bg-red-500/10" },
+    { id: "transfer", label: "Transfer", icon: ArrowLeftRight, className: "text-blue-400 border-blue-500/50 bg-blue-500/10" },
+  ];
+
   return (
     <div className="space-y-4">
       <h3 className="text-sm font-semibold text-slate-200">Confirm Transaction</h3>
 
-      {state.mode === "transfer" && !state.destLocation && onScanDestination && (
+      <div className="grid grid-cols-3 gap-2">
+        {modeButtons.map(({ id, label, icon: Icon, className }) => (
+          <button
+            key={id}
+            type="button"
+            onClick={() => onModeChange(id)}
+            className={clsx(
+              "flex items-center justify-center gap-1.5 rounded-lg border px-2 py-2 text-xs font-semibold transition-colors",
+              state.mode === id
+                ? className
+                : "border-surface-border bg-surface-card text-slate-400 hover:text-white",
+            )}
+          >
+            <Icon size={14} />
+            {label}
+          </button>
+        ))}
+      </div>
+
+      {state.mode === "transfer" && !state.destRack && onScanDestination && (
         <Button fullWidth onClick={onScanDestination} variant="secondary" leftIcon={<MapPin size={16} />}>
-          Scan Destination Location
+          Scan Destination Rack
         </Button>
       )}
 
@@ -380,8 +369,8 @@ function ConfirmForm({
         onClick={onCommit}
         loading={loading}
         disabled={
-          !state.item || !state.location ||
-          (state.mode === "transfer" && !state.destLocation) ||
+          !state.item || !state.rack ||
+          (state.mode === "transfer" && !state.destRack) ||
           !state.quantity || parseFloat(state.quantity) <= 0
         }
       >
@@ -394,8 +383,8 @@ function ConfirmForm({
 function StepIndicator({ mode, step }: { mode: WorkflowMode; step: ScanStep }) {
   const steps =
     mode === "transfer"
-      ? ["scan-location", "scan-item", "scan-dest-location", "confirm"]
-      : ["scan-location", "scan-item", "confirm"];
+      ? ["scan-item", "scan-rack", "scan-dest-rack", "confirm"]
+      : ["scan-item", "scan-rack", "confirm"];
 
   return (
     <div className="flex gap-1">

@@ -43,7 +43,7 @@ class ScanService:
 
         # Location barcode (QR contains "LOC:{code}")
         if clean.upper().startswith("LOC:"):
-            loc_code = clean[4:]
+            loc_code = clean[4:].strip()
             location = await self._loc_repo.get_by_code(loc_code)
             if location:
                 return ScanResult(

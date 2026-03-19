@@ -1,5 +1,6 @@
 from datetime import datetime
 from decimal import Decimal
+from typing import Literal
 
 from pydantic import Field, model_validator
 
@@ -61,6 +62,28 @@ class AdjustmentRequest(OrmBase):
 class ScanLookupRequest(OrmBase):
     """Decode a scanned barcode and return its context."""
     barcode_value: str
+
+
+class BarcodeScanApplyRequest(OrmBase):
+    """Apply stock operation directly from scanned barcodes."""
+    item_barcode: str = Field(min_length=1)
+    rack_barcode: str = Field(min_length=1)
+    event_type: Literal["stock_in", "stock_out", "transfer"] = "stock_out"
+    destination_rack_barcode: str | None = None
+    quantity: Decimal = Field(gt=0)
+    reason: str | None = None
+    reference: str | None = None
+    borrower: str | None = None
+    notes: str | None = None
+    override_negative: bool = False
+    scan_session_id: str | None = None
+    source: str = "scan"
+
+    @model_validator(mode="after")
+    def validate_transfer_destination(self) -> "BarcodeScanApplyRequest":
+        if self.event_type == "transfer" and not self.destination_rack_barcode:
+            raise ValueError("destination_rack_barcode is required for transfer")
+        return self
 
 
 class InventoryEventRead(OrmBase):

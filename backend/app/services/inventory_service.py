@@ -21,10 +21,12 @@ from app.repositories.location_repo import LocationRepository
 from app.repositories.transaction_repo import InventoryEventRepository, StockLevelRepository
 from app.schemas.transaction import (
     AdjustmentRequest,
+    BarcodeScanApplyRequest,
     StockInRequest,
     StockOutRequest,
     TransferRequest,
 )
+from app.services.scan_service import ScanService
 
 
 class InventoryService:
@@ -205,3 +207,72 @@ class InventoryService:
             await self._stock_repo.upsert(item.id, req.location_id, req.new_quantity)
         await self._session.flush()
         return event
+
+    async def apply_barcode_scan(
+        self,
+        req: BarcodeScanApplyRequest,
+        actor_id: int,
+        actor_roles: list[str],
+    ) -> InventoryEvent:
+        """Resolve barcodes and route to stock-in/out/transfer operations."""
+        scan_service = ScanService(self._session)
+
+        item_result = await scan_service.resolve(req.item_barcode)
+        if item_result.result_type != "item" or item_result.id is None:
+            raise HTTPException(status_code=404, detail=f"Item barcode not found: {req.item_barcode}")
+
+        rack_result = await scan_service.resolve(req.rack_barcode)
+        if rack_result.result_type != "location" or rack_result.id is None:
+            raise HTTPException(status_code=404, detail=f"Rack barcode not found: {req.rack_barcode}")
+
+        if req.event_type == "stock_in":
+            return await self.stock_in(
+                StockInRequest(
+                    item_id=item_result.id,
+                    location_id=rack_result.id,
+                    quantity=req.quantity,
+                    reference=req.reference,
+                    notes=req.notes,
+                    scan_session_id=req.scan_session_id,
+                    source=req.source,
+                ),
+                actor_id,
+            )
+
+        if req.event_type == "stock_out":
+            return await self.stock_out(
+                StockOutRequest(
+                    item_id=item_result.id,
+                    location_id=rack_result.id,
+                    quantity=req.quantity,
+                    reason=req.reason,
+                    reference=req.reference,
+                    borrower=req.borrower,
+                    notes=req.notes,
+                    override_negative=req.override_negative,
+                    scan_session_id=req.scan_session_id,
+                    source=req.source,
+                ),
+                actor_id,
+                actor_roles,
+            )
+
+        dest_result = await scan_service.resolve(req.destination_rack_barcode or "")
+        if dest_result.result_type != "location" or dest_result.id is None:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Destination rack barcode not found: {req.destination_rack_barcode}",
+            )
+
+        return await self.transfer(
+            TransferRequest(
+                item_id=item_result.id,
+                from_location_id=rack_result.id,
+                to_location_id=dest_result.id,
+                quantity=req.quantity,
+                reference=req.reference,
+                notes=req.notes,
+                scan_session_id=req.scan_session_id,
+            ),
+            actor_id,
+        )

@@ -1,6 +1,7 @@
 import { useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useSearchParams, Link } from "react-router-dom";
+import toast from "react-hot-toast";
 import { itemsApi } from "@/api/items";
 import { Card } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
@@ -8,6 +9,8 @@ import { Badge } from "@/components/ui/Badge";
 import { StatusBadge } from "@/components/ui/StatusBadge";
 import { Spinner } from "@/components/ui/Spinner";
 import { EmptyState } from "@/components/ui/EmptyState";
+import { Input } from "@/components/ui/Input";
+import { Modal } from "@/components/ui/Modal";
 import {
   Search, Plus, QrCode,
   ChevronLeft, ChevronRight, Package,
@@ -25,6 +28,16 @@ const STATUS_FILTERS = [
 export function Inventory() {
   const [searchParams, setSearchParams] = useSearchParams();
   const [page, setPage] = useState(1);
+  const [showAddModal, setShowAddModal] = useState(false);
+  const [newItem, setNewItem] = useState({
+    sku: "",
+    name: "",
+    category_id: "",
+    unit: "pcs",
+    unit_cost: "0",
+    reorder_level: "0",
+  });
+  const queryClient = useQueryClient();
   const PAGE_SIZE = 30;
 
   const q = searchParams.get("q") ?? "";
@@ -61,6 +74,36 @@ export function Inventory() {
     });
   };
 
+  const createMutation = useMutation({
+    mutationFn: async () => {
+      return itemsApi.create({
+        sku: newItem.sku,
+        name: newItem.name,
+        category_id: newItem.category_id ? Number(newItem.category_id) : undefined,
+        unit: newItem.unit,
+        unit_cost: Number(newItem.unit_cost),
+        reorder_level: Number(newItem.reorder_level),
+      });
+    },
+    onSuccess: () => {
+      toast.success("Item created with barcode");
+      setShowAddModal(false);
+      setNewItem({
+        sku: "",
+        name: "",
+        category_id: "",
+        unit: "pcs",
+        unit_cost: "0",
+        reorder_level: "0",
+      });
+      queryClient.invalidateQueries({ queryKey: ["items"] });
+    },
+    onError: (err: unknown) => {
+      const msg = (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail;
+      toast.error(typeof msg === "string" ? msg : "Failed to create item");
+    },
+  });
+
   return (
     <div className="p-4 lg:p-6 pb-24 lg:pb-6 space-y-4 animate-fade-in">
       {/* Search + filters */}
@@ -74,7 +117,7 @@ export function Inventory() {
             className="w-full pl-9 pr-4 py-2.5 text-sm bg-surface-card border border-surface-border rounded-lg text-slate-200 placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-brand-500"
           />
         </div>
-        <Button variant="primary" leftIcon={<Plus size={15} />} size="md">
+        <Button variant="primary" leftIcon={<Plus size={15} />} size="md" onClick={() => setShowAddModal(true)}>
           Add Item
         </Button>
       </div>
@@ -189,6 +232,76 @@ export function Inventory() {
           )}
         </>
       )}
+
+      <Modal
+        open={showAddModal}
+        onClose={() => setShowAddModal(false)}
+        title="Add Item"
+        footer={(
+          <div className="flex justify-end gap-2">
+            <Button variant="secondary" onClick={() => setShowAddModal(false)}>
+              Cancel
+            </Button>
+            <Button
+              variant="primary"
+              loading={createMutation.isPending}
+              disabled={!newItem.sku.trim() || !newItem.name.trim()}
+              onClick={() => createMutation.mutate()}
+            >
+              Create Item
+            </Button>
+          </div>
+        )}
+      >
+        <div className="p-5 space-y-3">
+          <Input
+            label="SKU"
+            placeholder="CHEM-001"
+            value={newItem.sku}
+            onChange={(e) => setNewItem((p) => ({ ...p, sku: e.target.value.toUpperCase() }))}
+          />
+          <Input
+            label="Name"
+            placeholder="Sodium Chloride"
+            value={newItem.name}
+            onChange={(e) => setNewItem((p) => ({ ...p, name: e.target.value }))}
+          />
+          <div className="grid grid-cols-2 gap-3">
+            <Input
+              label="Unit"
+              value={newItem.unit}
+              onChange={(e) => setNewItem((p) => ({ ...p, unit: e.target.value }))}
+            />
+            <Input
+              label="Category ID (optional)"
+              type="number"
+              value={newItem.category_id}
+              onChange={(e) => setNewItem((p) => ({ ...p, category_id: e.target.value }))}
+            />
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <Input
+              label="Unit Cost"
+              type="number"
+              min="0"
+              step="0.01"
+              value={newItem.unit_cost}
+              onChange={(e) => setNewItem((p) => ({ ...p, unit_cost: e.target.value }))}
+            />
+            <Input
+              label="Reorder Level"
+              type="number"
+              min="0"
+              step="0.01"
+              value={newItem.reorder_level}
+              onChange={(e) => setNewItem((p) => ({ ...p, reorder_level: e.target.value }))}
+            />
+          </div>
+          <p className="text-xs text-slate-500">
+            A primary barcode is automatically generated from SKU after creation.
+          </p>
+        </div>
+      </Modal>
     </div>
   );
 }
