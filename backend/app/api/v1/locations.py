@@ -18,6 +18,13 @@ from app.schemas.location import (
 router = APIRouter(prefix="/locations", tags=["locations"])
 
 
+def _model_dict(model, exclude: set[str] | None = None) -> dict:
+    skip = {"_sa_instance_state"}
+    if exclude:
+        skip |= exclude
+    return {k: v for k, v in model.__dict__.items() if k not in skip}
+
+
 # ─── Areas ──────────────────────────────────────────────────────────────────
 
 @router.get("/areas", response_model=list[AreaRead])
@@ -26,7 +33,7 @@ async def list_areas(session: DbSession, current_user: CurrentUser) -> list[Area
     areas = await repo.get_all_with_locations()
     return [
         AreaRead(
-            **{k: v for k, v in area.__dict__.items() if not k.startswith("_")},
+            **_model_dict(area, {"locations"}),
             location_count=len(area.locations),
         )
         for area in areas
@@ -46,7 +53,7 @@ async def create_area(body: AreaCreate, session: DbSession, current_user: Curren
     area = Area(**body.model_dump())
     session.add(area)
     await session.flush()
-    return AreaRead(**{k: v for k, v in area.__dict__.items() if not k.startswith("_")}, location_count=0)
+    return AreaRead(**_model_dict(area), location_count=0)
 
 
 @router.patch(
@@ -64,7 +71,7 @@ async def update_area(area_id: int, body: AreaUpdate, session: DbSession, curren
     await session.flush()
     locs = await repo.get_all_with_locations()
     count = next((len(a.locations) for a in locs if a.id == area_id), 0)
-    return AreaRead(**{k: v for k, v in area.__dict__.items() if not k.startswith("_")}, location_count=count)
+    return AreaRead(**_model_dict(area), location_count=count)
 
 
 # ─── Locations ───────────────────────────────────────────────────────────────
@@ -86,7 +93,7 @@ async def list_locations(
         loc_with_area = await repo.get_with_area(loc.id)
         if loc_with_area:
             result.append(LocationRead(
-                **{k: v for k, v in loc_with_area.__dict__.items() if not k.startswith("_")},
+                **_model_dict(loc_with_area, {"area", "barcodes"}),
                 area_code=loc_with_area.area.code if loc_with_area.area else "",
                 area_name=loc_with_area.area.name if loc_with_area.area else "",
                 barcodes=[],
@@ -121,7 +128,7 @@ async def create_location(body: LocationCreate, session: DbSession, current_user
 
     loc_with_area = await repo.get_with_area(loc.id)
     return LocationRead(
-        **{k: v for k, v in loc.__dict__.items() if not k.startswith("_")},
+        **_model_dict(loc, {"barcodes"}),
         area_code=loc_with_area.area.code if loc_with_area and loc_with_area.area else "",
         area_name=loc_with_area.area.name if loc_with_area and loc_with_area.area else "",
         barcodes=[],
@@ -145,7 +152,7 @@ async def update_location(
         setattr(loc, f, v)
     await session.flush()
     return LocationRead(
-        **{k: v for k, v in loc.__dict__.items() if not k.startswith("_")},
+        **_model_dict(loc, {"area", "barcodes"}),
         area_code=loc.area.code if loc.area else "",
         area_name=loc.area.name if loc.area else "",
         barcodes=[],
@@ -160,7 +167,7 @@ async def get_location(location_id: int, session: DbSession, current_user: Curre
     if not loc:
         raise HTTPException(status_code=404, detail="Location not found")
     return LocationRead(
-        **{k: v for k, v in loc.__dict__.items() if not k.startswith("_")},
+        **_model_dict(loc, {"area", "barcodes"}),
         area_code=loc.area.code if loc.area else "",
         area_name=loc.area.name if loc.area else "",
         barcodes=[bc.__dict__ for bc in loc.barcodes],
