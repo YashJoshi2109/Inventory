@@ -215,48 +215,74 @@ export function Dashboard() {
           <div className="px-5 py-4" style={{ borderBottom: "1px solid rgba(255,255,255,0.05)" }}>
             <h3 className="text-sm font-semibold text-slate-200">Category Distribution</h3>
           </div>
-          <div className="px-5 py-3">
-            <ResponsiveContainer width="100%" height={190}>
+          <div className="px-3 py-3">
+            <ResponsiveContainer width="100%" height={200}>
               <PieChart>
                 <Pie
                   data={stats.category_breakdown}
                   cx="50%"
                   cy="50%"
-                  innerRadius={52}
-                  outerRadius={78}
+                  innerRadius={54}
+                  outerRadius={80}
                   paddingAngle={3}
                   dataKey="count"
                   nameKey="name"
+                  label={({ name, percent }) =>
+                    percent > 0.07 ? `${(percent * 100).toFixed(0)}%` : ""
+                  }
+                  labelLine={false}
                 >
                   {stats.category_breakdown.map((entry, index) => (
                     <Cell
                       key={entry.id}
                       fill={entry.color ?? CHART_COLORS[index % CHART_COLORS.length]}
+                      stroke="transparent"
                     />
                   ))}
                 </Pie>
                 <Tooltip
-                  contentStyle={{
-                    background: "rgba(7,15,31,0.95)",
-                    border: "1px solid rgba(34,211,238,0.2)",
-                    borderRadius: "12px",
-                    fontSize: "12px",
-                    color: "#e2e8f0",
-                    backdropFilter: "blur(12px)",
+                  content={({ active, payload }) => {
+                    if (!active || !payload?.[0]) return null;
+                    const d = payload[0].payload as { name: string; count: number; id: number; color?: string };
+                    const total = stats.category_breakdown.reduce((s, c) => s + c.count, 0);
+                    const pct = total > 0 ? ((d.count / total) * 100).toFixed(1) : "0";
+                    const idx = stats.category_breakdown.findIndex((c) => c.id === d.id);
+                    const color = d.color ?? CHART_COLORS[idx % CHART_COLORS.length];
+                    return (
+                      <div
+                        className="px-3 py-2.5 rounded-xl"
+                        style={{
+                          background: "rgba(7,15,31,0.97)",
+                          border: `1px solid ${color}50`,
+                          backdropFilter: "blur(16px)",
+                          boxShadow: `0 0 20px ${color}20`,
+                        }}
+                      >
+                        <div className="flex items-center gap-2 mb-1">
+                          <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ background: color }} />
+                          <span className="text-sm font-semibold text-white">{d.name}</span>
+                        </div>
+                        <p className="text-xs text-slate-400">
+                          <span className="text-white font-bold">{d.count}</span> items &nbsp;·&nbsp;
+                          <span style={{ color }}>{pct}%</span> of total
+                        </p>
+                      </div>
+                    );
                   }}
-                  formatter={(v) => [v, "items"]}
                 />
               </PieChart>
             </ResponsiveContainer>
-            <div className="flex flex-wrap gap-x-3 gap-y-1.5 justify-center pb-2">
-              {stats.category_breakdown.slice(0, 6).map((cat, i) => (
-                <span key={cat.id} className="flex items-center gap-1.5 text-xs text-slate-500">
+            {/* Legend grid */}
+            <div className="grid grid-cols-2 gap-x-4 gap-y-1.5 px-2 pb-2">
+              {stats.category_breakdown.slice(0, 8).map((cat, i) => (
+                <div key={cat.id} className="flex items-center gap-2">
                   <span
-                    className="w-2 h-2 rounded-full"
+                    className="w-2 h-2 rounded-full shrink-0"
                     style={{ background: cat.color ?? CHART_COLORS[i % CHART_COLORS.length] }}
                   />
-                  {cat.name}
-                </span>
+                  <span className="text-xs text-slate-500 truncate">{cat.name}</span>
+                  <span className="text-xs text-slate-600 ml-auto shrink-0">{cat.count}</span>
+                </div>
               ))}
             </div>
           </div>
@@ -295,13 +321,16 @@ export function Dashboard() {
                 />
                 <Tooltip
                   contentStyle={{
-                    background: "rgba(7,15,31,0.95)",
-                    border: "1px solid rgba(34,211,238,0.2)",
+                    background: "rgba(7,15,31,0.97)",
+                    border: "1px solid rgba(34,211,238,0.25)",
                     borderRadius: "12px",
                     fontSize: "12px",
                     color: "#e2e8f0",
-                    backdropFilter: "blur(12px)",
+                    backdropFilter: "blur(16px)",
+                    boxShadow: "0 0 20px rgba(34,211,238,0.1)",
                   }}
+                  formatter={(value: number) => [value, "Consumed"]}
+                  labelStyle={{ color: "#94a3b8", marginBottom: "4px" }}
                 />
                 <Bar
                   dataKey="total_consumed"

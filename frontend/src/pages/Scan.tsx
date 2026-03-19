@@ -7,7 +7,7 @@ import toast from "react-hot-toast";
 import {
   ArrowUpRight, ArrowDownRight, ArrowLeftRight, Settings2,
   CheckCircle2, RotateCcw, Package, MapPin, QrCode,
-  ChevronRight, Loader2, Plus, PenLine, Zap,
+  ChevronRight, Loader2, Plus, PenLine, Zap, List,
 } from "lucide-react";
 import { BarcodeScanner } from "@/components/scanner/BarcodeScanner";
 import { Button } from "@/components/ui/Button";
@@ -336,6 +336,15 @@ function AddFlow({ onReset }: { onReset: () => void }) {
     reorder_level: "0",
     supplier: "",
   });
+
+  // Auto-generate next SKU when entering new-item mode
+  useEffect(() => {
+    if (sub !== "new-item" || newItem.sku) return;
+    itemsApi.list({ page: 1, page_size: 1 }).then((res) => {
+      const next = (res.total + 1).toString().padStart(3, "0");
+      setNewItem((p) => ({ ...p, sku: `SKU-${next}` }));
+    }).catch(() => {/* non-fatal */});
+  }, [sub]); // eslint-disable-line react-hooks/exhaustive-deps
   const [createdItem, setCreatedItem] = useState<{
     id: number;
     sku: string;
@@ -699,14 +708,97 @@ function AddFlow({ onReset }: { onReset: () => void }) {
   );
 }
 
+// ─── Stock Level Picker ───────────────────────────────────────────────────────
+
+import type { StockLevel } from "@/types";
+
+function StockLevelPicker({
+  levels,
+  onSelect,
+  onScanInstead,
+  label = "Select the rack / location:",
+}: {
+  levels: StockLevel[];
+  onSelect: (level: StockLevel) => void;
+  onScanInstead: () => void;
+  label?: string;
+}) {
+  const withStock = levels.filter((l) => l.quantity > 0);
+  return (
+    <div className="space-y-3">
+      <p className="text-sm text-slate-400 text-center">{label}</p>
+      {withStock.length === 0 ? (
+        <div
+          className="p-4 rounded-xl text-center"
+          style={{ background: "rgba(239,68,68,0.06)", border: "1px solid rgba(239,68,68,0.2)" }}
+        >
+          <Package size={24} className="text-red-400 mx-auto mb-2" />
+          <p className="text-sm text-red-400 font-medium">No stock found at any location</p>
+        </div>
+      ) : (
+        <div className="space-y-2">
+          {withStock.map((level) => (
+            <button
+              key={level.location_id}
+              onClick={() => onSelect(level)}
+              className="w-full flex items-center gap-3 p-3.5 rounded-xl text-left transition-all hover:scale-[1.01]"
+              style={{ background: "rgba(34,211,238,0.05)", border: "1px solid rgba(34,211,238,0.2)" }}
+            >
+              <div
+                className="w-9 h-9 rounded-xl flex items-center justify-center shrink-0"
+                style={{ background: "rgba(34,211,238,0.12)" }}
+              >
+                <MapPin size={16} className="text-brand-400" />
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-semibold text-white truncate">{level.location_name}</p>
+                <p className="font-mono text-xs text-slate-500">{level.location_code}</p>
+              </div>
+              <div className="text-right shrink-0">
+                <p className="text-lg font-bold text-brand-400">{level.quantity}</p>
+                <p className="text-[10px] text-slate-500">in stock</p>
+              </div>
+            </button>
+          ))}
+        </div>
+      )}
+      <div className="flex items-center gap-3">
+        <div className="flex-1 h-px" style={{ background: "rgba(255,255,255,0.06)" }} />
+        <span className="text-xs text-slate-600">or</span>
+        <div className="flex-1 h-px" style={{ background: "rgba(255,255,255,0.06)" }} />
+      </div>
+      <button
+        onClick={onScanInstead}
+        className="w-full flex items-center justify-center gap-2 py-3 rounded-xl text-sm font-medium transition-all"
+        style={{ background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.08)" }}
+      >
+        <QrCode size={15} className="text-slate-400" />
+        <span className="text-slate-400">Scan rack QR instead</span>
+      </button>
+    </div>
+  );
+}
+
+// Helper: convert StockLevel → ScanResult
+function levelToScanResult(level: StockLevel): import("@/types").ScanResult {
+  return {
+    result_type: "location",
+    id: level.location_id,
+    code: level.location_code,
+    name: level.location_name,
+    details: { quantity: level.quantity },
+  };
+}
+
 // ─── REMOVE WORKFLOW ──────────────────────────────────────────────────────────
 
-type RemoveStep = "scan-item" | "scan-rack" | "confirm";
+type RemoveStep = "scan-item" | "select-location" | "scan-rack" | "confirm";
 
 function RemoveFlow({ onReset }: { onReset: () => void }) {
   const [step, setStep] = useState<RemoveStep>("scan-item");
   const [item, setItem] = useState<ScanResult | null>(null);
   const [rack, setRack] = useState<ScanResult | null>(null);
+  const [stockLevels, setStockLevels] = useState<StockLevel[]>([]);
   const [qty, setQty] = useState("1");
   const [reason, setReason] = useState("");
   const [borrower, setBorrower] = useState("");
@@ -714,57 +806,62 @@ function RemoveFlow({ onReset }: { onReset: () => void }) {
   const [loading, setLoading] = useState(false);
   const processingRef = useRef(false);
 
-  const doScan = useCallback(async (value: string, target: "item" | "rack") => {
+  const doItemScan = useCallback(async (value: string) => {
     if (processingRef.current) return;
     processingRef.current = true;
     setLoading(true);
     try {
       const result = await scanApi.lookup(value);
-      if (result.result_type === "unknown") {
-        toast.error(`Unknown barcode: ${value}`);
-        return;
-      }
-      if (target === "item" && result.result_type === "item") {
-        setItem(result);
-        setStep("scan-rack");
-        toast.success(`Item loaded: ${result.name}`);
-      } else if (target === "rack" && result.result_type === "location") {
-        setRack(result);
-        setStep("confirm");
-        toast.success(`Rack scanned: ${result.name}`);
-      } else {
-        toast.error(`Expected ${target === "item" ? "item QR" : "rack QR"} — try again`);
-      }
-    } catch {
-      toast.error("Lookup failed. Try again.");
-    } finally {
-      setLoading(false);
-      setTimeout(() => {
-        processingRef.current = false;
-      }, 500);
-    }
+      if (result.result_type === "unknown") { toast.error(`Unknown barcode: ${value}`); return; }
+      if (result.result_type !== "item") { toast.error("Scan an item QR — not a rack barcode"); return; }
+      setItem(result);
+      // Fetch stock levels for this item so user can pick a location
+      const levels = await itemsApi.getStockLevels(result.id!);
+      setStockLevels(levels);
+      // Pre-fill qty from max available location
+      const maxLevel = levels.reduce((m, l) => (l.quantity > (m?.quantity ?? -1) ? l : m), levels[0] ?? null);
+      if (maxLevel && maxLevel.quantity > 0) setQty(String(Math.min(1, maxLevel.quantity)));
+      setStep("select-location");
+      toast.success(`Item loaded: ${result.name}`);
+    } catch { toast.error("Lookup failed. Try again."); }
+    finally { setLoading(false); setTimeout(() => { processingRef.current = false; }, 500); }
   }, []);
+
+  const doRackScan = useCallback(async (value: string) => {
+    if (processingRef.current) return;
+    processingRef.current = true;
+    setLoading(true);
+    try {
+      const result = await scanApi.lookup(value);
+      if (result.result_type !== "location") { toast.error("Scan a rack QR code"); return; }
+      setRack(result);
+      setStep("confirm");
+      toast.success(`Rack: ${result.name}`);
+    } catch { toast.error("Lookup failed. Try again."); }
+    finally { setLoading(false); setTimeout(() => { processingRef.current = false; }, 500); }
+  }, []);
+
+  const selectLocation = (level: StockLevel) => {
+    setRack(levelToScanResult(level));
+    setQty(String(Math.min(1, level.quantity)));
+    setStep("confirm");
+  };
 
   const commit = async () => {
     if (!item || !rack) return;
     setLoading(true);
     try {
       await scanApi.stockOut({
-        item_id: item.id!,
-        location_id: rack.id!,
+        item_id: item.id!, location_id: rack.id!,
         quantity: parseFloat(qty),
-        reason: reason || undefined,
-        borrower: borrower || undefined,
-        notes: notes || undefined,
+        reason: reason || undefined, borrower: borrower || undefined, notes: notes || undefined,
       });
       toast.success(`✓ Removed ${qty} × ${item.name} from ${rack.name}`);
       onReset();
     } catch (e: unknown) {
       const msg = (e as { response?: { data?: { detail?: string } } })?.response?.data?.detail;
       toast.error(typeof msg === "string" ? msg : "Failed to remove stock");
-    } finally {
-      setLoading(false);
-    }
+    } finally { setLoading(false); }
   };
 
   return (
@@ -772,23 +869,28 @@ function RemoveFlow({ onReset }: { onReset: () => void }) {
       <FlowHeader icon={ArrowDownRight} label="Remove Stock" accent="#f87171" />
 
       {step === "scan-item" && (
-        <ScanPrompt
-          label="Scan item QR code to remove"
-          hint="Point at item QR code"
-          onScan={(v) => doScan(v, "item")}
-          loading={loading}
-        />
+        <ScanPrompt label="Scan item QR code to remove" hint="Point at item QR code" onScan={doItemScan} loading={loading} />
+      )}
+
+      {step === "select-location" && item && (
+        <>
+          <ScannedCard result={item} label="Item" accent="#34d399" />
+          <StockLevelPicker
+            levels={stockLevels}
+            onSelect={selectLocation}
+            onScanInstead={() => setStep("scan-rack")}
+            label="Select the rack to remove from:"
+          />
+        </>
       )}
 
       {step === "scan-rack" && item && (
         <>
           <ScannedCard result={item} label="Item" accent="#34d399" />
-          <ScanPrompt
-            label="Scan the rack you are taking it from"
-            hint="Point at rack / location QR"
-            onScan={(v) => doScan(v, "rack")}
-            loading={loading}
-          />
+          <ScanPrompt label="Scan the source rack QR" hint="Point at rack / location QR" onScan={doRackScan} loading={loading} />
+          <button onClick={() => setStep("select-location")} className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl text-sm text-slate-500 hover:text-slate-300 transition-colors" style={{ border: "1px solid rgba(255,255,255,0.06)" }}>
+            <List size={14} /> View stock locations instead
+          </button>
         </>
       )}
 
@@ -797,54 +899,31 @@ function RemoveFlow({ onReset }: { onReset: () => void }) {
           <ScannedCard result={item} label="Item" accent="#34d399" />
           <ScannedCard result={rack} label="Source Rack" accent="#f87171" />
 
-          {/* Stock info banner */}
-          <div
-            className="flex items-center justify-between p-3.5 rounded-xl"
-            style={{ background: "rgba(239,68,68,0.08)", border: "1px solid rgba(239,68,68,0.2)" }}
-          >
+          <div className="flex items-center justify-between p-3.5 rounded-xl" style={{ background: "rgba(239,68,68,0.08)", border: "1px solid rgba(239,68,68,0.2)" }}>
             <div>
-              <p className="text-xs text-red-400 font-medium">Available Stock</p>
+              <p className="text-xs text-red-400 font-medium">Available at this Rack</p>
               <p className="text-xl font-bold text-white">
-                {item.details?.total_quantity ?? "?"}{" "}
-                <span className="text-sm font-normal text-slate-400">
-                  {item.details?.unit ?? ""}
-                </span>
+                {stockLevels.find(l => l.location_id === rack.id)?.quantity ?? item.details?.total_quantity ?? "?"}{" "}
+                <span className="text-sm font-normal text-slate-400">{item.details?.unit ?? ""}</span>
               </p>
             </div>
             <Package size={24} className="text-red-400/50" />
           </div>
 
           <div className="space-y-3">
-            <Input
-              label="Quantity to Remove"
-              type="number"
-              min="0.001"
-              step="any"
-              value={qty}
-              onChange={(e) => setQty(e.target.value)}
-            />
-            <Input
-              label="Reason / Purpose (optional)"
-              placeholder="Experiment A1"
-              value={reason}
-              onChange={(e) => setReason(e.target.value)}
-            />
-            <Input
-              label="Borrower (optional)"
-              placeholder="Dr. Smith"
-              value={borrower}
-              onChange={(e) => setBorrower(e.target.value)}
-            />
-            <Input
-              label="Notes (optional)"
-              value={notes}
-              onChange={(e) => setNotes(e.target.value)}
-            />
+            <Input label="Quantity to Remove" type="number" min="0.001" step="any" value={qty} onChange={(e) => setQty(e.target.value)} />
+            <Input label="Reason / Purpose (optional)" placeholder="Experiment A1" value={reason} onChange={(e) => setReason(e.target.value)} />
+            <Input label="Borrower (optional)" placeholder="Dr. Smith" value={borrower} onChange={(e) => setBorrower(e.target.value)} />
+            <Input label="Notes (optional)" value={notes} onChange={(e) => setNotes(e.target.value)} />
           </div>
 
           <Button fullWidth size="lg" variant="danger" loading={loading} onClick={commit}>
             Confirm Remove
           </Button>
+
+          <button onClick={() => setStep("select-location")} className="w-full text-center text-xs text-slate-600 hover:text-slate-400 transition-colors py-1">
+            ← Change rack
+          </button>
         </div>
       )}
     </div>
@@ -853,11 +932,12 @@ function RemoveFlow({ onReset }: { onReset: () => void }) {
 
 // ─── TRANSFER WORKFLOW ────────────────────────────────────────────────────────
 
-type TransferStep = "scan-item" | "item-loaded" | "scan-source-rack" | "scan-dest-rack" | "confirm";
+type TransferStep = "scan-item" | "item-loaded" | "select-source" | "scan-source-rack" | "scan-dest-rack" | "confirm";
 
 function TransferFlow({ onReset }: { onReset: () => void }) {
   const [step, setStep] = useState<TransferStep>("scan-item");
   const [item, setItem] = useState<ScanResult | null>(null);
+  const [stockLevels, setStockLevels] = useState<StockLevel[]>([]);
   const [sourceRack, setSourceRack] = useState<ScanResult | null>(null);
   const [destRack, setDestRack] = useState<ScanResult | null>(null);
   const [qty, setQty] = useState("1");
@@ -865,43 +945,62 @@ function TransferFlow({ onReset }: { onReset: () => void }) {
   const [loading, setLoading] = useState(false);
   const processingRef = useRef(false);
 
-  const doScan = useCallback(
-    async (value: string, target: "item" | "source" | "dest") => {
-      if (processingRef.current) return;
-      processingRef.current = true;
-      setLoading(true);
-      try {
-        const result = await scanApi.lookup(value);
-        if (result.result_type === "unknown") {
-          toast.error(`Unknown barcode: ${value}`);
-          return;
-        }
-        if (target === "item" && result.result_type === "item") {
-          setItem(result);
-          setStep("item-loaded");
-          toast.success(`Item loaded: ${result.name}`);
-        } else if (target === "source" && result.result_type === "location") {
-          setSourceRack(result);
-          setStep("scan-dest-rack");
-          toast.success(`Source rack: ${result.name}`);
-        } else if (target === "dest" && result.result_type === "location") {
-          setDestRack(result);
-          setStep("confirm");
-          toast.success(`Destination rack: ${result.name}`);
-        } else {
-          toast.error(`Expected ${target === "item" ? "item QR" : "rack QR"} — try again`);
-        }
-      } catch {
-        toast.error("Lookup failed. Try again.");
-      } finally {
-        setLoading(false);
-        setTimeout(() => {
-          processingRef.current = false;
-        }, 500);
+  const doItemScan = useCallback(async (value: string) => {
+    if (processingRef.current) return;
+    processingRef.current = true;
+    setLoading(true);
+    try {
+      const result = await scanApi.lookup(value);
+      if (result.result_type !== "item") { toast.error("Scan an item QR — not a rack barcode"); return; }
+      setItem(result);
+      const levels = await itemsApi.getStockLevels(result.id!);
+      setStockLevels(levels);
+      setStep("item-loaded");
+      toast.success(`Item loaded: ${result.name}`);
+    } catch { toast.error("Lookup failed. Try again."); }
+    finally { setLoading(false); setTimeout(() => { processingRef.current = false; }, 500); }
+  }, []);
+
+  const doSourceScan = useCallback(async (value: string) => {
+    if (processingRef.current) return;
+    processingRef.current = true;
+    setLoading(true);
+    try {
+      const result = await scanApi.lookup(value);
+      if (result.result_type !== "location") { toast.error("Scan a rack QR code"); return; }
+      // Warn if 0 stock at this location
+      const level = stockLevels.find(l => l.location_id === result.id);
+      if (level && level.quantity <= 0) {
+        toast.error(`No stock of this item at ${result.name} — pick a different rack`);
+        return;
       }
-    },
-    [],
-  );
+      setSourceRack(result);
+      if (level) setQty(String(Math.min(1, level.quantity)));
+      setStep("scan-dest-rack");
+      toast.success(`Source rack: ${result.name}`);
+    } catch { toast.error("Lookup failed. Try again."); }
+    finally { setLoading(false); setTimeout(() => { processingRef.current = false; }, 500); }
+  }, [stockLevels]);
+
+  const doDestScan = useCallback(async (value: string) => {
+    if (processingRef.current) return;
+    processingRef.current = true;
+    setLoading(true);
+    try {
+      const result = await scanApi.lookup(value);
+      if (result.result_type !== "location") { toast.error("Scan a rack QR code"); return; }
+      setDestRack(result);
+      setStep("confirm");
+      toast.success(`Destination: ${result.name}`);
+    } catch { toast.error("Lookup failed. Try again."); }
+    finally { setLoading(false); setTimeout(() => { processingRef.current = false; }, 500); }
+  }, []);
+
+  const selectSource = (level: StockLevel) => {
+    setSourceRack(levelToScanResult(level));
+    setQty(String(Math.min(1, level.quantity)));
+    setStep("scan-dest-rack");
+  };
 
   const commit = async () => {
     if (!item || !sourceRack || !destRack) return;
@@ -918,77 +1017,77 @@ function TransferFlow({ onReset }: { onReset: () => void }) {
       onReset();
     } catch (e: unknown) {
       const msg = (e as { response?: { data?: { detail?: string } } })?.response?.data?.detail;
-      toast.error(typeof msg === "string" ? msg : "Transfer failed");
-    } finally {
-      setLoading(false);
-    }
+      toast.error(typeof msg === "string" ? msg : "Transfer failed. Check source has enough stock.");
+    } finally { setLoading(false); }
   };
+
+  const sourceStock = sourceRack ? stockLevels.find(l => l.location_id === sourceRack.id)?.quantity : undefined;
 
   return (
     <div className="p-5 space-y-4">
       <FlowHeader icon={ArrowLeftRight} label="Transfer Between Racks" accent="#22d3ee" />
 
       {step === "scan-item" && (
-        <ScanPrompt
-          label="Scan the item QR to transfer"
-          hint="Point at item QR code"
-          onScan={(v) => doScan(v, "item")}
-          loading={loading}
-        />
+        <ScanPrompt label="Scan the item QR to transfer" hint="Point at item QR code" onScan={doItemScan} loading={loading} />
       )}
 
-      {/* Show full item info after scan, then prompt for source rack */}
       {step === "item-loaded" && item && (
         <div className="space-y-4">
           <ScannedCard result={item} label="Item Loaded" accent="#22d3ee" />
-
-          {/* Detailed item info */}
-          <div
-            className="p-4 rounded-xl space-y-2"
-            style={{
-              background: "rgba(34,211,238,0.05)",
-              border: "1px solid rgba(34,211,238,0.15)",
-            }}
-          >
-            <p className="text-xs text-brand-400 font-semibold uppercase tracking-wide">
-              Item Details
-            </p>
+          <div className="p-4 rounded-xl space-y-2" style={{ background: "rgba(34,211,238,0.05)", border: "1px solid rgba(34,211,238,0.15)" }}>
+            <p className="text-xs text-brand-400 font-semibold uppercase tracking-wide">Item Details</p>
             <p className="text-lg font-bold text-white">{item.name}</p>
             <p className="font-mono text-xs text-slate-400">{item.code}</p>
             {typeof item.details?.total_quantity === "number" && (
               <div className="flex items-baseline gap-2 pt-1">
-                <span className="text-2xl font-bold text-brand-400">
-                  {item.details.total_quantity}
-                </span>
-                <span className="text-sm text-slate-400">{item.details?.unit ?? "units"} in stock</span>
+                <span className="text-2xl font-bold text-brand-400">{item.details.total_quantity}</span>
+                <span className="text-sm text-slate-400">{item.details?.unit ?? "units"} total in stock</span>
               </div>
             )}
           </div>
-
+          {/* Show stock distribution */}
+          {stockLevels.filter(l => l.quantity > 0).length > 0 && (
+            <div className="space-y-1.5">
+              <p className="text-xs text-slate-500 font-medium">Stock by location:</p>
+              {stockLevels.filter(l => l.quantity > 0).map(l => (
+                <div key={l.location_id} className="flex items-center justify-between text-xs px-3 py-2 rounded-lg" style={{ background: "rgba(255,255,255,0.03)" }}>
+                  <span className="text-slate-400">{l.location_name}</span>
+                  <span className="font-semibold text-brand-400">{l.quantity}</span>
+                </div>
+              ))}
+            </div>
+          )}
           <button
-            onClick={() => setStep("scan-source-rack")}
+            onClick={() => setStep("select-source")}
             className="w-full flex items-center justify-center gap-2 py-3.5 rounded-xl text-sm font-semibold text-white transition-all"
-            style={{
-              background: "linear-gradient(135deg, rgba(34,211,238,0.2), rgba(8,145,178,0.2))",
-              border: "1px solid rgba(34,211,238,0.35)",
-            }}
+            style={{ background: "linear-gradient(135deg, rgba(34,211,238,0.2), rgba(8,145,178,0.2))", border: "1px solid rgba(34,211,238,0.35)" }}
           >
             <MapPin size={16} />
-            Proceed — Scan Source Rack
+            Proceed — Select Source Rack
             <ChevronRight size={16} />
           </button>
         </div>
       )}
 
+      {step === "select-source" && item && (
+        <>
+          <ScannedCard result={item} label="Item" accent="#22d3ee" />
+          <StockLevelPicker
+            levels={stockLevels}
+            onSelect={selectSource}
+            onScanInstead={() => setStep("scan-source-rack")}
+            label="Select SOURCE rack (where item is now):"
+          />
+        </>
+      )}
+
       {step === "scan-source-rack" && item && (
         <>
           <ScannedCard result={item} label="Item" accent="#22d3ee" />
-          <ScanPrompt
-            label="Scan the SOURCE rack (where item currently is)"
-            hint="Point at rack / location QR"
-            onScan={(v) => doScan(v, "source")}
-            loading={loading}
-          />
+          <ScanPrompt label="Scan the SOURCE rack QR" hint="Point at rack / location QR" onScan={doSourceScan} loading={loading} />
+          <button onClick={() => setStep("select-source")} className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl text-sm text-slate-500 hover:text-slate-300 transition-colors" style={{ border: "1px solid rgba(255,255,255,0.06)" }}>
+            <List size={14} /> View stock locations instead
+          </button>
         </>
       )}
 
@@ -996,68 +1095,40 @@ function TransferFlow({ onReset }: { onReset: () => void }) {
         <>
           <ScannedCard result={item} label="Item" accent="#22d3ee" />
           <ScannedCard result={sourceRack} label="Source Rack" accent="#f87171" />
-          <ScanPrompt
-            label="Scan the DESTINATION rack (where to place it)"
-            hint="Point at rack / location QR"
-            onScan={(v) => doScan(v, "dest")}
-            loading={loading}
-          />
+          <ScanPrompt label="Scan the DESTINATION rack QR" hint="Point at rack / location QR" onScan={doDestScan} loading={loading} />
         </>
       )}
 
       {step === "confirm" && item && sourceRack && destRack && (
         <div className="space-y-4">
           <ScannedCard result={item} label="Item" accent="#22d3ee" />
-
-          {/* Transfer route visualiser */}
           <div className="flex items-center gap-2">
-            <div className="flex-1">
-              <ScannedCard result={sourceRack} label="From" accent="#f87171" />
-            </div>
-            <div
-              className="w-8 h-8 rounded-full flex items-center justify-center shrink-0"
-              style={{ background: "rgba(34,211,238,0.1)", border: "1px solid rgba(34,211,238,0.3)" }}
-            >
+            <div className="flex-1"><ScannedCard result={sourceRack} label="From" accent="#f87171" /></div>
+            <div className="w-8 h-8 rounded-full flex items-center justify-center shrink-0" style={{ background: "rgba(34,211,238,0.1)", border: "1px solid rgba(34,211,238,0.3)" }}>
               <ArrowLeftRight size={14} className="text-brand-400" />
             </div>
-            <div className="flex-1">
-              <ScannedCard result={destRack} label="To" accent="#22d3ee" />
-            </div>
+            <div className="flex-1"><ScannedCard result={destRack} label="To" accent="#22d3ee" /></div>
           </div>
 
-          <div
-            className="flex items-baseline justify-between p-3.5 rounded-xl"
-            style={{
-              background: "rgba(34,211,238,0.06)",
-              border: "1px solid rgba(34,211,238,0.2)",
-            }}
-          >
-            <span className="text-sm text-slate-400">Available</span>
+          <div className="flex items-baseline justify-between p-3.5 rounded-xl" style={{ background: "rgba(34,211,238,0.06)", border: "1px solid rgba(34,211,238,0.2)" }}>
+            <span className="text-sm text-slate-400">Available at source</span>
             <span className="text-lg font-bold text-white">
-              {item.details?.total_quantity ?? "?"}{" "}
+              {sourceStock ?? item.details?.total_quantity ?? "?"}{" "}
               <span className="text-sm font-normal text-slate-400">{item.details?.unit ?? ""}</span>
             </span>
           </div>
 
           <div className="space-y-3">
-            <Input
-              label="Quantity to Transfer"
-              type="number"
-              min="0.001"
-              step="any"
-              value={qty}
-              onChange={(e) => setQty(e.target.value)}
-            />
-            <Input
-              label="Notes (optional)"
-              value={notes}
-              onChange={(e) => setNotes(e.target.value)}
-            />
+            <Input label="Quantity to Transfer" type="number" min="0.001" step="any" value={qty} onChange={(e) => setQty(e.target.value)} />
+            <Input label="Notes (optional)" value={notes} onChange={(e) => setNotes(e.target.value)} />
           </div>
 
           <Button fullWidth size="lg" variant="primary" loading={loading} onClick={commit}>
             Confirm Transfer
           </Button>
+          <button onClick={() => setStep("select-source")} className="w-full text-center text-xs text-slate-600 hover:text-slate-400 transition-colors py-1">
+            ← Change source rack
+          </button>
         </div>
       )}
     </div>

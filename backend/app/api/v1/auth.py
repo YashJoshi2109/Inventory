@@ -16,6 +16,17 @@ from app.models.user import User
 from app.repositories.user_repo import UserRepository
 from app.schemas.user import LoginRequest, RefreshRequest, TokenResponse, UserRead
 from app.core.config import settings
+from app.models.user import User, UserRole
+from app.core.security import hash_password
+from app.repositories.user_repo import RoleRepository
+from pydantic import EmailStr, Field
+
+
+class RegisterRequest(LoginRequest):
+    """Public self-registration — only viewer/manager roles are allowed."""
+    email: EmailStr
+    full_name: str = Field(min_length=1, max_length=255)
+    role: str = Field(default="viewer", pattern=r"^(viewer|manager)$")
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 bearer = HTTPBearer(auto_error=False)
@@ -58,6 +69,42 @@ def require_roles(*roles: str):
             )
         return user
     return check
+
+
+@router.post("/register", response_model=TokenResponse, status_code=201)
+async def register(body: RegisterRequest, session: DbSession) -> TokenResponse:
+    """Public self-registration — assigns viewer or manager role only."""
+    user_repo = UserRepository(session)
+    role_repo = RoleRepository(session)
+
+    if await user_repo.get_by_username(body.username):
+        raise HTTPException(status_code=409, detail=f"Username '{body.username}' is already taken")
+    if await user_repo.get_by_email(body.email):
+        raise HTTPException(status_code=409, detail="Email address already registered")
+
+    user = User(
+        email=body.email.lower(),
+        username=body.username,
+        full_name=body.full_name,
+        hashed_password=hash_password(body.password),
+    )
+    session.add(user)
+    await session.flush()
+
+    role = await role_repo.get_by_name(body.role)
+    if role:
+        session.add(UserRole(user_id=user.id, role_id=role.id))
+    await session.flush()
+    await session.refresh(user)
+
+    role_names = [body.role]
+    access = create_access_token(user.id, extra={"roles": role_names, "username": user.username})
+    refresh = create_refresh_token(user.id)
+    return TokenResponse(
+        access_token=access,
+        refresh_token=refresh,
+        expires_in=settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60,
+    )
 
 
 @router.post("/login", response_model=TokenResponse)

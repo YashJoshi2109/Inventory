@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { useForm } from "react-hook-form";
 import { Beaker, Eye, EyeOff } from "lucide-react";
 import toast from "react-hot-toast";
@@ -86,8 +86,17 @@ export function Login() {
           </form>
         </div>
 
-        <p className="text-center text-xs text-slate-600 mt-6">
-          SEAR Lab Inventory Control System v1.0 — Secure Access
+        <p className="text-center text-sm text-slate-600 mt-5">
+          Don&apos;t have an account?{" "}
+          <Link
+            to="/register"
+            className="text-brand-400 hover:text-brand-300 font-medium transition-colors"
+          >
+            Create one
+          </Link>
+        </p>
+        <p className="text-center text-xs text-slate-700 mt-3">
+          SEAR Lab Inventory Control System v1.0
         </p>
       </div>
     </div>
