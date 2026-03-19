@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String, Text, func
+from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, LargeBinary, String, Text, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.database import Base
@@ -68,6 +68,7 @@ class LocationBarcode(Base):
     location_id: Mapped[int] = mapped_column(ForeignKey("locations.id", ondelete="CASCADE"))
     barcode_value: Mapped[str] = mapped_column(String(255), unique=True, nullable=False, index=True)
     barcode_type: Mapped[str] = mapped_column(String(20), default="qr")
+    qr_image: Mapped[bytes | None] = mapped_column(LargeBinary, nullable=True)
     label_printed: Mapped[bool] = mapped_column(Boolean, default=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 

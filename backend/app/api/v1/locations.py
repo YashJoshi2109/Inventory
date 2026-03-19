@@ -113,15 +113,18 @@ async def create_location(body: LocationCreate, session: DbSession, current_user
     if await repo.get_by_code(body.code):
         raise HTTPException(status_code=409, detail=f"Location code '{body.code}' already exists")
 
+    from app.services.barcode_service import render_qr_png
     loc = Location(**body.model_dump())
     session.add(loc)
     await session.flush()
 
-    # Auto-generate QR barcode
+    barcode_val = f"LOC:{loc.code.upper()}"
+    qr_bytes = render_qr_png(barcode_val)
     bc = LocationBarcode(
         location_id=loc.id,
-        barcode_value=f"LOC:{loc.code.upper()}",
+        barcode_value=barcode_val,
         barcode_type="qr",
+        qr_image=qr_bytes,
     )
     session.add(bc)
     await session.flush()

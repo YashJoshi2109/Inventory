@@ -106,6 +106,21 @@ export const scanApi = {
     const { data } = await apiClient.post<InventoryEvent>("/scans/apply", payload);
     return data;
   },
+
+  modifyItem: async (payload: {
+    item_id: number;
+    name?: string;
+    description?: string;
+    category_id?: number;
+    unit?: string;
+    unit_cost?: number;
+    reorder_level?: number;
+    supplier?: string;
+    notes?: string;
+  }): Promise<{ id: number; sku: string; name: string }> => {
+    const { data } = await apiClient.post("/scans/modify-item", payload);
+    return data;
+  },
 };
 
 export const dashboardApi = {

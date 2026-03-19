@@ -111,7 +111,7 @@ def generate_label_sheet_pdf(labels: list[dict]) -> bytes:
         row_labels = labels[i : i + cols]
         row = []
         for lbl in row_labels:
-            qr_png = render_qr_png(lbl["barcode_value"])
+            qr_png = lbl.get("qr_blob") or render_qr_png(lbl["barcode_value"])
             qr_img = RLImage(io.BytesIO(qr_png), width=18 * mm, height=18 * mm)
             title_p = Paragraph(f"<b>{lbl['title'][:30]}</b>", normal)
             sub_p = Paragraph(lbl.get("subtitle", "")[:40], normal)

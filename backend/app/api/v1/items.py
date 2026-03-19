@@ -122,15 +122,17 @@ async def create_item(body: ItemCreate, session: DbSession, current_user: Curren
     if await repo.get_by_sku(body.sku):
         raise HTTPException(status_code=409, detail=f"SKU '{body.sku}' already exists")
 
+    from app.services.barcode_service import render_qr_png
     item = Item(**body.model_dump())
     session.add(item)
     await session.flush()
 
-    # Auto-generate primary barcode
+    qr_bytes = render_qr_png(item.sku)
     bc = ItemBarcode(
         item_id=item.id,
-        barcode_type="code128",
+        barcode_type="qr",
         barcode_value=item.sku,
+        qr_image=qr_bytes,
         is_primary=True,
     )
     session.add(bc)

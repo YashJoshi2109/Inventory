@@ -3,7 +3,7 @@ from decimal import Decimal
 from enum import StrEnum
 
 from sqlalchemy import (
-    Boolean, DateTime, ForeignKey, Integer, Numeric,
+    Boolean, DateTime, ForeignKey, Integer, LargeBinary, Numeric,
     String, Text, UniqueConstraint, func,
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -90,8 +90,9 @@ class ItemBarcode(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     item_id: Mapped[int] = mapped_column(ForeignKey("items.id", ondelete="CASCADE"), nullable=False)
-    barcode_type: Mapped[str] = mapped_column(String(20), default="code128")   # code128 | qr | rfid
+    barcode_type: Mapped[str] = mapped_column(String(20), default="qr")
     barcode_value: Mapped[str] = mapped_column(String(255), nullable=False, index=True)
+    qr_image: Mapped[bytes | None] = mapped_column(LargeBinary, nullable=True)
     is_primary: Mapped[bool] = mapped_column(Boolean, default=True)
     label_printed: Mapped[bool] = mapped_column(Boolean, default=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

@@ -138,3 +138,59 @@ async def apply_scan_event(
     event = await svc.apply_barcode_scan(body, current_user.id, actor_roles)
     await session.refresh(event, ["item", "from_location", "to_location", "actor"])
     return _event_to_read(event, session)
+
+
+class ModifyItemRequest(BaseModel):
+    item_id: int
+    name: str | None = None
+    description: str | None = None
+    category_id: int | None = None
+    unit: str | None = None
+    unit_cost: float | None = None
+    reorder_level: float | None = None
+    supplier: str | None = None
+    notes: str | None = None
+
+
+class ModifyItemResponse(BaseModel):
+    id: int
+    sku: str
+    name: str
+    unit: str
+    category_id: int | None
+    unit_cost: float
+    reorder_level: float
+    supplier: str | None
+    description: str | None
+    notes: str | None
+
+
+@router.post("/modify-item", response_model=ModifyItemResponse)
+async def modify_item_by_scan(
+    body: ModifyItemRequest,
+    session: DbSession,
+    current_user: CurrentUser,
+) -> ModifyItemResponse:
+    """Update item details via scan workflow."""
+    from app.repositories.item_repo import ItemRepository
+    repo = ItemRepository(session)
+    item = await repo.get_by_id(body.item_id)
+    if not item:
+        raise HTTPException(status_code=404, detail="Item not found")
+    update_data = body.model_dump(exclude={"item_id"}, exclude_none=True)
+    for field, value in update_data.items():
+        setattr(item, field, value)
+    await session.flush()
+    await session.refresh(item)
+    return ModifyItemResponse(
+        id=item.id,
+        sku=item.sku,
+        name=item.name,
+        unit=item.unit,
+        category_id=item.category_id,
+        unit_cost=float(item.unit_cost),
+        reorder_level=float(item.reorder_level),
+        supplier=item.supplier,
+        description=item.description,
+        notes=item.notes,
+    )
