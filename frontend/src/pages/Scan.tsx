@@ -1,4 +1,4 @@
-import { useCallback, useState } from "react";
+import { useCallback, useRef, useState } from "react";
 import { clsx } from "clsx";
 import toast from "react-hot-toast";
 import {
@@ -58,9 +58,12 @@ export function Scan() {
   const [scanning, setScanning] = useState(false);
   const [loading, setLoading] = useState(false);
 
+  const processingRef = useRef(false);
+
   const handleScan = useCallback(
     async (value: string) => {
-      if (loading) return;
+      if (processingRef.current) return;
+      processingRef.current = true;
       setLoading(true);
 
       try {
@@ -71,11 +74,14 @@ export function Scan() {
           return;
         }
 
+        let matched = false;
         setState((prev) => {
           if (prev.step === "scan-item" && result.result_type === "item") {
+            matched = true;
             return { ...prev, item: result, step: "scan-rack" };
           }
           if (prev.step === "scan-rack" && result.result_type === "location") {
+            matched = true;
             return {
               ...prev,
               rack: result,
@@ -83,22 +89,28 @@ export function Scan() {
             };
           }
           if (prev.step === "scan-dest-rack" && result.result_type === "location") {
+            matched = true;
             return { ...prev, destRack: result, step: "confirm" };
           }
-          toast.error("Scanned barcode type does not match this step");
           return prev;
         });
 
-        // Haptic feedback on mobile
-        if (navigator.vibrate) navigator.vibrate(50);
+        if (matched) {
+          toast.success(`Scanned: ${result.name}`);
+          if (navigator.vibrate) navigator.vibrate(50);
+        } else {
+          const expected = state.step === "scan-item" ? "item" : "location (rack)";
+          toast.error(`Expected ${expected} barcode, got ${result.result_type}`);
+        }
       } catch {
-        toast.error("Scan error. Try again.");
+        toast.error("Scan lookup failed. Try again.");
       } finally {
         setLoading(false);
         setScanning(false);
+        setTimeout(() => { processingRef.current = false; }, 500);
       }
     },
-    [loading]
+    [state.step]
   );
 
   const commit = async () => {

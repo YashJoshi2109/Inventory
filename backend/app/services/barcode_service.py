@@ -82,10 +82,12 @@ def render_qr_png(value: str) -> bytes:
 
 def generate_label_sheet_pdf(labels: list[dict]) -> bytes:
     """
-    Generates an Avery 5160-compatible 3×10 label sheet PDF.
+    Generates an Avery 5160-compatible 3x10 label sheet PDF with QR codes.
     Each label dict: { "title": str, "barcode_value": str, "subtitle": str }
     Returns PDF bytes suitable for direct browser print.
     """
+    from reportlab.platypus import Image as RLImage
+
     buf = io.BytesIO()
     doc = SimpleDocTemplate(
         buf,
@@ -97,7 +99,8 @@ def generate_label_sheet_pdf(labels: list[dict]) -> bytes:
     )
     styles = getSampleStyleSheet()
     normal = styles["Normal"]
-    normal.fontSize = 6
+    normal.fontSize = 7
+    normal.leading = 9
 
     label_width = 66.7 * mm
     label_height = 25.4 * mm
@@ -108,34 +111,33 @@ def generate_label_sheet_pdf(labels: list[dict]) -> bytes:
         row_labels = labels[i : i + cols]
         row = []
         for lbl in row_labels:
-            barcode_png = render_barcode_png(lbl["barcode_value"])
-            from reportlab.platypus import Image as RLImage
-            img = RLImage(io.BytesIO(barcode_png), width=55 * mm, height=10 * mm)
+            qr_png = render_qr_png(lbl["barcode_value"])
+            qr_img = RLImage(io.BytesIO(qr_png), width=18 * mm, height=18 * mm)
             title_p = Paragraph(f"<b>{lbl['title'][:30]}</b>", normal)
             sub_p = Paragraph(lbl.get("subtitle", "")[:40], normal)
-            row.append([title_p, img, sub_p])
-        # Pad row to 3 columns
+            text_col = Table([[title_p], [sub_p]], colWidths=[label_width - 24 * mm])
+            text_col.setStyle(TableStyle([
+                ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+                ("LEFTPADDING", (0, 0), (-1, -1), 1 * mm),
+                ("RIGHTPADDING", (0, 0), (-1, -1), 0),
+                ("TOPPADDING", (0, 0), (-1, -1), 0),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), 0),
+            ]))
+            inner = Table([[qr_img, text_col]], colWidths=[20 * mm, label_width - 24 * mm])
+            inner.setStyle(TableStyle([
+                ("ALIGN", (0, 0), (0, 0), "CENTER"),
+                ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+                ("LEFTPADDING", (0, 0), (-1, -1), 1 * mm),
+                ("RIGHTPADDING", (0, 0), (-1, -1), 1 * mm),
+                ("TOPPADDING", (0, 0), (-1, -1), 0),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), 0),
+            ]))
+            row.append(inner)
         while len(row) < cols:
-            row.append(["", "", ""])
+            row.append("")
         cells.append(row)
 
-    # Flatten: each label is a cell with stacked content using Table
-    flat_cells = []
-    for row in cells:
-        flat_row = []
-        for cell_content in row:
-            if isinstance(cell_content, list):
-                inner = Table([[c] for c in cell_content], colWidths=[label_width - 4 * mm])
-                inner.setStyle(TableStyle([
-                    ("ALIGN", (0, 0), (-1, -1), "CENTER"),
-                    ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
-                ]))
-                flat_row.append(inner)
-            else:
-                flat_row.append("")
-        flat_cells.append(flat_row)
-
-    table = Table(flat_cells, colWidths=[label_width] * cols)
+    table = Table(cells, colWidths=[label_width] * cols)
     table.setStyle(TableStyle([
         ("BOX", (0, 0), (-1, -1), 0.25, colors.grey),
         ("INNERGRID", (0, 0), (-1, -1), 0.25, colors.grey),

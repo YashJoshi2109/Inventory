@@ -87,6 +87,7 @@ class InventoryEventRepository(BaseRepository[InventoryEvent]):
             select(InventoryEvent)
             .options(
                 joinedload(InventoryEvent.item),
+                joinedload(InventoryEvent.from_location),
                 joinedload(InventoryEvent.to_location),
                 joinedload(InventoryEvent.actor),
             )

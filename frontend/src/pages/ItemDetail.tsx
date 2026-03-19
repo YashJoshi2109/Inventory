@@ -2,7 +2,7 @@ import { useMemo } from "react";
 import { useParams, Link } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import toast from "react-hot-toast";
-import { ArrowLeft, Barcode, QrCode, Printer } from "lucide-react";
+import { ArrowLeft, QrCode, Printer } from "lucide-react";
 import { itemsApi } from "@/api/items";
 import { Card } from "@/components/ui/Card";
 import { Badge } from "@/components/ui/Badge";
@@ -44,25 +44,12 @@ export function ItemDetail() {
     return <div className="p-6 text-red-400">Item not found.</div>;
   }
 
-  const openBlob = (blob: Blob) => {
-    const url = URL.createObjectURL(blob);
-    window.open(url, "_blank", "noopener,noreferrer");
-    setTimeout(() => URL.revokeObjectURL(url), 60_000);
-  };
-
-  const downloadBarcode = async () => {
-    try {
-      const blob = await itemsApi.downloadBarcodePng(item.id);
-      openBlob(blob);
-    } catch {
-      toast.error("Failed to load barcode");
-    }
-  };
-
   const downloadQr = async () => {
     try {
       const blob = await itemsApi.downloadQrPng(item.id);
-      openBlob(blob);
+      const url = URL.createObjectURL(blob);
+      window.open(url, "_blank", "noopener,noreferrer");
+      setTimeout(() => URL.revokeObjectURL(url), 60_000);
     } catch {
       toast.error("Failed to load QR code");
     }
@@ -102,20 +89,13 @@ export function ItemDetail() {
               </Badge>
             </div>
           </div>
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
-            <Button
-              variant="secondary"
-              leftIcon={<Barcode size={14} />}
-              onClick={downloadBarcode}
-            >
-              Item Barcode
-            </Button>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
             <Button
               variant="secondary"
               leftIcon={<QrCode size={14} />}
               onClick={downloadQr}
             >
-              Item QR
+              Download QR
             </Button>
             <Button
               variant="primary"
