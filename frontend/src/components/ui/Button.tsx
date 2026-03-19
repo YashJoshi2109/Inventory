@@ -15,11 +15,30 @@ interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
 }
 
 const variants: Record<Variant, string> = {
-  primary: "bg-brand-600 hover:bg-brand-700 text-white shadow-sm",
-  secondary: "bg-surface-card hover:bg-surface-hover border border-surface-border text-slate-200",
-  danger: "bg-red-600 hover:bg-red-700 text-white shadow-sm",
-  ghost: "hover:bg-surface-hover text-slate-300 hover:text-white",
-  success: "bg-emerald-600 hover:bg-emerald-700 text-white shadow-sm",
+  primary:
+    "text-white font-semibold shadow-glow-cyan-sm hover:shadow-glow-cyan transition-shadow",
+  secondary:
+    "text-slate-300 hover:text-white transition-colors",
+  danger:
+    "bg-red-600 hover:bg-red-500 text-white shadow-sm",
+  ghost:
+    "text-slate-400 hover:text-white transition-colors",
+  success:
+    "bg-emerald-600 hover:bg-emerald-500 text-white shadow-sm",
+};
+
+const variantStyles: Record<Variant, React.CSSProperties> = {
+  primary: {
+    background: "linear-gradient(135deg, #0891b2, #06b6d4)",
+    border: "1px solid rgba(34,211,238,0.4)",
+  },
+  secondary: {
+    background: "rgba(255,255,255,0.05)",
+    border: "1px solid rgba(255,255,255,0.1)",
+  },
+  danger: {},
+  ghost: { background: "transparent" },
+  success: {},
 };
 
 const sizes: Record<Size, string> = {
@@ -40,34 +59,32 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(
       className,
       disabled,
       children,
+      style,
       ...props
     },
-    ref
+    ref,
   ) => (
     <button
       ref={ref}
       disabled={disabled || loading}
       className={clsx(
-        "inline-flex items-center justify-center rounded-lg font-medium",
-        "transition-all duration-150 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 focus-visible:ring-offset-2 focus-visible:ring-offset-surface",
-        "disabled:opacity-50 disabled:cursor-not-allowed",
-        "active:scale-[0.98]",
+        "inline-flex items-center justify-center rounded-xl font-medium",
+        "transition-all duration-150 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500/50 focus-visible:ring-offset-2 focus-visible:ring-offset-surface",
+        "disabled:opacity-40 disabled:cursor-not-allowed",
+        "active:scale-[0.97]",
         variants[variant],
         sizes[size],
         fullWidth && "w-full",
-        className
+        className,
       )}
+      style={{ ...variantStyles[variant], ...style }}
       {...props}
     >
-      {loading ? (
-        <Spinner size="sm" />
-      ) : (
-        leftIcon
-      )}
+      {loading ? <Spinner size="sm" /> : leftIcon}
       {children}
       {!loading && rightIcon}
     </button>
-  )
+  ),
 );
 
 Button.displayName = "Button";

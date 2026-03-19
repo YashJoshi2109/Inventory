@@ -184,7 +184,12 @@ export interface ScanResult {
   id: number | null;
   code: string;
   name: string;
-  details: Record<string, unknown>;
+  details: {
+    total_quantity?: number;
+    unit?: string;
+    category?: string;
+    [key: string]: unknown;
+  };
 }
 
 // ─── Pagination ───────────────────────────────────────────────────────────────

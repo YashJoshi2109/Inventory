@@ -29,18 +29,22 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(
             ref={ref}
             id={inputId}
             className={clsx(
-              "w-full rounded-lg border bg-surface-card text-slate-100 placeholder-slate-500",
+              "w-full rounded-xl text-slate-100 placeholder-slate-600",
               "px-3 py-2.5 text-sm",
-              "focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-transparent",
+              "focus:outline-none focus:ring-2 focus:ring-brand-500/50 focus:border-brand-500/40",
               "disabled:opacity-50 disabled:cursor-not-allowed",
-              "transition-colors duration-150",
+              "transition-all duration-150",
               error
-                ? "border-red-500/70 focus:ring-red-500"
-                : "border-surface-border hover:border-slate-500",
+                ? "border-red-500/60 focus:ring-red-500/50"
+                : "hover:border-white/15",
               leftIcon && "pl-10",
               rightIcon && "pr-10",
-              className
+              className,
             )}
+            style={{
+              background: "rgba(255,255,255,0.04)",
+              border: error ? "1px solid rgba(239,68,68,0.4)" : "1px solid rgba(255,255,255,0.09)",
+            }}
             {...props}
           />
           {rightIcon && (

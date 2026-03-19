@@ -25,12 +25,20 @@ export function Layout() {
             className={clsx(
               "flex items-center justify-between px-4 py-2 text-sm",
               !isOnline
-                ? "bg-amber-500/10 border-b border-amber-500/30 text-amber-400"
-                : "bg-blue-500/10 border-b border-blue-500/30 text-blue-400"
+                ? "text-amber-400"
+                : "text-brand-400",
             )}
+            style={{
+              background: !isOnline
+                ? "rgba(251,191,36,0.07)"
+                : "rgba(34,211,238,0.07)",
+              borderBottom: !isOnline
+                ? "1px solid rgba(251,191,36,0.2)"
+                : "1px solid rgba(34,211,238,0.2)",
+            }}
           >
             <span className="flex items-center gap-2">
-              <WifiOff size={14} />
+              <WifiOff size={13} />
               {!isOnline
                 ? "Offline mode — scans queued locally"
                 : `${pendingCount} pending sync${pendingCount !== 1 ? "s" : ""}`}
@@ -39,9 +47,9 @@ export function Layout() {
               <button
                 onClick={syncNow}
                 disabled={isSyncing}
-                className="flex items-center gap-1.5 hover:text-blue-300 disabled:opacity-50"
+                className="flex items-center gap-1.5 hover:text-brand-300 disabled:opacity-50 transition-colors"
               >
-                <RefreshCw size={13} className={isSyncing ? "animate-spin" : ""} />
+                <RefreshCw size={12} className={isSyncing ? "animate-spin" : ""} />
                 Sync now
               </button>
             )}
@@ -60,10 +68,18 @@ export function Layout() {
         position="top-right"
         toastOptions={{
           style: {
-            background: "#1e293b",
-            color: "#f1f5f9",
-            border: "1px solid #334155",
+            background: "rgba(7,15,31,0.95)",
+            color: "#e2e8f0",
+            border: "1px solid rgba(34,211,238,0.2)",
+            backdropFilter: "blur(20px)",
             fontSize: "14px",
+            boxShadow: "0 8px 32px rgba(0,0,0,0.4), 0 0 15px rgba(34,211,238,0.1)",
+          },
+          success: {
+            iconTheme: { primary: "#22d3ee", secondary: "rgba(7,15,31,0.95)" },
+          },
+          error: {
+            iconTheme: { primary: "#f87171", secondary: "rgba(7,15,31,0.95)" },
           },
         }}
       />

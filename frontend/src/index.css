@@ -1,3 +1,5 @@
+@import url("https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap");
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
@@ -18,6 +20,27 @@
   body {
     @apply bg-surface text-slate-100;
     font-family: "Inter", system-ui, sans-serif;
+    background-image:
+      linear-gradient(rgba(34, 211, 238, 0.03) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(34, 211, 238, 0.03) 1px, transparent 1px);
+    background-size: 40px 40px;
+    background-attachment: fixed;
+  }
+
+  /* Custom scrollbar */
+  ::-webkit-scrollbar {
+    width: 4px;
+    height: 4px;
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: rgba(34, 211, 238, 0.2);
+    border-radius: 100px;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: rgba(34, 211, 238, 0.4);
   }
 
   /* Safe area padding for iOS PWA */
@@ -36,21 +59,149 @@
 }
 
 @layer components {
-  /* Scan line animation used in BarcodeScanner */
+  /* ── Glassmorphism ── */
+  .glass {
+    background: rgba(7, 15, 31, 0.7);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4), inset 0 1px 0 rgba(255, 255, 255, 0.05);
+  }
+
+  .glass-light {
+    background: rgba(255, 255, 255, 0.04);
+    backdrop-filter: blur(16px);
+    -webkit-backdrop-filter: blur(16px);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+  }
+
+  .glass-strong {
+    background: rgba(7, 15, 31, 0.85);
+    backdrop-filter: blur(30px);
+    -webkit-backdrop-filter: blur(30px);
+    border: 1px solid rgba(34, 211, 238, 0.15);
+    box-shadow: 0 16px 48px rgba(0, 0, 0, 0.6), inset 0 1px 0 rgba(255, 255, 255, 0.08);
+  }
+
+  /* ── Glow effects ── */
+  .glow-cyan {
+    box-shadow: 0 0 20px rgba(34, 211, 238, 0.3), 0 0 60px rgba(34, 211, 238, 0.1);
+  }
+
+  .glow-cyan-sm {
+    box-shadow: 0 0 10px rgba(34, 211, 238, 0.2);
+  }
+
+  .glow-cyan-border {
+    border-color: rgba(34, 211, 238, 0.4) !important;
+    box-shadow: 0 0 15px rgba(34, 211, 238, 0.15), inset 0 0 15px rgba(34, 211, 238, 0.03);
+  }
+
+  /* ── Scan line animation ── */
   @keyframes scanLine {
-    0% { top: 5%; opacity: 1; }
-    45% { opacity: 1; }
-    50% { top: 95%; opacity: 0.5; }
-    51% { top: 5%; opacity: 0; }
-    55% { opacity: 1; }
-    100% { top: 5%; opacity: 1; }
+    0% { top: 4%; opacity: 0; }
+    5% { opacity: 1; }
+    95% { opacity: 1; }
+    100% { top: 96%; opacity: 0; }
   }
 
   .animate-scan-line {
-    animation: scanLine 2.5s ease-in-out infinite;
+    animation: scanLine 1.8s linear infinite;
     position: absolute;
-    left: 10%;
-    right: 10%;
+    left: 0;
+    right: 0;
     height: 2px;
+  }
+
+  /* ── Corner brackets animation ── */
+  @keyframes cornerGlow {
+    0%, 100% { opacity: 1; filter: drop-shadow(0 0 6px #22d3ee); }
+    50% { opacity: 0.65; filter: drop-shadow(0 0 14px #22d3ee); }
+  }
+
+  .animate-corner-glow {
+    animation: cornerGlow 2s ease-in-out infinite;
+  }
+
+  /* ── Shimmer loading ── */
+  @keyframes shimmer {
+    0% { background-position: -200% 0; }
+    100% { background-position: 200% 0; }
+  }
+
+  .shimmer {
+    background: linear-gradient(
+      90deg,
+      rgba(255, 255, 255, 0.03) 25%,
+      rgba(34, 211, 238, 0.06) 50%,
+      rgba(255, 255, 255, 0.03) 75%
+    );
+    background-size: 200% 100%;
+    animation: shimmer 2.5s linear infinite;
+  }
+
+  /* ── Neon text ── */
+  .text-neon-cyan {
+    color: #22d3ee;
+    text-shadow: 0 0 10px rgba(34, 211, 238, 0.5);
+  }
+
+  /* ── Card hover glow ── */
+  .card-glow:hover {
+    border-color: rgba(34, 211, 238, 0.25) !important;
+    box-shadow: 0 0 0 1px rgba(34, 211, 238, 0.15), 0 8px 32px rgba(0, 0, 0, 0.3);
+    transition: all 0.2s ease;
+  }
+
+  /* ── Stat card gradient ── */
+  .stat-card-cyan {
+    background: linear-gradient(135deg, rgba(34, 211, 238, 0.12) 0%, rgba(8, 145, 178, 0.06) 100%);
+    border: 1px solid rgba(34, 211, 238, 0.2);
+  }
+
+  .stat-card-amber {
+    background: linear-gradient(135deg, rgba(251, 191, 36, 0.12) 0%, rgba(217, 119, 6, 0.06) 100%);
+    border: 1px solid rgba(251, 191, 36, 0.2);
+  }
+
+  .stat-card-red {
+    background: linear-gradient(135deg, rgba(239, 68, 68, 0.12) 0%, rgba(185, 28, 28, 0.06) 100%);
+    border: 1px solid rgba(239, 68, 68, 0.2);
+  }
+
+  .stat-card-emerald {
+    background: linear-gradient(135deg, rgba(52, 211, 153, 0.12) 0%, rgba(5, 150, 105, 0.06) 100%);
+    border: 1px solid rgba(52, 211, 153, 0.2);
+  }
+
+  /* ── Mode selector card ── */
+  .mode-card {
+    background: rgba(255, 255, 255, 0.03);
+    backdrop-filter: blur(12px);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    transition: all 0.2s ease;
+  }
+
+  .mode-card:hover {
+    background: rgba(255, 255, 255, 0.06);
+    transform: translateY(-1px);
+  }
+
+  /* ── Scanner overlay ── */
+  .scanner-corner {
+    position: absolute;
+    width: 24px;
+    height: 24px;
+    border-color: #22d3ee;
+    filter: drop-shadow(0 0 6px rgba(34, 211, 238, 0.8));
+  }
+
+  @keyframes glowPulse {
+    0%, 100% { box-shadow: 0 0 10px rgba(34, 211, 238, 0.2); }
+    50% { box-shadow: 0 0 25px rgba(34, 211, 238, 0.5), 0 0 50px rgba(34, 211, 238, 0.2); }
+  }
+
+  .animate-glow-pulse {
+    animation: glowPulse 2s ease-in-out infinite;
   }
 }
