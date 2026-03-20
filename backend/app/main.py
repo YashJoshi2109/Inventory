@@ -107,6 +107,25 @@ async def global_exception_handler(request: Request, exc: Exception):
 app.include_router(api_router, prefix=settings.API_PREFIX)
 
 
+@app.get("/", tags=["root"])
+async def root():
+    """Root URL — visiting the bare Render hostname in a browser no longer returns 404."""
+    payload: dict[str, str | dict[str, str]] = {
+        "service": settings.APP_NAME,
+        "version": settings.APP_VERSION,
+        "environment": settings.ENVIRONMENT,
+        "health": "/health",
+        "api_prefix": settings.API_PREFIX,
+        "login": f"{settings.API_PREFIX}/auth/login",
+    }
+    if settings.ENVIRONMENT != "production":
+        payload["docs"] = "/docs"
+        payload["redoc"] = "/redoc"
+    else:
+        payload["note"] = "OpenAPI docs are disabled in production; use /health and API routes under api_prefix."
+    return payload
+
+
 @app.get("/health", tags=["health"])
 async def health_check():
     return {"status": "ok", "version": settings.APP_VERSION, "env": settings.ENVIRONMENT}
