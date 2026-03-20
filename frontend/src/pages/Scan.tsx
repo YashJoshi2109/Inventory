@@ -307,9 +307,26 @@ type AddSubMode =
   | "scan-item"
   | "scan-rack"
   | "confirm"
+  | "new-item-loc"
   | "new-item"
   | "new-item-rack"
   | "new-item-confirm";
+
+function revokeQrUrl(url: string | null) {
+  if (url?.startsWith("blob:")) URL.revokeObjectURL(url);
+}
+
+async function fetchQrWithRetry(itemId: number, attempts = 3): Promise<string | null> {
+  for (let i = 0; i < attempts; i++) {
+    try {
+      const blob = await itemsApi.downloadQrPng(itemId);
+      return URL.createObjectURL(blob);
+    } catch {
+      if (i < attempts - 1) await new Promise((r) => setTimeout(r, 600));
+    }
+  }
+  return null;
+}
 
 function AddFlow({ onReset }: { onReset: () => void }) {
   const [sub, setSub] = useState<AddSubMode>("choose");
@@ -337,7 +354,10 @@ function AddFlow({ onReset }: { onReset: () => void }) {
     supplier: "",
   });
 
-  // Auto-generate next SKU when entering new-item mode
+  /** Rack chosen before creating a new item (scan-first flow). */
+  const [newItemPresetRack, setNewItemPresetRack] = useState<ScanResult | null>(null);
+
+  // Auto-generate next SKU when entering new-item form
   useEffect(() => {
     if (sub !== "new-item" || newItem.sku) return;
     itemsApi.list({ page: 1, page_size: 1 }).then((res) => {
@@ -345,13 +365,14 @@ function AddFlow({ onReset }: { onReset: () => void }) {
       setNewItem((p) => ({ ...p, sku: `SKU-${next}` }));
     }).catch(() => {/* non-fatal */});
   }, [sub]); // eslint-disable-line react-hooks/exhaustive-deps
+
   const [createdItem, setCreatedItem] = useState<{
     id: number;
     sku: string;
     name: string;
   } | null>(null);
   const [showQrModal, setShowQrModal] = useState(false);
-  const [qrBlobUrl, setQrBlobUrl] = useState<string | null>(null);
+  const [qrImageUrl, setQrImageUrl] = useState<string | null>(null);
 
   const doScan = useCallback(
     async (value: string, target: "item" | "rack") => {
@@ -371,9 +392,9 @@ function AddFlow({ onReset }: { onReset: () => void }) {
         } else if (target === "rack" && result.result_type === "location") {
           setRack(result);
           setSub(sub === "new-item-rack" ? "new-item-confirm" : "confirm");
-          toast.success(`Rack: ${result.name}`);
+          toast.success(`Location: ${result.name}`);
         } else {
-          toast.error(`Expected ${target === "item" ? "item QR" : "rack QR"} — try again`);
+          toast.error(`Expected ${target === "item" ? "item QR" : "rack / location QR"} — try again`);
         }
       } catch {
         toast.error("Lookup failed. Try again.");
@@ -386,6 +407,27 @@ function AddFlow({ onReset }: { onReset: () => void }) {
     },
     [sub],
   );
+
+  const scanNewItemPresetLocation = useCallback(async (value: string) => {
+    if (processingRef.current) return;
+    processingRef.current = true;
+    setLoading(true);
+    try {
+      const result = await scanApi.lookup(value);
+      if (result.result_type !== "location") {
+        toast.error("Scan a rack / location QR code");
+        return;
+      }
+      setNewItemPresetRack(result);
+      setSub("new-item");
+      toast.success(`Will store at: ${result.name}`);
+    } catch {
+      toast.error("Lookup failed. Try again.");
+    } finally {
+      setLoading(false);
+      setTimeout(() => { processingRef.current = false; }, 500);
+    }
+  }, []);
 
   const commit = async () => {
     const targetItem =
@@ -429,14 +471,28 @@ function AddFlow({ onReset }: { onReset: () => void }) {
       });
       setCreatedItem({ id: created.id, sku: created.sku, name: created.name });
       toast.success(`Item ${created.sku} created!`);
-      try {
-        const blob = await itemsApi.downloadQrPng(created.id);
-        setQrBlobUrl(URL.createObjectURL(blob));
-        setShowQrModal(true);
-      } catch {
-        /* non-fatal */
+
+      revokeQrUrl(qrImageUrl);
+      let url: string | null = null;
+      if (created.qr_png_base64) {
+        url = `data:image/png;base64,${created.qr_png_base64}`;
+      } else {
+        url = await fetchQrWithRetry(created.id);
+        if (!url) {
+          toast.error("QR image could not be loaded — use Item detail to download later.");
+        }
       }
-      setSub("new-item-rack");
+      if (url) {
+        setQrImageUrl(url);
+        setShowQrModal(true);
+      }
+
+      if (newItemPresetRack) {
+        setRack(newItemPresetRack);
+        setSub("new-item-confirm");
+      } else {
+        setSub("new-item-rack");
+      }
     } catch (e: unknown) {
       const msg = (e as { response?: { data?: { detail?: string } } })?.response?.data?.detail;
       toast.error(typeof msg === "string" ? msg : "Failed to create item");
@@ -445,16 +501,39 @@ function AddFlow({ onReset }: { onReset: () => void }) {
     }
   };
 
+  const openNewItemFlow = () => {
+    setNewItem({
+      sku: "",
+      name: "",
+      description: "",
+      category_id: "",
+      unit: "EA",
+      unit_cost: "0",
+      reorder_level: "0",
+      supplier: "",
+    });
+    setNewItemPresetRack(null);
+    setSub("new-item-loc");
+  };
+
   return (
     <div className="p-5 space-y-4">
       <FlowHeader icon={ArrowUpRight} label="Add Stock" accent="#34d399" />
 
       {/* QR Modal */}
-      {showQrModal && qrBlobUrl && (
-        <Modal open onClose={() => setShowQrModal(false)} title="Item QR Code — Print & Stick">
+      {showQrModal && qrImageUrl && (
+        <Modal
+          open
+          onClose={() => {
+            revokeQrUrl(qrImageUrl);
+            setQrImageUrl(null);
+            setShowQrModal(false);
+          }}
+          title="Item QR Code — Print & Stick"
+        >
           <div className="p-6 flex flex-col items-center gap-4">
             <img
-              src={qrBlobUrl}
+              src={qrImageUrl}
               alt="QR Code"
               className="w-48 h-48 rounded-xl"
               style={{ border: "1px solid rgba(34,211,238,0.2)" }}
@@ -466,11 +545,19 @@ function AddFlow({ onReset }: { onReset: () => void }) {
               <Button
                 variant="secondary"
                 fullWidth
-                onClick={() => window.open(qrBlobUrl, "_blank")}
+                onClick={() => window.open(qrImageUrl!, "_blank")}
               >
-                Download
+                Open / Print
               </Button>
-              <Button variant="primary" fullWidth onClick={() => setShowQrModal(false)}>
+              <Button
+                variant="primary"
+                fullWidth
+                onClick={() => {
+                  revokeQrUrl(qrImageUrl);
+                  setQrImageUrl(null);
+                  setShowQrModal(false);
+                }}
+              >
                 Continue
               </Button>
             </div>
@@ -490,12 +577,13 @@ function AddFlow({ onReset }: { onReset: () => void }) {
           >
             <QrCode size={26} className="text-emerald-400" />
             <div className="text-center">
-              <p className="text-sm font-semibold text-white">Scan QR</p>
-              <p className="text-xs text-slate-500 mt-0.5">Item has a QR already</p>
+              <p className="text-sm font-semibold text-white">Add stock</p>
+              <p className="text-xs text-slate-500 mt-0.5">Scan item QR, then shelf QR</p>
             </div>
           </button>
           <button
-            onClick={() => setSub("new-item")}
+            type="button"
+            onClick={openNewItemFlow}
             className="flex flex-col items-center gap-3 p-5 rounded-2xl transition-all hover:scale-[1.02]"
             style={{
               background: "rgba(34,211,238,0.06)",
@@ -505,27 +593,31 @@ function AddFlow({ onReset }: { onReset: () => void }) {
             <Plus size={26} className="text-brand-400" />
             <div className="text-center">
               <p className="text-sm font-semibold text-white">New Item</p>
-              <p className="text-xs text-slate-500 mt-0.5">Generate a new QR label</p>
+              <p className="text-xs text-slate-500 mt-0.5">Scan shelf → details → QR</p>
             </div>
           </button>
         </div>
       )}
 
       {sub === "scan-item" && (
-        <ScanPrompt
-          label="Scan the item QR code"
-          hint="Point at item QR code"
-          onScan={(v) => doScan(v, "item")}
-          loading={loading}
-        />
+        <>
+          <p className="text-center text-xs font-semibold text-brand-400 tracking-wide">STEP 1 OF 3</p>
+          <ScanPrompt
+            label="Scan the item QR code"
+            hint="Point at item QR code"
+            onScan={(v) => doScan(v, "item")}
+            loading={loading}
+          />
+        </>
       )}
 
       {sub === "scan-rack" && item && (
         <>
+          <p className="text-center text-xs font-semibold text-brand-400 tracking-wide">STEP 2 OF 3</p>
           <ScannedCard result={item} label="Item" accent="#34d399" />
           <ScanPrompt
-            label="Now scan the destination rack QR"
-            hint="Point at rack / location QR"
+            label="Scan the storage location QR"
+            hint="Point at rack / shelf QR"
             onScan={(v) => doScan(v, "rack")}
             loading={loading}
           />
@@ -534,11 +626,12 @@ function AddFlow({ onReset }: { onReset: () => void }) {
 
       {sub === "confirm" && item && rack && (
         <>
+          <p className="text-center text-xs font-semibold text-brand-400 tracking-wide">STEP 3 OF 3 — REVIEW</p>
           <ScannedCard result={item} label="Item" accent="#34d399" />
-          <ScannedCard result={rack} label="Rack" accent="#22d3ee" />
+          <ScannedCard result={rack} label="Storage location" accent="#22d3ee" />
           <div className="space-y-3 pt-1">
             <Input
-              label="Quantity"
+              label="Quantity to add"
               type="number"
               min="0.001"
               step="any"
@@ -557,15 +650,54 @@ function AddFlow({ onReset }: { onReset: () => void }) {
             />
           </div>
           <Button fullWidth size="lg" variant="success" loading={loading} onClick={commit}>
-            Confirm Add Stock
+            Add stock to this location
+          </Button>
+        </>
+      )}
+
+      {sub === "new-item-loc" && (
+        <>
+          <p className="text-center text-xs font-semibold text-brand-400 tracking-wide">NEW ITEM — STEP 1 OF 3</p>
+          <p className="text-sm text-slate-400 text-center px-1">
+            Scan the <strong className="text-slate-200">rack or shelf QR</strong> where this item will be stored.
+            You can skip if you will scan the shelf after printing the label.
+          </p>
+          <ScanPrompt
+            label="Scan storage location QR"
+            hint="Point at rack / location QR"
+            onScan={scanNewItemPresetLocation}
+            loading={loading}
+          />
+          <Button
+            type="button"
+            variant="secondary"
+            fullWidth
+            onClick={() => setSub("new-item")}
+          >
+            Skip — I&apos;ll scan shelf after the label
           </Button>
         </>
       )}
 
       {sub === "new-item" && (
         <div className="space-y-3">
+          <p className="text-center text-xs font-semibold text-brand-400 tracking-wide">
+            NEW ITEM — STEP 2 OF 3
+          </p>
+          {newItemPresetRack && (
+            <div
+              className="flex items-center gap-2 p-3 rounded-xl text-sm"
+              style={{ background: "rgba(34,211,238,0.08)", border: "1px solid rgba(34,211,238,0.25)" }}
+            >
+              <MapPin size={16} className="text-brand-400 shrink-0" />
+              <span className="text-slate-300">
+                Storing at: <strong className="text-white">{newItemPresetRack.name}</strong>{" "}
+                <span className="font-mono text-slate-500">({newItemPresetRack.code})</span>
+              </span>
+            </div>
+          )}
           <p className="text-xs text-slate-500 text-center">
-            Fill in details — a QR code will be generated automatically.
+            Fill in details — a QR code is generated when you create the item.
           </p>
           <div className="grid grid-cols-2 gap-3">
             <Input
@@ -638,13 +770,21 @@ function AddFlow({ onReset }: { onReset: () => void }) {
             disabled={!newItem.sku.trim() || !newItem.name.trim()}
             onClick={createNewItem}
           >
-            Create Item & Generate QR
+            Create item &amp; show QR
           </Button>
+          <button
+            type="button"
+            className="w-full text-center text-xs text-slate-600 hover:text-slate-400 py-1"
+            onClick={() => setSub("new-item-loc")}
+          >
+            ← Change storage location scan
+          </button>
         </div>
       )}
 
       {sub === "new-item-rack" && createdItem && (
         <div className="space-y-3">
+          <p className="text-center text-xs font-semibold text-brand-400 tracking-wide">NEW ITEM — STEP 3 OF 3</p>
           <div
             className="p-4 rounded-xl"
             style={{
@@ -653,25 +793,26 @@ function AddFlow({ onReset }: { onReset: () => void }) {
             }}
           >
             <p className="text-xs text-brand-400 font-semibold uppercase tracking-wide mb-1">
-              Item Created
+              Item created
             </p>
             <p className="text-base text-white font-bold">{createdItem.name}</p>
             <p className="font-mono text-xs text-slate-400 mt-0.5">{createdItem.sku}</p>
           </div>
           <ScanPrompt
-            label="Scan the destination rack QR"
+            label="Scan the storage location QR"
             hint="Point at rack / location QR"
             onScan={(v) => doScan(v, "rack")}
             loading={loading}
           />
           <Button variant="secondary" fullWidth onClick={onReset}>
-            Skip — Add to Inventory Later
+            Skip — add stock later
           </Button>
         </div>
       )}
 
       {sub === "new-item-confirm" && createdItem && rack && (
         <>
+          <p className="text-center text-xs font-semibold text-brand-400 tracking-wide">NEW ITEM — STEP 3 OF 3 — REVIEW</p>
           <div
             className="p-4 rounded-xl"
             style={{
@@ -679,14 +820,14 @@ function AddFlow({ onReset }: { onReset: () => void }) {
               border: "1px solid rgba(34,211,238,0.25)",
             }}
           >
-            <p className="text-xs text-brand-400 font-semibold">New Item</p>
+            <p className="text-xs text-brand-400 font-semibold">New item</p>
             <p className="text-base font-bold text-white mt-0.5">{createdItem.name}</p>
             <p className="font-mono text-xs text-slate-400">{createdItem.sku}</p>
           </div>
-          <ScannedCard result={rack} label="Rack" accent="#22d3ee" />
+          <ScannedCard result={rack} label="Storage location" accent="#22d3ee" />
           <div className="space-y-3">
             <Input
-              label="Initial Quantity"
+              label="Quantity to add"
               type="number"
               min="0.001"
               step="any"
@@ -700,7 +841,7 @@ function AddFlow({ onReset }: { onReset: () => void }) {
             />
           </div>
           <Button fullWidth size="lg" variant="success" loading={loading} onClick={commit}>
-            Add Initial Stock
+            Add stock to this location
           </Button>
         </>
       )}

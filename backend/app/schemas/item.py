@@ -99,6 +99,8 @@ class ItemRead(OrmBase):
     barcodes: list[ItemBarcodeRead] = []
     total_quantity: Decimal = Decimal("0")   # computed from stock_levels
     status: str = "OK"                       # OK | LOW | OUT
+    # Set only on POST /items create — avoids a second request for QR preview
+    qr_png_base64: str | None = None
 
 
 class ItemSummary(OrmBase):

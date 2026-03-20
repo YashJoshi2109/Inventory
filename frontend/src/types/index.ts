@@ -64,6 +64,8 @@ export interface Item {
   barcodes: ItemBarcode[];
   total_quantity: number;
   status: "OK" | "LOW" | "OUT";
+  /** Present only on POST /items (create) — embedded QR PNG */
+  qr_png_base64?: string | null;
 }
 
 export interface ItemSummary {

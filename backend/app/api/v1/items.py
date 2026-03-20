@@ -1,3 +1,4 @@
+import base64
 from decimal import Decimal
 from typing import Annotated
 
@@ -139,7 +140,10 @@ async def create_item(body: ItemCreate, session: DbSession, current_user: Curren
     await session.flush()
     await session.refresh(item)
 
-    return _to_item_read(item, Decimal("0"))
+    read = _to_item_read(item, Decimal("0"))
+    return read.model_copy(
+        update={"qr_png_base64": base64.standard_b64encode(qr_bytes).decode("ascii")},
+    )
 
 
 @router.get("/{item_id}", response_model=ItemRead)

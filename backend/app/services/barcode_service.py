@@ -15,7 +15,7 @@ import os
 import textwrap
 from pathlib import Path
 
-import barcode as pybарcode
+import barcode as pybarcode
 from barcode.writer import ImageWriter
 import qrcode
 from qrcode.image.svg import SvgFillImage
