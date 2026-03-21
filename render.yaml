@@ -44,11 +44,21 @@ services:
       - key: AI_FORECAST_ENABLED
         value: "true"
       - key: MQTT_ENABLED
-        value: "false"
-      # When MQTT_ENABLED=true, set in dashboard: MQTT_BROKER_HOST, MQTT_USERNAME, MQTT_PASSWORD, MQTT_USE_TLS, etc.
+        value: "true"
       - key: MQTT_BROKER_HOST
+        value: wef11e03.ala.us-east-1.emqxsl.com
+      - key: MQTT_BROKER_PORT
+        value: "8883"
+      - key: MQTT_USE_TLS
+        value: "true"
+      - key: MQTT_USERNAME
+        value: ma02011f
+      # EMQX App Secret — set in Render dashboard (do not commit)
+      - key: MQTT_PASSWORD
         sync: false
       - key: MQTT_TOPIC_PREFIX
         value: searlab/inventory
+      - key: MQTT_QOS
+        value: "1"
       - key: ALERT_EMAIL_ENABLED
         value: "false"

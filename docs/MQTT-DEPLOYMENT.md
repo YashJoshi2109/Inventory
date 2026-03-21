@@ -117,3 +117,21 @@ That would mean **MQTT over WebSockets** from the browser + broker WebSocket por
 4. Use the **Vercel app** normally; MQTT fires from **Render** on each API write.
 
 You cannot complete broker signup or Render dashboard clicks from this chat — follow the steps above on your accounts.
+
+---
+
+## Render + EMQX Cloud (this repo)
+
+If you use **EMQX Serverless**, typical values are:
+
+| Variable | Value |
+|----------|--------|
+| `MQTT_BROKER_HOST` | From deployment overview (e.g. `*.emqxsl.com`) |
+| `MQTT_BROKER_PORT` | `8883` |
+| `MQTT_USE_TLS` | `true` |
+| `MQTT_USERNAME` | EMQX **App ID** |
+| `MQTT_PASSWORD` | EMQX **App Secret** (set only in Render **Environment** or `.env` — never commit) |
+
+**Browser / WebSocket** (future live UI): `wss://<same-host>:8084/mqtt` with [MQTT.js](https://github.com/mqttjs/MQTT.js) — see [EMQX WebSocket guide](https://www.emqx.com/en/blog/connect-to-mqtt-broker-with-websocket).
+
+`render.yaml` enables MQTT and sets the public host; **`MQTT_PASSWORD` must be added in the Render dashboard** (`sync: false`) so the secret is not stored in Git.
