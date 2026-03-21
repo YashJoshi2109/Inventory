@@ -16,6 +16,7 @@ from pydantic import BaseModel
 
 from app.api.v1.auth import CurrentUser
 from app.core.database import DbSession
+from app.core.events import DomainEvent, EventType, event_bus
 from app.schemas.transaction import (
     AdjustmentRequest,
     BarcodeScanApplyRequest,
@@ -182,6 +183,18 @@ async def modify_item_by_scan(
         setattr(item, field, value)
     await session.flush()
     await session.refresh(item)
+
+    await event_bus.publish(DomainEvent(
+        event_type=EventType.ITEM_UPDATED,
+        payload={
+            "item_id": item.id,
+            "sku": item.sku,
+            "source": "scan.modify_item",
+            "fields": list(update_data.keys()),
+        },
+        actor_id=current_user.id,
+    ))
+
     return ModifyItemResponse(
         id=item.id,
         sku=item.sku,

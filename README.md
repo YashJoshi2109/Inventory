@@ -73,6 +73,11 @@ SEAR Lab Inventory is a production-grade inventory system built for laboratory e
 - Installable on iOS and Android
 - Offline scan queue with sync on reconnect (IndexedDB via Dexie)
 
+### MQTT (optional — large-scale integrations)
+- Publishes **JSON domain events** to a broker (stock in/out/transfer/adjustment, item created/updated, login)
+- **QoS 1** by default, TLS + auth configurable — see [`docs/MQTT.md`](docs/MQTT.md)
+- Local broker: `docker compose --profile mqtt up` + `mosquitto.conf`
+
 ---
 
 ## Tech Stack

@@ -6,6 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 
 from app.api.v1.auth import CurrentUser, require_roles
 from app.core.database import DbSession
+from app.core.events import DomainEvent, EventType, event_bus
 from app.models.item import Item, ItemBarcode, Category
 from app.models.user import RoleName
 from app.repositories.item_repo import CategoryRepository, ItemRepository
@@ -140,6 +141,12 @@ async def create_item(body: ItemCreate, session: DbSession, current_user: Curren
     await session.flush()
     await session.refresh(item)
 
+    await event_bus.publish(DomainEvent(
+        event_type=EventType.ITEM_CREATED,
+        payload={"item_id": item.id, "sku": item.sku, "name": item.name},
+        actor_id=current_user.id,
+    ))
+
     read = _to_item_read(item, Decimal("0"))
     return read.model_copy(
         update={"qr_png_base64": base64.standard_b64encode(qr_bytes).decode("ascii")},
@@ -170,6 +177,13 @@ async def update_item(item_id: int, body: ItemUpdate, session: DbSession, curren
     for field, value in body.model_dump(exclude_unset=True).items():
         setattr(item, field, value)
     await session.flush()
+
+    await event_bus.publish(DomainEvent(
+        event_type=EventType.ITEM_UPDATED,
+        payload={"item_id": item.id, "sku": item.sku, "fields": list(body.model_dump(exclude_unset=True).keys())},
+        actor_id=current_user.id,
+    ))
+
     total_qty = await StockLevelRepository(session).get_total_for_item(item_id)
     return _to_item_read(item, total_qty)
 

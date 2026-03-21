@@ -77,11 +77,25 @@ class Settings(BaseSettings):
     BARCODE_DIR: str = "./uploads/barcodes"
     MAX_UPLOAD_SIZE_MB: int = 50
 
-    # MQTT (Phase 2 — not active in Phase 1)
+    # MQTT — domain events to external subscribers (analytics, IoT, ERP)
     MQTT_ENABLED: bool = False
     MQTT_BROKER_HOST: str = "localhost"
     MQTT_BROKER_PORT: int = 1883
-    MQTT_TOPIC_PREFIX: str = "sierlab/inventory"
+    MQTT_TOPIC_PREFIX: str = "searlab/inventory"
+    MQTT_CLIENT_ID: str = ""  # empty → auto: sear-inv-{hostname}-{pid}
+    MQTT_USERNAME: str = ""
+    MQTT_PASSWORD: str = ""
+    MQTT_KEEPALIVE: int = 60
+    # 0 = fire-and-forget, 1 = at-least-once (recommended), 2 = exactly-once
+    MQTT_QOS: int = 1
+    MQTT_RETAIN: bool = False
+    # Throughput vs memory (HiveMQ / EMQX tuning)
+    MQTT_MAX_INFLIGHT: int = 100
+    MQTT_USE_TLS: bool = False
+    MQTT_TLS_CA_PATH: str | None = None  # None = system trust store
+    MQTT_TLS_CERT_PATH: str | None = None
+    MQTT_TLS_KEY_PATH: str | None = None
+    MQTT_TLS_INSECURE: bool = False  # dev only — skip cert verification
 
     # AI
     AI_ANOMALY_DETECTION_ENABLED: bool = True

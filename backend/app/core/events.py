@@ -1,10 +1,14 @@
 """
 Event bus for internal domain events.
-Architecture is MQTT-ready — the same EventBus.publish() call will
-forward to the MQTT broker in Phase 2 simply by enabling MQTT in settings.
 
-In Phase 1 events are in-process only (background tasks / SSE streams).
+- In-process: ``subscribe`` + ``publish`` runs async handlers (same process).
+- MQTT: when ``MQTT_ENABLED``, each ``publish`` also enqueues JSON to the broker
+  (non-blocking for the asyncio loop via ``asyncio.to_thread``).
+
+External consumers should subscribe to ``{MQTT_TOPIC_PREFIX}/#`` and parse JSON payloads.
 """
+from __future__ import annotations
+
 import asyncio
 import json
 import logging
@@ -62,18 +66,66 @@ class EventBus:
     def subscribe(self, event_type: EventType, handler: HandlerFn) -> None:
         self._subscribers[str(event_type)].append(handler)
 
+    @property
+    def mqtt_connected(self) -> bool:
+        c = self._mqtt_client
+        if c is None:
+            return False
+        try:
+            return bool(c.is_connected())
+        except Exception:
+            return False
+
     async def publish(self, event: DomainEvent) -> None:
         handlers = self._subscribers.get(str(event.event_type), [])
         await asyncio.gather(*(h(event) for h in handlers), return_exceptions=True)
 
-        if settings.MQTT_ENABLED and self._mqtt_client:
-            topic = f"{settings.MQTT_TOPIC_PREFIX}/{event.event_type}"
-            self._mqtt_client.publish(topic, event.to_mqtt_payload())
+        if settings.MQTT_ENABLED and self._mqtt_client is not None:
+            await self._publish_mqtt(event)
+
+    def _publish_mqtt_sync(self, event: DomainEvent) -> None:
+        client = self._mqtt_client
+        if client is None:
+            return
+        prefix = settings.MQTT_TOPIC_PREFIX.strip().strip("/")
+        # Topic: searlab/inventory/inventory.stock_in
+        topic = f"{prefix}/{event.event_type}"
+        payload = event.to_mqtt_payload()
+        try:
+            info = client.publish(
+                topic,
+                payload,
+                qos=settings.MQTT_QOS,
+                retain=settings.MQTT_RETAIN,
+            )
+            if info.rc != 0:
+                logger.warning("MQTT publish returned rc=%s topic=%s", info.rc, topic)
+        except Exception:
+            logger.exception("MQTT publish failed topic=%s", topic)
+
+    async def _publish_mqtt(self, event: DomainEvent) -> None:
+        await asyncio.to_thread(self._publish_mqtt_sync, event)
 
     def connect_mqtt(self, client: Any) -> None:
-        """Called during startup when MQTT is enabled (Phase 2)."""
+        """Register the connected paho client (after connect + loop_start)."""
         self._mqtt_client = client
-        logger.info("MQTT client connected to EventBus")
+        logger.info("MQTT client registered with EventBus")
+
+    def disconnect_mqtt(self) -> None:
+        """Stop network loop and disconnect (app shutdown)."""
+        c = self._mqtt_client
+        self._mqtt_client = None
+        if c is None:
+            return
+        try:
+            c.loop_stop()
+        except Exception as e:
+            logger.debug("MQTT loop_stop: %s", e)
+        try:
+            c.disconnect()
+        except Exception as e:
+            logger.debug("MQTT disconnect: %s", e)
+        logger.info("MQTT client disconnected from EventBus")
 
 
 event_bus = EventBus()

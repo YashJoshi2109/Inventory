@@ -206,6 +206,18 @@ class InventoryService:
         else:
             await self._stock_repo.upsert(item.id, req.location_id, req.new_quantity)
         await self._session.flush()
+
+        await event_bus.publish(DomainEvent(
+            event_type=EventType.ADJUSTMENT,
+            payload={
+                "item_id": item.id,
+                "location_id": req.location_id,
+                "previous_quantity": float(current),
+                "new_quantity": float(req.new_quantity),
+                "delta": float(delta),
+            },
+            actor_id=actor_id,
+        ))
         return event
 
     async def apply_barcode_scan(

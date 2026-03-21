@@ -30,6 +30,7 @@ from fastapi.staticfiles import StaticFiles
 
 from app.api.router import api_router
 from app.core.config import settings
+from app.core.events import event_bus
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
 logger = logging.getLogger(__name__)
@@ -43,20 +44,19 @@ async def lifespan(app: FastAPI):
     Path(settings.UPLOAD_DIR).mkdir(parents=True, exist_ok=True)
     Path(settings.BARCODE_DIR).mkdir(parents=True, exist_ok=True)
 
-    # MQTT connection (Phase 2 — no-op in Phase 1)
     if settings.MQTT_ENABLED:
         try:
-            import paho.mqtt.client as mqtt
-            from app.core.events import event_bus
-            client = mqtt.Client()
-            client.connect(settings.MQTT_BROKER_HOST, settings.MQTT_BROKER_PORT, 60)
-            client.loop_start()
-            event_bus.connect_mqtt(client)
-            logger.info("MQTT connected to %s:%s", settings.MQTT_BROKER_HOST, settings.MQTT_BROKER_PORT)
+            from app.core.mqtt_client import build_mqtt_client
+
+            mqtt_client = build_mqtt_client()
+            event_bus.connect_mqtt(mqtt_client)
         except Exception as e:
-            logger.warning("MQTT connection failed (non-fatal): %s", e)
+            logger.warning("MQTT startup failed (app continues without broker): %s", e)
 
     yield
+
+    if settings.MQTT_ENABLED:
+        event_bus.disconnect_mqtt()
 
     logger.info("Shutting down %s", settings.APP_NAME)
 
@@ -128,7 +128,18 @@ async def root():
 
 @app.get("/health", tags=["health"])
 async def health_check():
-    return {"status": "ok", "version": settings.APP_VERSION, "env": settings.ENVIRONMENT}
+    body: dict[str, str | bool | dict[str, bool | str]] = {
+        "status": "ok",
+        "version": settings.APP_VERSION,
+        "env": settings.ENVIRONMENT,
+    }
+    if settings.MQTT_ENABLED:
+        body["mqtt"] = {
+            "enabled": True,
+            "connected": event_bus.mqtt_connected,
+            "prefix": settings.MQTT_TOPIC_PREFIX,
+        }
+    return body
 
 
 # ── Static files (barcode images) ─────────────────────────────────────────────

@@ -45,5 +45,10 @@ services:
         value: "true"
       - key: MQTT_ENABLED
         value: "false"
+      # When MQTT_ENABLED=true, set in dashboard: MQTT_BROKER_HOST, MQTT_USERNAME, MQTT_PASSWORD, MQTT_USE_TLS, etc.
+      - key: MQTT_BROKER_HOST
+        sync: false
+      - key: MQTT_TOPIC_PREFIX
+        value: searlab/inventory
       - key: ALERT_EMAIL_ENABLED
         value: "false"
