@@ -135,3 +135,33 @@ If you use **EMQX Serverless**, typical values are:
 **Browser / WebSocket** (future live UI): `wss://<same-host>:8084/mqtt` with [MQTT.js](https://github.com/mqttjs/MQTT.js) — see [EMQX WebSocket guide](https://www.emqx.com/en/blog/connect-to-mqtt-broker-with-websocket).
 
 `render.yaml` enables MQTT and sets the public host; **`MQTT_PASSWORD` must be added in the Render dashboard** (`sync: false`) so the secret is not stored in Git.
+
+---
+
+## Render CLI (what it can / cannot do)
+
+The official [Render CLI](https://render.com/docs/cli) can **list services**, **tail logs**, **trigger deploys**, etc. It does **not** provide a command to set environment variables — use the **Dashboard → Environment** or the [Render REST API](https://render.com/docs/api) with an API key (`Authorization: Bearer …`).
+
+View recent MQTT-related logs for this project’s backend (replace with your service id from `render services -o json`):
+
+```bash
+render logs -r srv-d6tniama2pns738u7hlg --limit 100 -o text --text MQTT
+```
+
+---
+
+## EMQX Cloud Serverless: `Not authorized` / `mqtt.connected: false`
+
+If logs show **`MQTT connect not accepted: Not authorized`**:
+
+1. **Register MQTT users in EMQX** (required for Serverless):  
+   Console → your deployment → **Access Control → Authentication** → **+ Add**.  
+   Enter the **same** username and password you use in Render (`MQTT_USERNAME` / `MQTT_PASSWORD`).  
+   The overview “App ID / App Secret” are **not** automatically MQTT login credentials unless you **add** that pair here (or use the exact user you created).  
+   See [Create a Serverless Deployment](https://docs.emqx.com/en/cloud/latest/create/serverless.html) → *Connect to Serverless Deployment Using MQTTX*.
+
+2. **TLS + SNI**: Use the **deployment hostname** as `MQTT_BROKER_HOST` (not an IP). Port **8883**, `MQTT_USE_TLS=true`. Missing SNI can yield auth failure (`0x5`) on Serverless — see [EMQX FAQ](https://docs.emqx.com/en/cloud/latest/faq/deploy.html).
+
+3. **Optional**: Download the **CA certificate** from the deployment Overview and set `MQTT_TLS_CA_PATH` to that file path if verification issues appear.
+
+4. **Confirm with MQTTX** using the same host, 8883, TLS, and the username/password from **Authentication**. If MQTTX fails, fix EMQX auth before changing app code.

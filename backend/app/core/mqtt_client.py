@@ -88,8 +88,11 @@ def build_mqtt_client() -> mqtt.Client:
             client.tls_insecure_set(True)
             logger.warning("MQTT_TLS_INSECURE=true — broker certificate is not verified")
 
-    if settings.MQTT_USERNAME:
-        client.username_pw_set(settings.MQTT_USERNAME, settings.MQTT_PASSWORD or "")
+    # Strip whitespace — Render/dashboard pastes sometimes include trailing newlines.
+    mqtt_user = (settings.MQTT_USERNAME or "").strip()
+    mqtt_password = (settings.MQTT_PASSWORD or "").strip()
+    if mqtt_user:
+        client.username_pw_set(mqtt_user, mqtt_password)
 
     try:
         client.max_inflight_messages_set(settings.MQTT_MAX_INFLIGHT)
