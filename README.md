@@ -76,6 +76,7 @@ SEAR Lab Inventory is a production-grade inventory system built for laboratory e
 ### MQTT (optional — large-scale integrations)
 - Publishes **JSON domain events** to a broker (stock in/out/transfer/adjustment, item created/updated, login)
 - **QoS 1** by default, TLS + auth configurable — see [`docs/MQTT.md`](docs/MQTT.md)
+- **Vercel + Render:** the **API on Render** publishes MQTT; configure the broker there — [`docs/MQTT-DEPLOYMENT.md`](docs/MQTT-DEPLOYMENT.md)
 - Local broker: `docker compose --profile mqtt up` + `mosquitto.conf`
 
 ---

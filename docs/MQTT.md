@@ -1,5 +1,7 @@
 # MQTT integration — SEAR Lab Inventory
 
+**Deploying with Vercel + Render?** See **[MQTT-DEPLOYMENT.md](./MQTT-DEPLOYMENT.md)** — the frontend on Vercel does not speak MQTT; only the Render API does.
+
 The API publishes **JSON domain events** to an MQTT broker whenever inventory-changing operations occur (and on login / item lifecycle). This lets you plug in **large-scale** consumers without changing the core app:
 
 - **Data warehouse / analytics** (subscribe → Kafka / BigQuery / Snowflake)
