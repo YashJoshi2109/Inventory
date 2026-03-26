@@ -80,13 +80,6 @@ async def register(body: RegisterRequest, session: DbSession) -> TokenResponse:
     user_repo = UserRepository(session)
     role_repo = RoleRepository(session)
 
-    allowed = (settings.RESEND_TEST_ALLOWED_TO_EMAIL or "").strip().lower()
-    if allowed and body.email.lower() != allowed:
-        raise HTTPException(
-            status_code=403,
-            detail=f"Registration is restricted in testing mode. Use {allowed}.",
-        )
-
     if await user_repo.get_by_username(body.username):
         raise HTTPException(status_code=409, detail=f"Username '{body.username}' is already taken")
     if await user_repo.get_by_email(body.email):
@@ -129,6 +122,8 @@ async def register(body: RegisterRequest, session: DbSession) -> TokenResponse:
 async def login(body: LoginRequest, request: Request, session: DbSession) -> TokenResponse:
     repo = UserRepository(session)
     user = await repo.get_by_username(body.username)
+    if not user and "@" in body.username:
+        user = await repo.get_by_email(body.username)
     if not user or not verify_password(body.password, user.hashed_password):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,

@@ -3,9 +3,11 @@ from __future__ import annotations
 import asyncio
 import base64
 import logging
+import smtplib
 from datetime import datetime, timezone
 from decimal import Decimal
 from typing import Any
+from email.message import EmailMessage
 
 import httpx
 from sqlalchemy import select
@@ -21,6 +23,82 @@ from app.repositories.item_repo import ItemRepository
 from app.repositories.transaction_repo import AlertRepository, StockLevelRepository
 
 log = logging.getLogger(__name__)
+
+
+def _smtp_configured() -> bool:
+    return bool(settings.SMTP_HOST and settings.SMTP_PORT and settings.SMTP_USER and settings.SMTP_PASSWORD)
+
+
+async def _send_smtp_email(
+    *,
+    to_emails: list[str],
+    subject: str,
+    html: str,
+    text: str,
+    attachments: list[dict[str, Any]] | None = None,
+) -> bool:
+    """
+    Send email using SMTP in a background thread (blocking I/O).
+    Attachments format: [{ filename, contentType, content_base64 }]
+    """
+    if not _smtp_configured():
+        return False
+    if not to_emails:
+        return False
+
+    from_email = (settings.SMTP_FROM_EMAIL or settings.SMTP_USER).strip()
+    if not from_email:
+        return False
+
+    msg = EmailMessage()
+    msg["From"] = from_email
+    msg["To"] = ", ".join(to_emails)
+    msg["Subject"] = subject
+
+    # Plain + HTML
+    msg.set_content(text or "")
+    if html:
+        msg.add_alternative(html, subtype="html")
+
+    # Attachments
+    if attachments:
+        for a in attachments:
+            filename = a.get("filename") or "attachment"
+            content_type = a.get("contentType") or "application/octet-stream"
+            b64 = a.get("content_base64") or ""
+            try:
+                raw = base64.b64decode(b64)
+            except Exception:
+                continue
+            maintype, _, subtype = content_type.partition("/")
+            if not subtype:
+                maintype, subtype = "application", "octet-stream"
+            msg.add_attachment(raw, maintype=maintype, subtype=subtype, filename=filename)
+
+    def _send_blocking() -> None:
+        if settings.SMTP_SSL:
+            server: smtplib.SMTP = smtplib.SMTP_SSL(settings.SMTP_HOST, settings.SMTP_PORT, timeout=20)
+        else:
+            server = smtplib.SMTP(settings.SMTP_HOST, settings.SMTP_PORT, timeout=20)
+        try:
+            server.ehlo()
+            if settings.SMTP_STARTTLS and not settings.SMTP_SSL:
+                server.starttls()
+                server.ehlo()
+            server.login(settings.SMTP_USER, settings.SMTP_PASSWORD)
+            server.send_message(msg)
+        finally:
+            try:
+                server.quit()
+            except Exception:
+                pass
+
+    try:
+        await asyncio.to_thread(_send_blocking)
+        return True
+    except Exception:
+        log.exception("SMTP email send failed (subject=%s)", subject)
+        return False
 
 
 def _build_resend_html(body: str) -> str:
@@ -96,6 +174,36 @@ async def _send_resend_email(
         return False
 
 
+async def _send_email(
+    *,
+    to_emails: list[str],
+    subject: str,
+    html: str,
+    text: str,
+    attachments_resend: list[dict[str, Any]] | None = None,
+    attachments_smtp: list[dict[str, Any]] | None = None,
+) -> bool:
+    """
+    Primary: SMTP (if configured). Fallback: Resend.
+    """
+    smtp_ok = await _send_smtp_email(
+        to_emails=to_emails,
+        subject=subject,
+        html=html,
+        text=text,
+        attachments=attachments_smtp,
+    )
+    if smtp_ok:
+        return True
+    return await _send_resend_email(
+        to_emails=to_emails,
+        subject=subject,
+        html=html,
+        text=text,
+        attachments=attachments_resend,
+    )
+
+
 async def _get_recipient_emails(*, session) -> list[str]:
     # Notify admin/manager by default.
     roles = [RoleName.ADMIN.value, RoleName.MANAGER.value]
@@ -157,7 +265,7 @@ async def _send_low_stock_email(*, item: Item, total_qty: Decimal, recipients: l
         """
     )
     text = f"Low stock: {item.name} ({item.sku}). On-hand {float(total_qty)} {item.unit}, reorder level {float(item.reorder_level)}."
-    await _send_resend_email(to_emails=recipients, subject=subject, html=html, text=text)
+    await _send_email(to_emails=recipients, subject=subject, html=html, text=text)
 
 
 async def _handle_transfer_email(event: DomainEvent) -> None:
@@ -211,7 +319,7 @@ async def _handle_transfer_email(event: DomainEvent) -> None:
             f"Transfer recorded by {actor.username}: {item.name} ({item.sku}), quantity {quantity}. "
             f"From {from_loc.code if from_loc else from_location_id} to {to_loc.code if to_loc else to_location_id}."
         )
-        await _send_resend_email(to_emails=[actor.email], subject=subject, html=html, text=text)
+        await _send_email(to_emails=[actor.email], subject=subject, html=html, text=text)
 
 
 async def _check_and_notify_low_stock(*, changed_item_id: int | None = None) -> None:
@@ -303,10 +411,6 @@ async def send_item_qr_email(*, to_email: str, item_sku: str, item_name: str, qr
     """
     if not to_email:
         return False, "No recipient email configured on your account."
-    allowed = (settings.RESEND_TEST_ALLOWED_TO_EMAIL or "").strip().lower()
-    if allowed and to_email.lower() != allowed:
-        return False, f"Email sending is restricted in testing mode. Recipient must be {allowed}."
-
     subject = f"[SEAR Lab Inventory] Your item QR: {item_sku}"
     html = _build_resend_html(
         f"""
@@ -322,24 +426,30 @@ async def send_item_qr_email(*, to_email: str, item_sku: str, item_name: str, qr
     )
     text = f"Item QR ready. SKU: {item_sku}. Item: {item_name}."
 
-    b64 = base64.b64encode(qr_png).decode("ascii")
-    attachments = [
-        {
-            "filename": f"{item_sku}-qr.png",
-            "content": b64,
-            "contentType": "image/png",
-        }
-    ]
     try:
-        ok = await _send_resend_email(
+        smtp_attachments = [
+            {
+                "filename": f"{item_sku}-qr.png",
+                "contentType": "image/png",
+                "content_base64": base64.b64encode(qr_png).decode("ascii"),
+            }
+        ]
+        resend_attachments = [
+            {
+                "filename": f"{item_sku}-qr.png",
+                "contentType": "image/png",
+                "content": base64.b64encode(qr_png).decode("ascii"),
+            }
+        ]
+        ok = await _send_email(
             to_emails=[to_email],
             subject=subject,
             html=html,
             text=text,
-            attachments=attachments,
-            raise_on_fail=True,
+            attachments_resend=resend_attachments,
+            attachments_smtp=smtp_attachments,
         )
-        return ok, ok and "QR sent to your email." or "QR email send failed."
+        return (True, "QR sent to your email.") if ok else (False, "QR email send failed.")
     except httpx.HTTPStatusError as exc:
         status = exc.response.status_code if exc.response else 0
         detail = ""
@@ -358,9 +468,6 @@ async def send_item_qr_email(*, to_email: str, item_sku: str, item_name: str, qr
 async def send_welcome_email(*, to_email: str, full_name: str, username: str) -> tuple[bool, str]:
     if not to_email:
         return False, "No recipient email configured on your account."
-    allowed = (settings.RESEND_TEST_ALLOWED_TO_EMAIL or "").strip().lower()
-    if allowed and to_email.lower() != allowed:
-        return False, f"Email sending is restricted in testing mode. Recipient must be {allowed}."
 
     subject = "[SEAR Lab Inventory] Welcome"
     html = _build_resend_html(
@@ -374,16 +481,13 @@ async def send_welcome_email(*, to_email: str, full_name: str, username: str) ->
     )
     text = f"Welcome to SEAR Lab Inventory. Username: {username}."
 
-    ok = await _send_resend_email(to_emails=[to_email], subject=subject, html=html, text=text)
+    ok = await _send_email(to_emails=[to_email], subject=subject, html=html, text=text)
     return (True, "Welcome email sent.") if ok else (False, "Welcome email could not be sent.")
 
 
 async def send_login_email(*, to_email: str, full_name: str, ip: str | None) -> tuple[bool, str]:
     if not to_email:
         return False, "No recipient email configured on your account."
-    allowed = (settings.RESEND_TEST_ALLOWED_TO_EMAIL or "").strip().lower()
-    if allowed and to_email.lower() != allowed:
-        return False, f"Email sending is restricted in testing mode. Recipient must be {allowed}."
 
     subject = "[SEAR Lab Inventory] Login notification"
     ip_html = f"<li>IP: <b>{ip}</b></li>" if ip else "<li>IP: <b>unknown</b></li>"
@@ -401,6 +505,6 @@ async def send_login_email(*, to_email: str, full_name: str, ip: str | None) -> 
     )
     text = f"Login notification. IP: {ip or 'unknown'}."
 
-    ok = await _send_resend_email(to_emails=[to_email], subject=subject, html=html, text=text)
+    ok = await _send_email(to_emails=[to_email], subject=subject, html=html, text=text)
     return (True, "Login email sent.") if ok else (False, "Login email could not be sent.")
 

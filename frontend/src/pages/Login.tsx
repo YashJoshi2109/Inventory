@@ -30,8 +30,9 @@ export function Login() {
       const user = await authApi.getMe();
       setUser(user);
       navigate("/dashboard");
-    } catch {
-      toast.error("Invalid username or password");
+    } catch (e: unknown) {
+      const msg = (e as { response?: { data?: { detail?: string } } })?.response?.data?.detail;
+      toast.error(typeof msg === "string" ? msg : "Invalid username or password");
     }
   };
 

@@ -114,6 +114,9 @@ class Settings(BaseSettings):
     SMTP_PORT: int = 587
     SMTP_USER: str = ""
     SMTP_PASSWORD: str = ""
+    SMTP_FROM_EMAIL: str = ""
+    SMTP_STARTTLS: bool = True
+    SMTP_SSL: bool = False
 
     # Resend (primary email notifications for alerts)
     RESEND_API_KEY: str = ""
