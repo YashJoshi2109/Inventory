@@ -106,7 +106,16 @@ async def register(body: RegisterRequest, session: DbSession) -> TokenResponse:
 
     # Fire-and-forget welcome email (do not block registration).
     if user.email:
-        asyncio.create_task(send_welcome_email(to_email=user.email, full_name=user.full_name, username=user.username))
+        async def _send_welcome_and_log() -> None:
+            ok, detail = await send_welcome_email(
+                to_email=user.email, full_name=user.full_name, username=user.username
+            )
+            if not ok:
+                import logging
+                logging.getLogger(__name__).warning(
+                    "Welcome email failed user_id=%s email=%s detail=%s", user.id, user.email, detail
+                )
+        asyncio.create_task(_send_welcome_and_log())
 
     role_names = [body.role]
     access = create_access_token(user.id, extra={"roles": role_names, "username": user.username})
@@ -147,13 +156,18 @@ async def login(body: LoginRequest, request: Request, session: DbSession) -> Tok
 
     # Fire-and-forget login notification email (do not block login).
     if user.email:
-        asyncio.create_task(
-            send_login_email(
+        async def _send_login_and_log() -> None:
+            ok, detail = await send_login_email(
                 to_email=user.email,
                 full_name=user.full_name,
                 ip=request.client.host if request.client else None,
             )
-        )
+            if not ok:
+                import logging
+                logging.getLogger(__name__).warning(
+                    "Login email failed user_id=%s email=%s detail=%s", user.id, user.email, detail
+                )
+        asyncio.create_task(_send_login_and_log())
 
     return TokenResponse(
         access_token=access,

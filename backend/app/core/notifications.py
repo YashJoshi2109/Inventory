@@ -36,6 +36,7 @@ async def _send_smtp_email(
     html: str,
     text: str,
     attachments: list[dict[str, Any]] | None = None,
+    raise_on_fail: bool = False,
 ) -> bool:
     """
     Send email using SMTP in a background thread (blocking I/O).
@@ -98,6 +99,8 @@ async def _send_smtp_email(
         return True
     except Exception:
         log.exception("SMTP email send failed (subject=%s)", subject)
+        if raise_on_fail:
+            raise
         return False
 
 
@@ -202,6 +205,71 @@ async def _send_email(
         text=text,
         attachments=attachments_resend,
     )
+
+
+async def _send_email_with_detail(
+    *,
+    to_emails: list[str],
+    subject: str,
+    html: str,
+    text: str,
+    attachments_resend: list[dict[str, Any]] | None = None,
+    attachments_smtp: list[dict[str, Any]] | None = None,
+) -> tuple[bool, str]:
+    """
+    Try SMTP first, then Resend. Returns (ok, detail_message).
+    """
+    if not to_emails:
+        return False, "No recipients provided."
+
+    smtp_enabled = _smtp_configured()
+    resend_enabled = bool(settings.RESEND_API_KEY and settings.RESEND_FROM_EMAIL)
+
+    if smtp_enabled:
+        try:
+            smtp_ok = await _send_smtp_email(
+                to_emails=to_emails,
+                subject=subject,
+                html=html,
+                text=text,
+                attachments=attachments_smtp,
+                raise_on_fail=True,
+            )
+            if smtp_ok:
+                return True, "Email sent via SMTP."
+        except Exception as exc:
+            smtp_err = f"SMTP failed: {exc.__class__.__name__}"
+            if not resend_enabled:
+                return False, smtp_err
+    else:
+        smtp_err = "SMTP is not configured."
+
+    if resend_enabled:
+        try:
+            resend_ok = await _send_resend_email(
+                to_emails=to_emails,
+                subject=subject,
+                html=html,
+                text=text,
+                attachments=attachments_resend,
+                raise_on_fail=True,
+            )
+            if resend_ok:
+                return True, "Email sent via Resend fallback."
+        except httpx.HTTPStatusError as exc:
+            status = exc.response.status_code if exc.response else 0
+            body = ""
+            try:
+                body = exc.response.text
+            except Exception:
+                body = ""
+            if len(body) > 350:
+                body = body[:350] + "…"
+            return False, f"{smtp_err} Resend failed (HTTP {status}): {body}".strip()
+        except Exception as exc:
+            return False, f"{smtp_err} Resend failed: {exc.__class__.__name__}".strip()
+
+    return False, f"{smtp_err} Resend is not configured."
 
 
 async def _get_recipient_emails(*, session) -> list[str]:
@@ -426,43 +494,31 @@ async def send_item_qr_email(*, to_email: str, item_sku: str, item_name: str, qr
     )
     text = f"Item QR ready. SKU: {item_sku}. Item: {item_name}."
 
-    try:
-        smtp_attachments = [
-            {
-                "filename": f"{item_sku}-qr.png",
-                "contentType": "image/png",
-                "content_base64": base64.b64encode(qr_png).decode("ascii"),
-            }
-        ]
-        resend_attachments = [
-            {
-                "filename": f"{item_sku}-qr.png",
-                "contentType": "image/png",
-                "content": base64.b64encode(qr_png).decode("ascii"),
-            }
-        ]
-        ok = await _send_email(
-            to_emails=[to_email],
-            subject=subject,
-            html=html,
-            text=text,
-            attachments_resend=resend_attachments,
-            attachments_smtp=smtp_attachments,
-        )
-        return (True, "QR sent to your email.") if ok else (False, "QR email send failed.")
-    except httpx.HTTPStatusError as exc:
-        status = exc.response.status_code if exc.response else 0
-        detail = ""
-        try:
-            detail = exc.response.text
-        except Exception:
-            detail = ""
-        if detail and len(detail) > 500:
-            detail = detail[:500] + "…"
-        msg = f"Resend rejected the request (HTTP {status}). {detail}".strip()
-        return False, msg
-    except Exception:
-        return False, "Resend email send failed. Check server logs and your Resend configuration."
+    smtp_attachments = [
+        {
+            "filename": f"{item_sku}-qr.png",
+            "contentType": "image/png",
+            "content_base64": base64.b64encode(qr_png).decode("ascii"),
+        }
+    ]
+    resend_attachments = [
+        {
+            "filename": f"{item_sku}-qr.png",
+            "contentType": "image/png",
+            "content": base64.b64encode(qr_png).decode("ascii"),
+        }
+    ]
+    ok, detail = await _send_email_with_detail(
+        to_emails=[to_email],
+        subject=subject,
+        html=html,
+        text=text,
+        attachments_resend=resend_attachments,
+        attachments_smtp=smtp_attachments,
+    )
+    if ok:
+        return True, "QR sent to your email."
+    return False, f"QR email send failed. {detail}"
 
 
 async def send_welcome_email(*, to_email: str, full_name: str, username: str) -> tuple[bool, str]:
@@ -481,8 +537,8 @@ async def send_welcome_email(*, to_email: str, full_name: str, username: str) ->
     )
     text = f"Welcome to SEAR Lab Inventory. Username: {username}."
 
-    ok = await _send_email(to_emails=[to_email], subject=subject, html=html, text=text)
-    return (True, "Welcome email sent.") if ok else (False, "Welcome email could not be sent.")
+    ok, detail = await _send_email_with_detail(to_emails=[to_email], subject=subject, html=html, text=text)
+    return (True, "Welcome email sent.") if ok else (False, f"Welcome email could not be sent. {detail}")
 
 
 async def send_login_email(*, to_email: str, full_name: str, ip: str | None) -> tuple[bool, str]:
@@ -505,6 +561,6 @@ async def send_login_email(*, to_email: str, full_name: str, ip: str | None) -> 
     )
     text = f"Login notification. IP: {ip or 'unknown'}."
 
-    ok = await _send_email(to_emails=[to_email], subject=subject, html=html, text=text)
-    return (True, "Login email sent.") if ok else (False, "Login email could not be sent.")
+    ok, detail = await _send_email_with_detail(to_emails=[to_email], subject=subject, html=html, text=text)
+    return (True, "Login email sent.") if ok else (False, f"Login email could not be sent. {detail}")
 
