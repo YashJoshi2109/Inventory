@@ -2,7 +2,7 @@ import { NavLink } from "react-router-dom";
 import {
   LayoutDashboard, Package, MapPin, QrCode,
   ClipboardList, Upload, Users,
-  Beaker, BrainCircuit, Bell, LogOut,
+  Beaker, BrainCircuit, Bell, LogOut, Bot,
 } from "lucide-react";
 import { clsx } from "clsx";
 import { useAuthStore } from "@/store/auth";
@@ -17,6 +17,7 @@ const navItems = [
   { to: "/transactions", label: "Transactions", icon: ClipboardList },
   { to: "/alerts",       label: "Alerts",       icon: Bell },
   { to: "/import",       label: "Import",       icon: Upload, roles: ["admin", "manager"] },
+  { to: "/copilot",      label: "AI Copilot",   icon: Bot, highlight2: true },
   { to: "/ai",           label: "AI Insights",  icon: BrainCircuit },
   { to: "/users",        label: "Users",        icon: Users, roles: ["admin"] },
 ];
@@ -65,7 +66,7 @@ export function Sidebar() {
 
       {/* Navigation */}
       <nav className="flex-1 px-3 py-4 space-y-0.5 overflow-y-auto scrollbar-none">
-        {navItems.map(({ to, label, icon: Icon, highlight, roles }) => {
+        {(navItems as Array<{ to: string; label: string; icon: React.ElementType; highlight?: boolean; highlight2?: boolean; roles?: string[] }>).map(({ to, label, icon: Icon, highlight, highlight2, roles }) => {
           if (roles && !hasRole(...roles)) return null;
           return (
             <NavLink
@@ -76,6 +77,8 @@ export function Sidebar() {
                   "flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-all duration-150 relative group",
                   isActive && highlight
                     ? "text-white"
+                    : isActive && highlight2
+                    ? "text-purple-200"
                     : isActive
                     ? "text-brand-300"
                     : "text-slate-500 hover:text-slate-200",
@@ -87,6 +90,12 @@ export function Sidebar() {
                       background: "linear-gradient(135deg, rgba(8,145,178,0.4), rgba(34,211,238,0.2))",
                       border: "1px solid rgba(34,211,238,0.3)",
                       boxShadow: "0 0 15px rgba(34,211,238,0.15), inset 0 1px 0 rgba(255,255,255,0.08)",
+                    }
+                  : isActive && highlight2
+                  ? {
+                      background: "linear-gradient(135deg, rgba(139,92,246,0.25), rgba(167,139,250,0.12))",
+                      border: "1px solid rgba(167,139,250,0.3)",
+                      boxShadow: "0 0 15px rgba(167,139,250,0.12)",
                     }
                   : isActive
                   ? {
@@ -105,12 +114,22 @@ export function Sidebar() {
                     className={clsx(
                       isActive && highlight
                         ? "text-white"
+                        : isActive && highlight2
+                        ? "text-purple-300"
                         : isActive
                         ? "text-brand-400"
                         : "text-slate-500 group-hover:text-slate-300 transition-colors",
                     )}
                   />
                   <span className="flex-1">{label}</span>
+                  {label === "AI Copilot" && (
+                    <span
+                      className="text-[9px] font-bold px-1.5 py-0.5 rounded-full uppercase tracking-wide"
+                      style={{ background: "rgba(167,139,250,0.15)", color: "#a78bfa", border: "1px solid rgba(167,139,250,0.25)" }}
+                    >
+                      New
+                    </span>
+                  )}
                   {label === "Alerts" && alertCount > 0 && (
                     <span
                       className="text-[10px] font-bold px-1.5 py-0.5 rounded-full min-w-[20px] text-center"

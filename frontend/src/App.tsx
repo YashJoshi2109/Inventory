@@ -11,8 +11,10 @@ import { Locations } from "@/pages/Locations";
 import { Import } from "@/pages/Import";
 import { Alerts } from "@/pages/Alerts";
 import { AiInsights } from "@/pages/AiInsights";
+import { AiCopilot } from "@/pages/AiCopilot";
+import { Login } from "@/pages/Login";
+import { Register } from "@/pages/Register";
 import { useAuthStore } from "@/store/auth";
-import { authApi } from "@/api/auth";
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -27,21 +29,19 @@ const queryClient = new QueryClient({
   },
 });
 
-/** Silently logs in as admin if no session exists, then renders the app. */
-function AutoAuthProvider({ children }: { children: React.ReactNode }) {
-  const { isAuthenticated, setTokens, setUser } = useAuthStore();
+/**
+ * Waits for persisted auth state rehydration before rendering routes.
+ * This prevents brief auth flicker on first load.
+ */
+function AuthBootstrap({ children }: { children: React.ReactNode }) {
+  const { isAuthenticated } = useAuthStore();
   const [ready, setReady] = useState(isAuthenticated);
 
   useEffect(() => {
-    if (isAuthenticated) { setReady(true); return; }
-    authApi.login("sear_admin", "SearLab@2024")
-      .then((tokens) => {
-        setTokens(tokens.access_token, tokens.refresh_token);
-        return authApi.getMe();
-      })
-      .then((user) => { setUser(user); setReady(true); })
-      .catch(() => setReady(true)); // fall through even on error
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+    // Zustand persist rehydrates asynchronously; wait one tick before rendering.
+    const timer = window.setTimeout(() => setReady(true), 50);
+    return () => window.clearTimeout(timer);
+  }, [isAuthenticated]);
 
   if (!ready) {
     return (
@@ -57,30 +57,45 @@ function AutoAuthProvider({ children }: { children: React.ReactNode }) {
   return <>{children}</>;
 }
 
+function ProtectedRoute({ children }: { children: React.ReactNode }) {
+  const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
+  if (!isAuthenticated) {
+    return <Navigate to="/login" replace />;
+  }
+  return <>{children}</>;
+}
+
 export default function App() {
   return (
     <QueryClientProvider client={queryClient}>
       <BrowserRouter>
-        <AutoAuthProvider>
+        <AuthBootstrap>
           <Routes>
-            {/* Login & register redirect straight to dashboard */}
-            <Route path="/login"    element={<Navigate to="/dashboard" replace />} />
-            <Route path="/register" element={<Navigate to="/dashboard" replace />} />
-            <Route path="/" element={<Layout />}>
+            <Route path="/login" element={<Login />} />
+            <Route path="/register" element={<Register />} />
+            <Route
+              path="/"
+              element={(
+                <ProtectedRoute>
+                  <Layout />
+                </ProtectedRoute>
+              )}
+            >
               <Route index element={<Navigate to="/dashboard" replace />} />
-              <Route path="dashboard"       element={<Dashboard />} />
-              <Route path="inventory"       element={<Inventory />} />
-              <Route path="inventory/:id"   element={<ItemDetail />} />
-              <Route path="scan"            element={<Scan />} />
-              <Route path="transactions"    element={<Transactions />} />
-              <Route path="locations"       element={<Locations />} />
-              <Route path="import"          element={<Import />} />
-              <Route path="alerts"          element={<Alerts />} />
-              <Route path="ai"              element={<AiInsights />} />
+              <Route path="dashboard" element={<Dashboard />} />
+              <Route path="inventory" element={<Inventory />} />
+              <Route path="inventory/:id" element={<ItemDetail />} />
+              <Route path="scan" element={<Scan />} />
+              <Route path="transactions" element={<Transactions />} />
+              <Route path="locations" element={<Locations />} />
+              <Route path="import" element={<Import />} />
+              <Route path="alerts" element={<Alerts />} />
+              <Route path="ai" element={<AiInsights />} />
+              <Route path="copilot" element={<AiCopilot />} />
             </Route>
             <Route path="*" element={<Navigate to="/dashboard" replace />} />
           </Routes>
-        </AutoAuthProvider>
+        </AuthBootstrap>
       </BrowserRouter>
     </QueryClientProvider>
   );

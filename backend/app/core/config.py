@@ -100,7 +100,8 @@ class Settings(BaseSettings):
     # AI
     AI_ANOMALY_DETECTION_ENABLED: bool = True
     AI_FORECAST_ENABLED: bool = True
-    OPENAI_API_KEY: str = ""  # Optional: for embedding-based NLP search
+    OPENAI_API_KEY: str = ""          # Required for AI copilot chat
+    OPENAI_MODEL: str = "gpt-4o-mini" # LLM model (gpt-4o-mini for cost, gpt-4o for quality)
 
     # Alerts
     LOW_STOCK_CHECK_INTERVAL_SECONDS: int = 300
