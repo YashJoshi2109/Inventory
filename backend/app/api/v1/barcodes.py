@@ -3,6 +3,7 @@ from fastapi.responses import Response
 
 from app.api.v1.auth import CurrentUser
 from app.core.database import DbSession
+from app.core.notifications import send_item_qr_email
 from app.repositories.item_repo import ItemRepository
 from app.repositories.location_repo import LocationRepository
 from app.services.barcode_service import (
@@ -10,6 +11,7 @@ from app.services.barcode_service import (
     render_qr_png,
     render_qr_svg,
 )
+from app.schemas.common import MessageResponse
 
 router = APIRouter(prefix="/barcodes", tags=["barcodes"])
 
@@ -25,6 +27,33 @@ async def item_qr_png(item_id: int, session: DbSession, current_user: CurrentUse
         return Response(content=primary.qr_image, media_type="image/png")
     png_bytes = render_qr_png(item.sku)
     return Response(content=png_bytes, media_type="image/png")
+
+
+@router.post("/item/{item_id}/qr/send-email", response_model=MessageResponse)
+async def item_qr_send_email(item_id: int, session: DbSession, current_user: CurrentUser) -> MessageResponse:
+    repo = ItemRepository(session)
+    item = await repo.get_with_details(item_id)
+    if not item:
+        raise HTTPException(status_code=404, detail="Item not found")
+
+    if not current_user.email:
+        return MessageResponse(message="Your account has no email configured.", success=False)
+
+    primary = next((b for b in item.barcodes if b.is_primary), None)
+    if primary and primary.qr_image:
+        png_bytes = primary.qr_image
+    else:
+        png_bytes = render_qr_png(item.sku)
+
+    ok, email_msg = await send_item_qr_email(
+        to_email=current_user.email,
+        item_sku=item.sku,
+        item_name=item.name,
+        qr_png=png_bytes,
+    )
+    if ok:
+        return MessageResponse(message=email_msg, success=True)
+    return MessageResponse(message=email_msg, success=False)
 
 
 @router.get("/item/{item_id}/png")

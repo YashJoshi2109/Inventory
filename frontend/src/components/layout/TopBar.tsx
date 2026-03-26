@@ -1,7 +1,8 @@
 import { useLocation } from "react-router-dom";
-import { Search } from "lucide-react";
+import { LogOut, Search } from "lucide-react";
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
+import { useAuthStore } from "@/store/auth";
 
 const titles: Record<string, string> = {
   "/dashboard":    "Dashboard",
@@ -20,12 +21,18 @@ export function TopBar() {
   const title = titles[pathname] ?? "SEAR Lab";
   const navigate = useNavigate();
   const [query, setQuery] = useState("");
+  const { user, logout } = useAuthStore();
 
   const handleSearch = (e: React.FormEvent) => {
     e.preventDefault();
     if (query.trim()) {
       navigate(`/inventory?q=${encodeURIComponent(query.trim())}`);
     }
+  };
+
+  const onLogout = () => {
+    logout();
+    navigate("/login");
   };
 
   return (
@@ -65,6 +72,24 @@ export function TopBar() {
           />
         </div>
       </form>
+
+      {/* Desktop user actions */}
+      {user && (
+        <div className="hidden lg:flex items-center gap-3">
+          <div className="text-right leading-tight">
+            <p className="text-xs text-slate-400">Welcome</p>
+            <p className="text-sm font-semibold text-slate-200 max-w-[220px] truncate">{user.full_name}</p>
+          </div>
+          <button
+            onClick={onLogout}
+            className="inline-flex items-center justify-center w-9 h-9 rounded-xl transition-colors"
+            style={{ background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.08)" }}
+            title="Logout"
+          >
+            <LogOut size={16} className="text-slate-300" />
+          </button>
+        </div>
+      )}
     </header>
   );
 }

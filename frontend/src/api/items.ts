@@ -79,4 +79,9 @@ export const itemsApi = {
     const { data } = await apiClient.get(`/barcodes/location/${locationId}/qr/png`, { responseType: "blob" });
     return data;
   },
+
+  sendQrToEmail: async (itemId: number): Promise<{ message: string; success: boolean }> => {
+    const { data } = await apiClient.post(`/barcodes/item/${itemId}/qr/send-email`);
+    return data;
+  },
 };

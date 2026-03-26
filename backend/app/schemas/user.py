@@ -84,3 +84,7 @@ class RefreshRequest(OrmBase):
 class PasswordChangeRequest(OrmBase):
     current_password: str
     new_password: str = Field(min_length=8, max_length=128)
+
+
+class AdminPasswordResetRequest(OrmBase):
+    new_password: str = Field(min_length=8, max_length=128)

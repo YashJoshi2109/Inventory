@@ -1,4 +1,5 @@
 from datetime import datetime, timezone
+import asyncio
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
@@ -6,6 +7,7 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
 from app.core.database import DbSession
 from app.core.events import DomainEvent, EventType, event_bus
+from app.core.notifications import send_login_email, send_welcome_email
 from app.core.security import (
     create_access_token,
     create_refresh_token,
@@ -20,6 +22,7 @@ from app.models.user import User, UserRole
 from app.core.security import hash_password
 from app.repositories.user_repo import RoleRepository
 from pydantic import EmailStr, Field
+from sqlalchemy.exc import IntegrityError
 
 
 class RegisterRequest(LoginRequest):
@@ -77,6 +80,13 @@ async def register(body: RegisterRequest, session: DbSession) -> TokenResponse:
     user_repo = UserRepository(session)
     role_repo = RoleRepository(session)
 
+    allowed = (settings.RESEND_TEST_ALLOWED_TO_EMAIL or "").strip().lower()
+    if allowed and body.email.lower() != allowed:
+        raise HTTPException(
+            status_code=403,
+            detail=f"Registration is restricted in testing mode. Use {allowed}.",
+        )
+
     if await user_repo.get_by_username(body.username):
         raise HTTPException(status_code=409, detail=f"Username '{body.username}' is already taken")
     if await user_repo.get_by_email(body.email):
@@ -89,13 +99,21 @@ async def register(body: RegisterRequest, session: DbSession) -> TokenResponse:
         hashed_password=hash_password(body.password),
     )
     session.add(user)
-    await session.flush()
+    try:
+        await session.flush()
+    except IntegrityError:
+        # Race condition protection: unique constraint on users.email / users.username
+        raise HTTPException(status_code=409, detail="Email or username already registered")
 
     role = await role_repo.get_by_name(body.role)
     if role:
         session.add(UserRole(user_id=user.id, role_id=role.id))
     await session.flush()
     await session.refresh(user)
+
+    # Fire-and-forget welcome email (do not block registration).
+    if user.email:
+        asyncio.create_task(send_welcome_email(to_email=user.email, full_name=user.full_name, username=user.username))
 
     role_names = [body.role]
     access = create_access_token(user.id, extra={"roles": role_names, "username": user.username})
@@ -131,6 +149,16 @@ async def login(body: LoginRequest, request: Request, session: DbSession) -> Tok
         payload={"user_id": user.id, "username": user.username, "ip": request.client.host if request.client else None},
         actor_id=user.id,
     ))
+
+    # Fire-and-forget login notification email (do not block login).
+    if user.email:
+        asyncio.create_task(
+            send_login_email(
+                to_email=user.email,
+                full_name=user.full_name,
+                ip=request.client.host if request.client else None,
+            )
+        )
 
     return TokenResponse(
         access_token=access,

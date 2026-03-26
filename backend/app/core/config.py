@@ -118,6 +118,9 @@ class Settings(BaseSettings):
     # Resend (primary email notifications for alerts)
     RESEND_API_KEY: str = ""
     RESEND_FROM_EMAIL: str = ""
+    # When using Resend's testing sender (e.g. onboarding@resend.dev), Resend only
+    # delivers to the account owner's email. This allows us to enforce that at auth time.
+    RESEND_TEST_ALLOWED_TO_EMAIL: str = ""
     # Enable alert notifications automatically when keys are configured.
     # Actual sending is still skipped if RESEND_API_KEY / RESEND_FROM_EMAIL are missing.
     RESEND_ENABLE_LOW_STOCK: bool = True

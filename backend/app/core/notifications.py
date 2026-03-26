@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import base64
 import logging
 from datetime import datetime, timezone
 from decimal import Decimal
@@ -31,11 +32,24 @@ def _build_resend_html(body: str) -> str:
     """.strip()
 
 
-async def _send_resend_email(*, to_emails: list[str], subject: str, html: str, text: str) -> None:
+async def _send_resend_email(
+    *,
+    to_emails: list[str],
+    subject: str,
+    html: str,
+    text: str,
+    attachments: list[dict[str, Any]] | None = None,
+    raise_on_fail: bool = False,
+) -> bool:
+    """
+    Send an email via Resend.
+
+    Returns True if the request succeeded, False otherwise (including missing config).
+    """
     if not settings.RESEND_API_KEY or not settings.RESEND_FROM_EMAIL:
-        return
+        return False
     if not to_emails:
-        return
+        return False
 
     # Resend rejects requests without a User-Agent in some environments.
     headers = {
@@ -50,13 +64,36 @@ async def _send_resend_email(*, to_emails: list[str], subject: str, html: str, t
         "html": html,
         "text": text,
     }
+    if attachments:
+        payload["attachments"] = attachments
 
     try:
         async with httpx.AsyncClient(timeout=20) as client:
             r = await client.post("https://api.resend.com/emails", headers=headers, json=payload)
             r.raise_for_status()
+            return True
+    except httpx.HTTPStatusError as exc:
+        # Include response body for actionable debugging (safe: Resend doesn't echo API key).
+        try:
+            resp_text = exc.response.text
+        except Exception:
+            resp_text = "<unreadable>"
+        log.exception(
+            "Resend email send failed (subject=%s, status=%s, from=%s, to=%s, body=%s)",
+            subject,
+            exc.response.status_code if exc.response else None,
+            payload.get("from"),
+            payload.get("to"),
+            resp_text[:1000],
+        )
+        if raise_on_fail:
+            raise
+        return False
     except Exception:
         log.exception("Resend email send failed (subject=%s)", subject)
+        if raise_on_fail:
+            raise
+        return False
 
 
 async def _get_recipient_emails(*, session) -> list[str]:
@@ -200,7 +237,7 @@ async def _check_and_notify_low_stock(*, changed_item_id: int | None = None) -> 
         if not items_to_check:
             return
 
-        recipients = await _get_recipient_emails(session)
+        recipients = await _get_recipient_emails(session=session)
         alert_repo = AlertRepository(session)
 
         created_any = False
@@ -258,4 +295,112 @@ def register_notification_handlers() -> None:
     event_bus.subscribe(EventType.STOCK_OUT, _handle_inventory_event_for_low_stock)
     event_bus.subscribe(EventType.STOCK_IN, _handle_inventory_event_for_low_stock)
     event_bus.subscribe(EventType.TRANSFER, _handle_inventory_event_for_low_stock)
+
+
+async def send_item_qr_email(*, to_email: str, item_sku: str, item_name: str, qr_png: bytes) -> tuple[bool, str]:
+    """
+    Emails the generated item QR PNG to `to_email` as an attachment.
+    """
+    if not to_email:
+        return False, "No recipient email configured on your account."
+    allowed = (settings.RESEND_TEST_ALLOWED_TO_EMAIL or "").strip().lower()
+    if allowed and to_email.lower() != allowed:
+        return False, f"Email sending is restricted in testing mode. Recipient must be {allowed}."
+
+    subject = f"[SEAR Lab Inventory] Your item QR: {item_sku}"
+    html = _build_resend_html(
+        f"""
+        <h3 style="margin:0 0 8px 0;">Your item QR is ready</h3>
+        <p style="margin:0 0 10px 0;">Use the attached QR to scan-manage <b>{item_name}</b>.</p>
+        <ul style="margin:0; padding-left: 18px;">
+          <li>SKU: <b>{item_sku}</b></li>
+        </ul>
+        <p style="margin-top:14px; color:#6b7280; font-size:13px;">
+          If you did not request this, you can ignore this email.
+        </p>
+        """
+    )
+    text = f"Item QR ready. SKU: {item_sku}. Item: {item_name}."
+
+    b64 = base64.b64encode(qr_png).decode("ascii")
+    attachments = [
+        {
+            "filename": f"{item_sku}-qr.png",
+            "content": b64,
+            "contentType": "image/png",
+        }
+    ]
+    try:
+        ok = await _send_resend_email(
+            to_emails=[to_email],
+            subject=subject,
+            html=html,
+            text=text,
+            attachments=attachments,
+            raise_on_fail=True,
+        )
+        return ok, ok and "QR sent to your email." or "QR email send failed."
+    except httpx.HTTPStatusError as exc:
+        status = exc.response.status_code if exc.response else 0
+        detail = ""
+        try:
+            detail = exc.response.text
+        except Exception:
+            detail = ""
+        if detail and len(detail) > 500:
+            detail = detail[:500] + "…"
+        msg = f"Resend rejected the request (HTTP {status}). {detail}".strip()
+        return False, msg
+    except Exception:
+        return False, "Resend email send failed. Check server logs and your Resend configuration."
+
+
+async def send_welcome_email(*, to_email: str, full_name: str, username: str) -> tuple[bool, str]:
+    if not to_email:
+        return False, "No recipient email configured on your account."
+    allowed = (settings.RESEND_TEST_ALLOWED_TO_EMAIL or "").strip().lower()
+    if allowed and to_email.lower() != allowed:
+        return False, f"Email sending is restricted in testing mode. Recipient must be {allowed}."
+
+    subject = "[SEAR Lab Inventory] Welcome"
+    html = _build_resend_html(
+        f"""
+        <h3 style="margin:0 0 8px 0;">Welcome to SEAR Lab Inventory</h3>
+        <p style="margin:0 0 10px 0;">Hi <b>{full_name}</b>, your account has been created successfully.</p>
+        <ul style="margin:0; padding-left: 18px;">
+          <li>Username: <b>{username}</b></li>
+        </ul>
+        """
+    )
+    text = f"Welcome to SEAR Lab Inventory. Username: {username}."
+
+    ok = await _send_resend_email(to_emails=[to_email], subject=subject, html=html, text=text)
+    return (True, "Welcome email sent.") if ok else (False, "Welcome email could not be sent.")
+
+
+async def send_login_email(*, to_email: str, full_name: str, ip: str | None) -> tuple[bool, str]:
+    if not to_email:
+        return False, "No recipient email configured on your account."
+    allowed = (settings.RESEND_TEST_ALLOWED_TO_EMAIL or "").strip().lower()
+    if allowed and to_email.lower() != allowed:
+        return False, f"Email sending is restricted in testing mode. Recipient must be {allowed}."
+
+    subject = "[SEAR Lab Inventory] Login notification"
+    ip_html = f"<li>IP: <b>{ip}</b></li>" if ip else "<li>IP: <b>unknown</b></li>"
+    html = _build_resend_html(
+        f"""
+        <h3 style="margin:0 0 8px 0;">Login notification</h3>
+        <p style="margin:0 0 10px 0;">Hi <b>{full_name}</b>, we noticed a login to your account.</p>
+        <ul style="margin:0; padding-left: 18px;">
+          {ip_html}
+        </ul>
+        <p style="margin-top:14px; color:#6b7280; font-size:13px;">
+          If this wasn’t you, please reset your password immediately.
+        </p>
+        """
+    )
+    text = f"Login notification. IP: {ip or 'unknown'}."
+
+    ok = await _send_resend_email(to_emails=[to_email], subject=subject, html=html, text=text)
+    return (True, "Login email sent.") if ok else (False, "Login email could not be sent.")
 

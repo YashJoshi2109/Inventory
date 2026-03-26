@@ -1,5 +1,5 @@
 """
-Lab Inventory Control System — Flask Web Server
+Lab Inventory Control System — FastAPI Web Server
 ================================================
 Serves dashboard.html and exposes REST API backed by
 Lab_Inventory_Barcode_System.xlsx (exact template structure).

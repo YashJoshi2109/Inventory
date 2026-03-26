@@ -6,7 +6,7 @@ from app.core.security import hash_password
 from app.models.user import RoleName, User, UserRole
 from app.repositories.user_repo import RoleRepository, UserRepository
 from app.schemas.common import MessageResponse
-from app.schemas.user import PasswordChangeRequest, UserCreate, UserRead, UserUpdate
+from app.schemas.user import AdminPasswordResetRequest, PasswordChangeRequest, UserCreate, UserRead, UserUpdate
 
 router = APIRouter(prefix="/users", tags=["users"])
 
@@ -107,3 +107,20 @@ async def change_password(
     user.hashed_password = hash_password(body.new_password)
     await session.flush()
     return MessageResponse(message="Password updated successfully")
+
+
+@router.post(
+    "/{user_id}/reset-password",
+    response_model=MessageResponse,
+    dependencies=[Depends(require_roles(RoleName.ADMIN))],
+)
+async def admin_reset_password(
+    user_id: int, body: AdminPasswordResetRequest, session: DbSession, current_user: CurrentUser
+) -> MessageResponse:
+    repo = UserRepository(session)
+    user = await repo.get_by_id(user_id)
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    user.hashed_password = hash_password(body.new_password)
+    await session.flush()
+    return MessageResponse(message="Password reset successfully")

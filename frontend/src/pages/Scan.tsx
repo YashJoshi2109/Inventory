@@ -7,7 +7,7 @@ import toast from "react-hot-toast";
 import {
   ArrowUpRight, ArrowDownRight, ArrowLeftRight, Settings2,
   CheckCircle2, RotateCcw, Package, MapPin, QrCode,
-  ChevronRight, Loader2, Plus, PenLine, Zap, List,
+  ChevronRight, Loader2, Plus, PenLine, Zap, List, Mail,
 } from "lucide-react";
 import { BarcodeScanner } from "@/components/scanner/BarcodeScanner";
 import { Button } from "@/components/ui/Button";
@@ -373,6 +373,7 @@ function AddFlow({ onReset }: { onReset: () => void }) {
   } | null>(null);
   const [showQrModal, setShowQrModal] = useState(false);
   const [qrImageUrl, setQrImageUrl] = useState<string | null>(null);
+  const [sendingQrEmail, setSendingQrEmail] = useState(false);
 
   const doScan = useCallback(
     async (value: string, target: "item" | "rack") => {
@@ -501,6 +502,25 @@ function AddFlow({ onReset }: { onReset: () => void }) {
     }
   };
 
+  const sendQrToEmail = async () => {
+    if (!createdItem?.id) {
+      toast.error("QR send failed: item not available yet.");
+      return;
+    }
+    if (sendingQrEmail) return;
+    setSendingQrEmail(true);
+    try {
+      const res = await itemsApi.sendQrToEmail(createdItem.id);
+      if (res.success) toast.success(res.message);
+      else toast.error(res.message);
+    } catch (e: unknown) {
+      const msg = (e as { response?: { data?: { detail?: string } } })?.response?.data?.detail;
+      toast.error(typeof msg === "string" ? msg : "Failed to send QR to email");
+    } finally {
+      setSendingQrEmail(false);
+    }
+  };
+
   const openNewItemFlow = () => {
     setNewItem({
       sku: "",
@@ -541,13 +561,23 @@ function AddFlow({ onReset }: { onReset: () => void }) {
             <p className="text-sm text-slate-400 text-center">
               Print this QR and stick it on the item for future scanning.
             </p>
-            <div className="flex gap-2 w-full">
+            <div className="flex gap-2 w-full flex-col sm:flex-row">
               <Button
                 variant="secondary"
                 fullWidth
                 onClick={() => window.open(qrImageUrl!, "_blank")}
               >
                 Open / Print
+              </Button>
+              <Button
+                variant="secondary"
+                fullWidth
+                leftIcon={<Mail size={16} />}
+                loading={sendingQrEmail}
+                disabled={!createdItem?.id}
+                onClick={sendQrToEmail}
+              >
+                Send QR to Email
               </Button>
               <Button
                 variant="primary"
