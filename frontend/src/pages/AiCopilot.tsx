@@ -323,7 +323,7 @@ export function AiCopilot() {
     _setStreaming(v);
   };
 
-  const openQuotaCard = () => {
+  const openQuotaCard = (forceRefetch: boolean) => {
     const el = quotaAnchorRef.current;
     if (!el) return;
 
@@ -333,8 +333,10 @@ export function AiCopilot() {
     const top = rect.bottom + 10;
     setQuotaCardPos({ top, left });
     setQuotaCardOpen(true);
-    // Fetch fresh quota immediately when user interacts.
-    void refetchChatRateLimit();
+    if (forceRefetch) {
+      // Fetch fresh quota only on click to avoid excessive network calls on hover.
+      void refetchChatRateLimit();
+    }
   };
 
   const closeQuotaCard = () => setQuotaCardOpen(false);
@@ -689,8 +691,8 @@ export function AiCopilot() {
               <>
                 <button
                   type="button"
-                  onClick={() => (quotaCardOpen ? closeQuotaCard() : openQuotaCard())}
-                  onMouseEnter={() => openQuotaCard()}
+                  onClick={() => (quotaCardOpen ? closeQuotaCard() : openQuotaCard(true))}
+                  onMouseEnter={() => openQuotaCard(false)}
                   onMouseLeave={() => setQuotaCardOpen(false)}
                   className="flex items-center gap-1 px-2.5 py-1 rounded-xl text-[9px] font-semibold transition-all hover:bg-white/5"
                   style={{
