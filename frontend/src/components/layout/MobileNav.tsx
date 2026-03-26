@@ -33,6 +33,9 @@ export function MobileNav() {
     queryFn: () => rateLimitApi.getChatRateLimit(),
     refetchInterval: 60_000,
     enabled: !!accessToken,
+    staleTime: 60_000,
+    retry: false,
+    refetchOnWindowFocus: false,
   });
 
   const isMoreRouteActive = useMemo(() => {

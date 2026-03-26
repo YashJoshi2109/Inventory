@@ -47,6 +47,8 @@ import {
 } from "lucide-react";
 import { clsx } from "clsx";
 import ReactMarkdown from "react-markdown";
+import { useAuthStore } from "@/store/auth";
+import { rateLimitApi } from "@/api/rateLimit";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -285,6 +287,7 @@ function KBPanel({ onClose }: { onClose: () => void }) {
 
 export function AiCopilot() {
   const qc = useQueryClient();
+  const accessToken = useAuthStore((s) => s.accessToken);
 
   // State
   const [messages, setMessages] = useState<Msg[]>([]);
@@ -321,6 +324,15 @@ export function AiCopilot() {
     queryKey: ["chat-sessions"],
     queryFn: chatApi.listSessions,
     refetchInterval: 60_000,
+  });
+
+  const { data: chatRateLimit } = useQuery({
+    queryKey: ["chat-rate-limit"],
+    queryFn: rateLimitApi.getChatRateLimit,
+    enabled: !!accessToken,
+    refetchInterval: 60_000,
+    staleTime: 60_000,
+    retry: false,
   });
 
   const { data: serverMessages = [] } = useQuery({
@@ -638,6 +650,20 @@ export function AiCopilot() {
           <p className="text-sm font-medium text-slate-300 truncate flex-1">
             {currentSession?.title ?? (isEmpty ? "AI Inventory Copilot" : "Chat")}
           </p>
+
+          {chatRateLimit && (
+            <div
+              className="hidden sm:flex items-center gap-1 px-2.5 py-1 rounded-xl text-[10px] font-semibold"
+              style={{
+                background: "rgba(34,211,238,0.08)",
+                border: "1px solid rgba(34,211,238,0.18)",
+                color: "#22d3ee",
+              }}
+              title="Chat requests remaining per minute (rate-limited by IP)"
+            >
+              AI {chatRateLimit.remaining}/{chatRateLimit.limit}/min
+            </div>
+          )}
 
           {streaming && (
             <button onClick={() => { abortRef.current?.abort(); setStreaming(false); setMessages(prev => prev.map(m => m.streaming ? { ...m, streaming: false } : m)); }}
