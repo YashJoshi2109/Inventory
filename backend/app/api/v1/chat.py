@@ -177,12 +177,12 @@ async def rename_session(
     )
 
 
-@router.delete("/sessions/{session_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete("/sessions/{session_id}")
 async def delete_session(
     session_id: int,
     db: DbSession,
     current_user: CurrentUser,
-) -> None:
+) -> dict:
     result = await db.execute(
         select(ChatSession).where(
             ChatSession.id == session_id,
@@ -193,6 +193,7 @@ async def delete_session(
     if not session:
         raise HTTPException(status_code=404, detail="Session not found")
     await db.delete(session)
+    return {"ok": True}
 
 
 @router.get("/sessions/{session_id}/messages", response_model=list[MessageOut])
@@ -383,12 +384,12 @@ async def list_documents(
     return result.scalars().all()
 
 
-@router.delete("/documents/{doc_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete("/documents/{doc_id}")
 async def delete_document(
     doc_id: int,
     db: DbSession,
     current_user: CurrentUser,
-) -> None:
+) -> dict:
     result = await db.execute(
         select(KnowledgeDocument).where(KnowledgeDocument.id == doc_id)
     )
@@ -397,6 +398,7 @@ async def delete_document(
         raise HTTPException(status_code=404, detail="Document not found")
     doc.is_active = False
     await db.flush()
+    return {"ok": True}
 
 
 # ── Text extraction helpers ───────────────────────────────────────────────────
