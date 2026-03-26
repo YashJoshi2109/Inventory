@@ -305,6 +305,10 @@ export function AiCopilot() {
   const bottomRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
 
+  const quotaAnchorRef = useRef<HTMLDivElement>(null);
+  const [quotaCardOpen, setQuotaCardOpen] = useState(false);
+  const [quotaCardPos, setQuotaCardPos] = useState<{ top: number; left: number } | null>(null);
+
   // Derived state that mirrors the ref (for rendering)
   const [activeSessionId, _setActiveSessionId] = useState<number | null>(null);
   const [streaming, _setStreaming] = useState(false);
@@ -319,6 +323,35 @@ export function AiCopilot() {
     _setStreaming(v);
   };
 
+  const openQuotaCard = () => {
+    const el = quotaAnchorRef.current;
+    if (!el) return;
+
+    const rect = el.getBoundingClientRect();
+    const width = 300; // card width
+    const left = Math.max(12, Math.min(window.innerWidth - width - 12, rect.right - width));
+    const top = rect.bottom + 10;
+    setQuotaCardPos({ top, left });
+    setQuotaCardOpen(true);
+    // Fetch fresh quota immediately when user interacts.
+    void refetchChatRateLimit();
+  };
+
+  const closeQuotaCard = () => setQuotaCardOpen(false);
+
+  useEffect(() => {
+    if (!quotaCardOpen) return;
+    const onDown = (e: MouseEvent) => {
+      const el = quotaAnchorRef.current;
+      if (!el) return;
+      if (e.target instanceof Node && !el.contains(e.target)) {
+        closeQuotaCard();
+      }
+    };
+    document.addEventListener("mousedown", onDown);
+    return () => document.removeEventListener("mousedown", onDown);
+  }, [quotaCardOpen]);
+
   // Queries
   const { data: sessions = [] } = useQuery({
     queryKey: ["chat-sessions"],
@@ -326,7 +359,7 @@ export function AiCopilot() {
     refetchInterval: 60_000,
   });
 
-  const { data: chatRateLimit } = useQuery({
+  const { data: chatRateLimit, refetch: refetchChatRateLimit } = useQuery({
     queryKey: ["chat-rate-limit"],
     queryFn: rateLimitApi.getChatRateLimit,
     enabled: !!accessToken,
@@ -651,19 +684,91 @@ export function AiCopilot() {
             {currentSession?.title ?? (isEmpty ? "AI Inventory Copilot" : "Chat")}
           </p>
 
-          {chatRateLimit && (
-            <div
-              className="hidden sm:flex items-center gap-1 px-2.5 py-1 rounded-xl text-[10px] font-semibold"
-              style={{
-                background: "rgba(34,211,238,0.08)",
-                border: "1px solid rgba(34,211,238,0.18)",
-                color: "#22d3ee",
-              }}
-              title="Chat requests remaining per minute (rate-limited by IP)"
-            >
-              AI {chatRateLimit.remaining}/{chatRateLimit.limit}/min
-            </div>
-          )}
+          <div ref={quotaAnchorRef} className="shrink-0">
+            {chatRateLimit && (
+              <>
+                <button
+                  type="button"
+                  onClick={() => (quotaCardOpen ? closeQuotaCard() : openQuotaCard())}
+                  onMouseEnter={() => openQuotaCard()}
+                  onMouseLeave={() => setQuotaCardOpen(false)}
+                  className="flex items-center gap-1 px-2.5 py-1 rounded-xl text-[9px] font-semibold transition-all hover:bg-white/5"
+                  style={{
+                    background: quotaCardOpen ? "rgba(34,211,238,0.12)" : "rgba(34,211,238,0.08)",
+                    border: "1px solid rgba(34,211,238,0.18)",
+                    color: "#22d3ee",
+                  }}
+                  title="Click/hover for AI quota details"
+                >
+                  <Bot size={12} className="shrink-0" />
+                  AI {chatRateLimit.remaining}/{chatRateLimit.limit}/min
+                </button>
+
+                {quotaCardOpen && quotaCardPos && (
+                  <div
+                    style={{
+                      position: "fixed",
+                      top: quotaCardPos.top,
+                      left: quotaCardPos.left,
+                      width: 300,
+                      zIndex: 60,
+                      background: "rgba(7,15,31,0.98)",
+                      border: "1px solid rgba(255,255,255,0.10)",
+                      boxShadow: "0 18px 60px rgba(0,0,0,0.55)",
+                      backdropFilter: "blur(24px)",
+                      borderRadius: 16,
+                    }}
+                  >
+                    <div style={{ padding: "14px 14px 10px 14px", borderBottom: "1px solid rgba(255,255,255,0.07)" }}>
+                      <div className="flex items-center gap-2">
+                        <Bot size={14} className="text-brand-400" />
+                        <div className="text-sm font-semibold" style={{ color: "#e2e8f0" }}>
+                          AI Copilot quota
+                        </div>
+                        <div className="ml-auto text-[10px] font-semibold" style={{ color: "#22d3ee" }}>
+                          live
+                        </div>
+                      </div>
+
+                      <div className="mt-2 text-[11px] text-slate-400">
+                        Model:{" "}
+                        <span className="text-slate-200 font-semibold">{chatRateLimit.model ?? "Gemini"}</span>
+                      </div>
+                    </div>
+
+                    <div style={{ padding: 14, display: "flex", flexDirection: "column", gap: 10 }}>
+                      <div className="text-[12px]" style={{ color: "#94a3b8" }}>
+                        Remaining: <span style={{ color: "#22d3ee", fontWeight: 700 }}>{chatRateLimit.remaining}</span> / {chatRateLimit.limit} per 60s
+                      </div>
+
+                      <div style={{ height: 8, background: "rgba(34,211,238,0.12)", borderRadius: 999, overflow: "hidden", border: "1px solid rgba(34,211,238,0.18)" }}>
+                        <div
+                          style={{
+                            width: `${Math.round((chatRateLimit.used / Math.max(1, chatRateLimit.limit)) * 100)}%`,
+                            height: "100%",
+                            background: "linear-gradient(90deg,#0891b2,#22d3ee)",
+                          }}
+                        />
+                      </div>
+
+                      <div className="text-[11px]" style={{ color: "#94a3b8" }}>
+                        Used: <span style={{ color: "#e2e8f0", fontWeight: 700 }}>{chatRateLimit.used}</span>
+                        {" · "}
+                        Next reset:{" "}
+                        <span style={{ color: "#e2e8f0", fontWeight: 700 }}>
+                          {chatRateLimit.retry_after_seconds > 0 ? `${chatRateLimit.retry_after_seconds}s` : "now"}
+                        </span>
+                      </div>
+
+                      <div className="text-[10px]" style={{ color: "#64748b" }}>
+                        Quota is enforced per IP to keep the copilot responsive under load.
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </>
+            )}
+          </div>
 
           {streaming && (
             <button onClick={() => { abortRef.current?.abort(); setStreaming(false); setMessages(prev => prev.map(m => m.streaming ? { ...m, streaming: false } : m)); }}

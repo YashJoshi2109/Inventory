@@ -115,6 +115,15 @@ class Settings(BaseSettings):
     SMTP_USER: str = ""
     SMTP_PASSWORD: str = ""
 
+    # Resend (primary email notifications for alerts)
+    RESEND_API_KEY: str = ""
+    RESEND_FROM_EMAIL: str = ""
+    # Enable alert notifications automatically when keys are configured.
+    # Actual sending is still skipped if RESEND_API_KEY / RESEND_FROM_EMAIL are missing.
+    RESEND_ENABLE_LOW_STOCK: bool = True
+    RESEND_ENABLE_TRANSFER: bool = True
+    ALERT_EMAIL_RECIPIENT_ROLES: list[str] = ["admin", "manager"]
+
 
 @lru_cache
 def get_settings() -> Settings:

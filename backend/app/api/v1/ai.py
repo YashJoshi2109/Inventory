@@ -14,6 +14,7 @@ from app.ai.nlp_search import get_global_index, global_search, rebuild_global_in
 from app.api.v1.auth import CurrentUser, require_roles
 from app.core.database import DbSession
 from app.core.rate_limit import _chat_limiter, _get_client_ip
+from app.core.config import settings
 from app.models.user import RoleName
 from app.repositories.item_repo import ItemRepository
 from app.repositories.transaction_repo import InventoryEventRepository, StockLevelRepository
@@ -31,6 +32,8 @@ class ChatRateLimitStatus(BaseModel):
     used: int
     remaining: int
     retry_after_seconds: int
+    provider: str
+    model: str
 
 
 class ForecastResponse(BaseModel):
@@ -64,7 +67,12 @@ async def chat_rate_limit(
     """
     ip = _get_client_ip(request)
     status = _chat_limiter.status(ip)
-    return ChatRateLimitStatus(ip=ip, **status)
+    return ChatRateLimitStatus(
+        ip=ip,
+        **status,
+        provider="gemini",
+        model=settings.GEMINI_CHAT_MODEL,
+    )
 
 
 @router.get("/search", response_model=SearchResponse)

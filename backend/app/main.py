@@ -19,6 +19,7 @@ Why PostgreSQL + TimescaleDB over InfluxDB:
   ✓ mature ecosystem, Alembic migrations, standard tooling
 """
 import logging
+import asyncio
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -53,10 +54,26 @@ async def lifespan(app: FastAPI):
         except Exception as e:
             logger.warning("MQTT startup failed (app continues without broker): %s", e)
 
+    # Notifications: email + in-app alert creation for low stock & transfers
+    try:
+        from app.core.notifications import (
+            low_stock_monitor_loop,
+            register_notification_handlers,
+        )
+
+        register_notification_handlers()
+        notification_task = asyncio.create_task(low_stock_monitor_loop())
+    except Exception as e:
+        notification_task = None
+        logger.warning("Notification subsystem disabled: %s", e)
+
     yield
 
     if settings.MQTT_ENABLED:
         event_bus.disconnect_mqtt()
+
+    if notification_task:
+        notification_task.cancel()
 
     logger.info("Shutting down %s", settings.APP_NAME)
 

@@ -7,6 +7,8 @@ export interface ChatRateLimitStatus {
   used: number;
   remaining: number;
   retry_after_seconds: number;
+  provider?: string;
+  model?: string;
 }
 
 export const rateLimitApi = {
