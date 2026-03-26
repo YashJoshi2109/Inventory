@@ -19,6 +19,7 @@ import { scanApi } from "@/api/transactions";
 import { itemsApi } from "@/api/items";
 import type { ScanResult } from "@/types";
 import { useQuery } from "@tanstack/react-query";
+import { openOrDownloadDataUrl } from "@/utils/fileActions";
 
 type ScanMode = "add" | "remove" | "transfer" | "modify";
 
@@ -565,7 +566,14 @@ function AddFlow({ onReset }: { onReset: () => void }) {
               <Button
                 variant="secondary"
                 fullWidth
-                onClick={() => window.open(qrImageUrl!, "_blank")}
+                onClick={async () => {
+                  try {
+                    const sku = createdItem?.sku ?? "item";
+                    await openOrDownloadDataUrl(qrImageUrl!, `${sku}-qr.png`);
+                  } catch {
+                    toast.error("Could not open QR image. Try Send QR to Email.");
+                  }
+                }}
               >
                 Open / Print
               </Button>

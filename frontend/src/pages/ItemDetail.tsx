@@ -8,6 +8,7 @@ import { Card } from "@/components/ui/Card";
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { Spinner } from "@/components/ui/Spinner";
+import { openOrDownloadBlob } from "@/utils/fileActions";
 
 export function ItemDetail() {
   const params = useParams();
@@ -47,9 +48,7 @@ export function ItemDetail() {
   const downloadQr = async () => {
     try {
       const blob = await itemsApi.downloadQrPng(item.id);
-      const url = URL.createObjectURL(blob);
-      window.open(url, "_blank", "noopener,noreferrer");
-      setTimeout(() => URL.revokeObjectURL(url), 60_000);
+      await openOrDownloadBlob(blob, `${item.sku}-qr.png`);
     } catch {
       toast.error("Failed to load QR code");
     }
@@ -58,9 +57,7 @@ export function ItemDetail() {
   const printSingleLabelSheet = async () => {
     try {
       const blob = await itemsApi.printLabelSheet([item.id]);
-      const url = URL.createObjectURL(blob);
-      window.open(url, "_blank", "noopener,noreferrer");
-      setTimeout(() => URL.revokeObjectURL(url), 60_000);
+      await openOrDownloadBlob(blob, `${item.sku}-labels.pdf`);
     } catch {
       toast.error("Failed to generate label sheet");
     }
