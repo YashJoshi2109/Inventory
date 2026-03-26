@@ -4,6 +4,7 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import inspect as sa_inspect
+from sqlalchemy.orm.attributes import NO_VALUE
 
 from app.api.v1.auth import CurrentUser, require_roles
 from app.core.database import DbSession
@@ -32,8 +33,8 @@ def _to_item_read(item: Item, total_qty: Decimal) -> ItemRead:
     # In async SQLAlchemy, lazy-loading relationships can raise MissingGreenlet.
     # We only access relationships when they are already loaded.
     insp = sa_inspect(item)
-    category = item.category if insp.attrs.category.loaded else None
-    barcodes = item.barcodes if insp.attrs.barcodes.loaded else []
+    category = item.category if insp.attrs.category.loaded_value is not NO_VALUE else None
+    barcodes = item.barcodes if insp.attrs.barcodes.loaded_value is not NO_VALUE else []
     return ItemRead.model_validate({
         **item.__dict__,
         "total_quantity": total_qty,
