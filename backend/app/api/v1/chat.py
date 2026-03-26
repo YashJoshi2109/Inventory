@@ -1,20 +1,28 @@
 """
-AI Copilot Chat API.
+AI Copilot Chat API — production-grade streaming + persistence.
 
-POST /chat/sessions                    — create a new chat session
-GET  /chat/sessions                    — list user's sessions
-DELETE /chat/sessions/{id}             — delete session + messages
-GET  /chat/sessions/{id}/messages      — full message history
-POST /chat/sessions/{id}/messages      — send message (SSE streaming response)
-POST /chat/documents                   — upload knowledge-base document
-GET  /chat/documents                   — list uploaded documents
-DELETE /chat/documents/{id}            — remove document
-PATCH /chat/sessions/{id}/title        — rename session
+Key design decisions:
+  - The user message and session title update are committed to DB BEFORE streaming
+    begins, so they are always persisted regardless of client disconnect.
+  - The SSE generator uses a FRESH AsyncSession (not the request-scoped one) to
+    save the assistant message, because FastAPI's dependency-injected session is
+    closed when the response headers are sent — before the generator body runs.
+  - Rate limiting is applied per-IP on the chat endpoint via slowapi.
+
+Endpoints:
+  POST /chat/sessions                    — create session
+  GET  /chat/sessions                    — list sessions
+  PATCH /chat/sessions/{id}/title        — rename
+  DELETE /chat/sessions/{id}             — delete
+  GET  /chat/sessions/{id}/messages      — full history
+  POST /chat/sessions/{id}/messages      — send + stream response
+  POST /chat/documents                   — upload knowledge document
+  GET  /chat/documents                   — list documents
+  DELETE /chat/documents/{id}            — soft-delete document
 """
 from __future__ import annotations
 
 import json
-import os
 import uuid
 from datetime import datetime
 from pathlib import Path
@@ -26,9 +34,9 @@ from pydantic import BaseModel
 from sqlalchemy import select
 
 from app.ai.copilot import SYSTEM_PROMPT, run_copilot
-from app.api.v1.auth import CurrentUser, require_roles
+from app.api.v1.auth import CurrentUser
 from app.core.config import settings
-from app.core.database import DbSession
+from app.core.database import AsyncSessionLocal, DbSession
 from app.models.chat import (
     ChatMessage,
     ChatSession,
@@ -37,24 +45,16 @@ from app.models.chat import (
     KnowledgeDocument,
     MessageRole,
 )
-from app.models.user import RoleName
 
 router = APIRouter(prefix="/chat", tags=["chat"])
 
 UPLOAD_BASE = Path(settings.UPLOAD_DIR) / "knowledge"
 UPLOAD_BASE.mkdir(parents=True, exist_ok=True)
 
-ALLOWED_MIME = {
-    "application/pdf",
-    "application/msword",
-    "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-    "text/plain",
-    "text/markdown",
-    "text/csv",
-}
+ALLOWED_EXTENSIONS = {".pdf", ".docx", ".doc", ".txt", ".md", ".csv"}
 
 
-# ── Pydantic schemas ──────────────────────────────────────────────────────────
+# ── Schemas ────────────────────────────────────────────────────────────────────
 
 class SessionOut(BaseModel):
     id: int
@@ -62,7 +62,6 @@ class SessionOut(BaseModel):
     created_at: datetime
     updated_at: datetime
     message_count: int = 0
-
     model_config = {"from_attributes": True}
 
 
@@ -74,7 +73,6 @@ class MessageOut(BaseModel):
     tool_result: str | None
     sources: str | None
     created_at: datetime
-
     model_config = {"from_attributes": True}
 
 
@@ -86,7 +84,6 @@ class DocumentOut(BaseModel):
     status: str
     chunk_count: int
     created_at: datetime
-
     model_config = {"from_attributes": True}
 
 
@@ -106,7 +103,7 @@ async def create_session(
     db: DbSession,
     current_user: CurrentUser,
 ) -> SessionOut:
-    session = ChatSession(user_id=current_user.id, title=body.title)
+    session = ChatSession(user_id=current_user.id, title=body.title[:255])
     db.add(session)
     await db.flush()
     await db.refresh(session)
@@ -134,19 +131,17 @@ async def list_sessions(
     sessions = result.scalars().all()
     out = []
     for s in sessions:
-        msg_result = await db.execute(
+        cnt_result = await db.execute(
             select(ChatMessage).where(ChatMessage.session_id == s.id)
         )
-        count = len(msg_result.scalars().all())
-        out.append(
-            SessionOut(
-                id=s.id,
-                title=s.title,
-                created_at=s.created_at,
-                updated_at=s.updated_at,
-                message_count=count,
-            )
-        )
+        count = len(cnt_result.scalars().all())
+        out.append(SessionOut(
+            id=s.id,
+            title=s.title,
+            created_at=s.created_at,
+            updated_at=s.updated_at,
+            message_count=count,
+        ))
     return out
 
 
@@ -210,7 +205,6 @@ async def get_messages(
     )
     if not sess_result.scalar_one_or_none():
         raise HTTPException(status_code=404, detail="Session not found")
-
     result = await db.execute(
         select(ChatMessage)
         .where(ChatMessage.session_id == session_id)
@@ -226,7 +220,17 @@ async def send_message(
     current_user: CurrentUser,
     content: str = Query(min_length=1, max_length=4000),
 ) -> StreamingResponse:
-    """Send a message and stream back an SSE response from the AI copilot."""
+    """
+    Stream AI response via SSE.
+
+    Persistence strategy (fixes "message disappears" bug):
+    1. User message + title update are flushed & committed synchronously,
+       BEFORE the StreamingResponse is returned.
+    2. The SSE generator opens a FRESH database session (independent of the
+       request-scoped `db` which is committed/closed when headers are sent)
+       and saves the assistant message there once streaming is done.
+    """
+    # ── Validate session ──────────────────────────────────────────────────
     sess_result = await db.execute(
         select(ChatSession).where(
             ChatSession.id == session_id,
@@ -237,7 +241,7 @@ async def send_message(
     if not session:
         raise HTTPException(status_code=404, detail="Session not found")
 
-    # Persist user message
+    # ── Persist user message NOW (before stream starts) ───────────────────
     user_msg = ChatMessage(
         session_id=session.id,
         role=MessageRole.USER,
@@ -246,7 +250,7 @@ async def send_message(
     db.add(user_msg)
     await db.flush()
 
-    # Build message history for the LLM
+    # Build LLM history from persisted messages
     history_result = await db.execute(
         select(ChatMessage)
         .where(ChatMessage.session_id == session_id)
@@ -262,40 +266,52 @@ async def send_message(
             openai_messages.append({"role": "assistant", "content": msg.content or ""})
 
     actor_roles = [ur.role.name for ur in current_user.roles if ur.role]
+    actor_id = current_user.id
 
-    # Update session title from first user message
-    if session.title == "New chat" and len(history) == 1:
+    # Auto-title session on first user message
+    if session.title in ("New chat", "") and len(history) == 1:
         session.title = content[:80]
         await db.flush()
 
+    # Commit user message + title BEFORE streaming (so they're always saved)
+    await db.commit()
+
+    # ── SSE generator (uses its own DB session) ───────────────────────────
     async def event_stream() -> AsyncIterator[bytes]:
         assistant_content = ""
-        tool_events: list[dict] = []
 
         async for sse_line in run_copilot(
             messages=openai_messages,
-            db=db,
-            actor_id=current_user.id,
+            db=None,            # copilot will open its own session for tool calls
+            actor_id=actor_id,
             actor_roles=actor_roles,
         ):
             yield sse_line.encode()
 
-            # Track accumulated content for persistence
             try:
-                payload = json.loads(sse_line.replace("data: ", "").strip())
+                raw = sse_line.replace("data: ", "").strip()
+                if not raw:
+                    continue
+                payload = json.loads(raw)
                 if payload.get("type") == "token":
                     assistant_content += payload.get("content", "")
-                elif payload.get("type") in ("tool_call", "tool_result"):
-                    tool_events.append(payload)
                 elif payload.get("type") == "done":
-                    # Persist assistant message
-                    asst_msg = ChatMessage(
-                        session_id=session_id,
-                        role=MessageRole.ASSISTANT,
-                        content=assistant_content or None,
-                    )
-                    db.add(asst_msg)
-                    await db.flush()
+                    # Save assistant reply in a fresh session that we control
+                    async with AsyncSessionLocal() as fresh_db:
+                        async with fresh_db.begin():
+                            fresh_db.add(ChatMessage(
+                                session_id=session_id,
+                                role=MessageRole.ASSISTANT,
+                                content=assistant_content or "(no text response)",
+                            ))
+                            # Also bump session updated_at
+                            sess_upd = await fresh_db.execute(
+                                select(ChatSession).where(ChatSession.id == session_id)
+                            )
+                            s = sess_upd.scalar_one_or_none()
+                            if s:
+                                from datetime import timezone
+                                s.updated_at = datetime.now(timezone.utc)
             except Exception:
                 pass
 
@@ -305,17 +321,14 @@ async def send_message(
         headers={
             "Cache-Control": "no-cache",
             "X-Accel-Buffering": "no",
+            "Connection": "keep-alive",
         },
     )
 
 
 # ── Document endpoints ─────────────────────────────────────────────────────────
 
-@router.post(
-    "/documents",
-    response_model=DocumentOut,
-    status_code=status.HTTP_201_CREATED,
-)
+@router.post("/documents", response_model=DocumentOut, status_code=status.HTTP_201_CREATED)
 async def upload_document(
     db: DbSession,
     current_user: CurrentUser,
@@ -323,13 +336,11 @@ async def upload_document(
     doc_type: str = Form(default="general"),
     title: str = Form(default=""),
 ) -> DocumentOut:
-    """Upload a knowledge-base document (PDF, DOCX, TXT, MD, CSV)."""
-    if file.content_type not in ALLOWED_MIME and not (file.filename or "").endswith(
-        (".pdf", ".docx", ".doc", ".txt", ".md", ".csv")
-    ):
+    suffix = Path(file.filename or "upload").suffix.lower()
+    if suffix not in ALLOWED_EXTENSIONS:
         raise HTTPException(
             status_code=400,
-            detail=f"Unsupported file type. Allowed: PDF, DOCX, TXT, MD, CSV",
+            detail=f"Unsupported file type '{suffix}'. Allowed: {', '.join(ALLOWED_EXTENSIONS)}",
         )
 
     safe_name = f"{uuid.uuid4().hex}_{(file.filename or 'upload').replace(' ', '_')}"
@@ -350,7 +361,6 @@ async def upload_document(
     await db.flush()
     await db.refresh(doc)
 
-    # Background: extract text and chunk (simple implementation)
     try:
         chunks = _extract_text_chunks(dest, file.content_type or "")
         for i, chunk_text in enumerate(chunks):
@@ -372,10 +382,7 @@ async def upload_document(
 
 
 @router.get("/documents", response_model=list[DocumentOut])
-async def list_documents(
-    db: DbSession,
-    current_user: CurrentUser,
-) -> list[DocumentOut]:
+async def list_documents(db: DbSession, current_user: CurrentUser) -> list[DocumentOut]:
     result = await db.execute(
         select(KnowledgeDocument)
         .where(KnowledgeDocument.is_active == True)  # noqa: E712
@@ -385,14 +392,8 @@ async def list_documents(
 
 
 @router.delete("/documents/{doc_id}")
-async def delete_document(
-    doc_id: int,
-    db: DbSession,
-    current_user: CurrentUser,
-) -> dict:
-    result = await db.execute(
-        select(KnowledgeDocument).where(KnowledgeDocument.id == doc_id)
-    )
+async def delete_document(doc_id: int, db: DbSession, current_user: CurrentUser) -> dict:
+    result = await db.execute(select(KnowledgeDocument).where(KnowledgeDocument.id == doc_id))
     doc = result.scalar_one_or_none()
     if not doc:
         raise HTTPException(status_code=404, detail="Document not found")
@@ -401,21 +402,18 @@ async def delete_document(
     return {"ok": True}
 
 
-# ── Text extraction helpers ───────────────────────────────────────────────────
+# ── Text extraction ────────────────────────────────────────────────────────────
 
 def _extract_text_chunks(path: Path, mime_type: str, chunk_size: int = 600) -> list[str]:
-    """Extract plain text from a file and split into overlapping chunks."""
     text = ""
     suffix = path.suffix.lower()
-
     if suffix == ".pdf" or "pdf" in mime_type:
         text = _read_pdf(path)
-    elif suffix in (".docx",) or "wordprocessingml" in mime_type:
+    elif suffix in (".docx", ".doc") or "wordprocessingml" in mime_type:
         text = _read_docx(path)
     else:
         text = path.read_text(encoding="utf-8", errors="replace")
 
-    # Split by paragraphs then chunk
     paragraphs = [p.strip() for p in text.split("\n\n") if p.strip()]
     chunks: list[str] = []
     current = ""

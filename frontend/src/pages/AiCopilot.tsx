@@ -1,3 +1,14 @@
+/**
+ * AI Copilot — production-grade chat UI.
+ *
+ * Bug fixes vs. v1:
+ * 1. Messages no longer disappear: useEffect(history) is guarded by a
+ *    `streamingRef` so it never overwrites an active stream.
+ * 2. Duplicate sessions fixed: activeSessionId is tracked in a ref (not only
+ *    state) so the sendMessage closure always sees the latest value.
+ * 3. No query invalidation during streaming — messages are only refreshed
+ *    from server after the stream fully completes.
+ */
 import {
   useCallback,
   useEffect,
@@ -8,9 +19,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   chatApi,
   type ChatSession,
-  type ChatMessage,
   type SseEvent,
-  type KnowledgeDocument,
 } from "@/api/chat";
 import {
   Bot,
@@ -34,115 +43,104 @@ import {
   Beaker,
   Zap,
   Menu,
+  RefreshCw,
 } from "lucide-react";
 import { clsx } from "clsx";
-import { formatDistanceToNow } from "date-fns";
 import ReactMarkdown from "react-markdown";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
-interface LocalMessage {
-  id: string;
-  role: "user" | "assistant";
-  content: string;
-  toolCalls: Array<{ name: string; args: Record<string, unknown>; result?: Record<string, unknown> }>;
-  streaming?: boolean;
-  error?: string;
-}
-
-interface ToolCallCard {
+interface ToolCall {
   name: string;
   args: Record<string, unknown>;
   result?: Record<string, unknown>;
-  loading: boolean;
+  done: boolean;
+}
+
+interface Msg {
+  id: string;
+  role: "user" | "assistant";
+  content: string;
+  toolCalls: ToolCall[];
+  streaming: boolean;
+  error?: string;
 }
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
-const TOOL_LABELS: Record<string, { label: string; color: string; bg: string }> = {
-  search_inventory:      { label: "Searching inventory",      color: "#22d3ee", bg: "rgba(34,211,238,0.1)" },
-  get_item_details:      { label: "Fetching item details",    color: "#a78bfa", bg: "rgba(167,139,250,0.1)" },
-  get_location_contents: { label: "Checking location",        color: "#34d399", bg: "rgba(52,211,153,0.1)" },
-  list_low_stock_items:  { label: "Checking stock levels",    color: "#fbbf24", bg: "rgba(251,191,36,0.1)" },
-  list_overdue_items:    { label: "Finding idle items",       color: "#fb923c", bg: "rgba(251,146,60,0.1)" },
-  get_dashboard_summary: { label: "Loading dashboard",        color: "#60a5fa", bg: "rgba(96,165,250,0.1)" },
-  perform_stock_in:      { label: "Adding stock",             color: "#34d399", bg: "rgba(52,211,153,0.1)" },
-  perform_stock_out:     { label: "Removing stock",           color: "#f87171", bg: "rgba(248,113,113,0.1)" },
-  perform_transfer:      { label: "Transferring item",        color: "#c084fc", bg: "rgba(192,132,252,0.1)" },
-  list_locations:        { label: "Loading locations",        color: "#94a3b8", bg: "rgba(148,163,184,0.1)" },
-  get_transaction_history: { label: "Loading transactions",   color: "#60a5fa", bg: "rgba(96,165,250,0.1)" },
+const TOOL_META: Record<string, { label: string; color: string; bg: string }> = {
+  search_inventory:        { label: "Searching inventory",    color: "#22d3ee", bg: "rgba(34,211,238,0.08)" },
+  get_item_details:        { label: "Fetching item details",  color: "#a78bfa", bg: "rgba(167,139,250,0.08)" },
+  get_location_contents:   { label: "Checking location",      color: "#34d399", bg: "rgba(52,211,153,0.08)" },
+  list_low_stock_items:    { label: "Checking stock levels",  color: "#fbbf24", bg: "rgba(251,191,36,0.08)" },
+  list_overdue_items:      { label: "Finding idle items",     color: "#fb923c", bg: "rgba(251,146,60,0.08)" },
+  get_dashboard_summary:   { label: "Loading dashboard",      color: "#60a5fa", bg: "rgba(96,165,250,0.08)" },
+  perform_stock_in:        { label: "Adding stock",           color: "#34d399", bg: "rgba(52,211,153,0.08)" },
+  perform_stock_out:       { label: "Removing stock",         color: "#f87171", bg: "rgba(248,113,113,0.08)" },
+  perform_transfer:        { label: "Transferring item",      color: "#c084fc", bg: "rgba(192,132,252,0.08)" },
+  list_locations:          { label: "Loading locations",      color: "#94a3b8", bg: "rgba(148,163,184,0.08)" },
+  get_transaction_history: { label: "Loading transactions",   color: "#60a5fa", bg: "rgba(96,165,250,0.08)" },
 };
 
-const SUGGESTED_PROMPTS = [
-  { icon: BarChart3,   text: "Show inventory overview",          color: "#60a5fa" },
-  { icon: TrendingDown,text: "What items are running low?",      color: "#fbbf24" },
-  { icon: Clock,       text: "Find items unused for 90 days",    color: "#fb923c" },
-  { icon: Package,     text: "Search for Arduino kits",          color: "#22d3ee" },
-  { icon: MapPin,      text: "What's in Embedded Lab?",          color: "#34d399" },
-  { icon: Zap,         text: "Show recent transactions",         color: "#a78bfa" },
+const SUGGESTIONS = [
+  { icon: BarChart3,    text: "Show inventory overview",       color: "#60a5fa" },
+  { icon: TrendingDown, text: "What items are running low?",   color: "#fbbf24" },
+  { icon: Clock,        text: "Find items unused for 90 days", color: "#fb923c" },
+  { icon: Package,      text: "Search for Arduino kits",       color: "#22d3ee" },
+  { icon: MapPin,       text: "What's in Embedded Lab?",       color: "#34d399" },
+  { icon: Zap,          text: "Show recent transactions",      color: "#a78bfa" },
 ];
 
 const DOC_TYPES = ["general", "sop", "manual", "calibration", "invoice", "policy", "maintenance"];
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
+
+function makeId() { return Math.random().toString(36).slice(2); }
 
 // ── Sub-components ────────────────────────────────────────────────────────────
 
 function TypingDots() {
   return (
-    <div className="flex items-center gap-1 py-1">
-      {[0, 1, 2].map((i) => (
-        <span
-          key={i}
-          className="w-1.5 h-1.5 rounded-full animate-bounce"
-          style={{
-            background: "#22d3ee",
-            animationDelay: `${i * 0.15}s`,
-            animationDuration: "0.8s",
-          }}
-        />
+    <span className="inline-flex items-center gap-1 ml-1">
+      {[0,1,2].map(i => (
+        <span key={i} className="w-1.5 h-1.5 rounded-full bg-brand-400 animate-bounce"
+          style={{ animationDelay: `${i * 0.12}s`, animationDuration: "0.7s" }} />
       ))}
-    </div>
+    </span>
   );
 }
 
-function ToolCallBadge({ call }: { call: ToolCallCard }) {
-  const meta = TOOL_LABELS[call.name] ?? { label: call.name, color: "#94a3b8", bg: "rgba(148,163,184,0.1)" };
-  const resultError = call.result && "error" in call.result ? call.result.error : undefined;
+function ToolBadge({ tc }: { tc: ToolCall }) {
+  const m = TOOL_META[tc.name] ?? { label: tc.name, color: "#94a3b8", bg: "rgba(148,163,184,0.08)" };
+  const hasError = tc.result && "error" in tc.result;
+  const total = tc.result && "total" in tc.result ? (tc.result.total as number) : undefined;
   return (
-    <div
-      className="flex items-center gap-2 px-3 py-2 rounded-xl text-xs my-1"
-      style={{ background: meta.bg, border: `1px solid ${meta.color}25` }}
-    >
-      {call.loading ? (
-        <Loader2 size={12} className="animate-spin shrink-0" style={{ color: meta.color }} />
-      ) : resultError ? (
-        <AlertCircle size={12} className="shrink-0" style={{ color: "#f87171" }} />
-      ) : (
-        <CheckCircle2 size={12} className="shrink-0" style={{ color: meta.color }} />
-      )}
-      <span style={{ color: meta.color }} className="font-medium">{meta.label}</span>
-      {!call.loading && call.result && !resultError && (
+    <div className="flex items-center gap-2 px-3 py-1.5 rounded-xl text-xs mb-1.5 transition-all"
+      style={{ background: m.bg, border: `1px solid ${m.color}20` }}>
+      {!tc.done
+        ? <Loader2 size={11} className="animate-spin shrink-0" style={{ color: m.color }} />
+        : hasError
+        ? <AlertCircle size={11} className="shrink-0 text-red-400" />
+        : <CheckCircle2 size={11} className="shrink-0" style={{ color: m.color }} />}
+      <span style={{ color: m.color }} className="font-medium">{m.label}</span>
+      {tc.done && !hasError && (
         <span className="text-slate-500 ml-auto">
-          {"total" in call.result && call.result.total !== undefined ? `${call.result.total} results` :
-           "success" in call.result && call.result.success ? "Done" : "✓"}
+          {total !== undefined ? `${total} result${total !== 1 ? "s" : ""}` : "done"}
         </span>
       )}
     </div>
   );
 }
 
-function MessageBubble({ msg }: { msg: LocalMessage }) {
-  const isUser = msg.role === "user";
-
-  if (isUser) {
+function MessageBubble({ msg }: { msg: Msg }) {
+  if (msg.role === "user") {
     return (
-      <div className="flex justify-end mb-4">
-        <div
-          className="max-w-[80%] px-4 py-3 rounded-2xl rounded-tr-sm text-sm text-white leading-relaxed"
+      <div className="flex justify-end mb-5">
+        <div className="max-w-[78%] px-4 py-2.5 rounded-2xl rounded-tr-sm text-sm text-white leading-relaxed"
           style={{
-            background: "linear-gradient(135deg, #0891b2, #22d3ee)",
-            boxShadow: "0 4px 20px rgba(34,211,238,0.25)",
-          }}
-        >
+            background: "linear-gradient(135deg,#0891b2,#22d3ee)",
+            boxShadow: "0 4px 18px rgba(34,211,238,0.22)",
+          }}>
           {msg.content}
         </div>
       </div>
@@ -150,49 +148,40 @@ function MessageBubble({ msg }: { msg: LocalMessage }) {
   }
 
   return (
-    <div className="flex gap-3 mb-4">
-      <div
-        className="w-8 h-8 rounded-xl flex items-center justify-center shrink-0 mt-0.5"
+    <div className="flex gap-3 mb-5">
+      <div className="w-7 h-7 rounded-lg flex items-center justify-center shrink-0 mt-0.5"
         style={{
-          background: "linear-gradient(135deg, rgba(8,145,178,0.3), rgba(34,211,238,0.15))",
-          border: "1px solid rgba(34,211,238,0.2)",
-        }}
-      >
-        <Bot size={14} className="text-brand-400" />
+          background: "linear-gradient(135deg,rgba(8,145,178,0.25),rgba(34,211,238,0.12))",
+          border: "1px solid rgba(34,211,238,0.18)",
+        }}>
+        <Bot size={13} className="text-brand-400" />
       </div>
-      <div className="flex-1 min-w-0">
-        {/* Tool call badges */}
-        {msg.toolCalls.map((tc, i) => (
-          <ToolCallBadge
-            key={i}
-            call={{ ...tc, loading: !!(msg.streaming && i === msg.toolCalls.length - 1 && !tc.result) }}
-          />
-        ))}
 
-        {/* Text content */}
+      <div className="flex-1 min-w-0">
+        {msg.toolCalls.map((tc, i) => <ToolBadge key={i} tc={tc} />)}
+
         {(msg.content || msg.streaming) && (
-          <div
-            className="px-4 py-3 rounded-2xl rounded-tl-sm text-sm text-slate-200 leading-relaxed"
+          <div className="px-4 py-3 rounded-2xl rounded-tl-sm text-sm text-slate-200 leading-relaxed"
             style={{
-              background: "rgba(255,255,255,0.04)",
+              background: "rgba(255,255,255,0.035)",
               border: "1px solid rgba(255,255,255,0.07)",
-            }}
-          >
-            {msg.streaming && !msg.content ? (
-              <TypingDots />
-            ) : (
-              <div className="prose prose-invert prose-sm max-w-none [&>ul]:my-1 [&>ol]:my-1 [&>p]:my-1 [&>p:first-child]:mt-0 [&>p:last-child]:mb-0">
-                <ReactMarkdown>{msg.content}</ReactMarkdown>
-              </div>
-            )}
+            }}>
+            {msg.streaming && !msg.content
+              ? <TypingDots />
+              : <div className="prose prose-invert prose-sm max-w-none
+                  [&>p]:my-1 [&>p:first-child]:mt-0 [&>p:last-child]:mb-0
+                  [&>ul]:my-1 [&>ol]:my-1 [&>li]:my-0.5
+                  [&>h1]:text-base [&>h2]:text-sm [&>h3]:text-sm
+                  [&>strong]:text-white [&>code]:text-brand-300">
+                  <ReactMarkdown>{msg.content}</ReactMarkdown>
+                  {msg.streaming && <TypingDots />}
+                </div>}
           </div>
         )}
 
         {msg.error && (
-          <div
-            className="px-4 py-3 rounded-2xl text-sm"
-            style={{ background: "rgba(248,113,113,0.08)", border: "1px solid rgba(248,113,113,0.25)", color: "#f87171" }}
-          >
+          <div className="px-4 py-3 rounded-2xl text-sm"
+            style={{ background: "rgba(248,113,113,0.07)", border: "1px solid rgba(248,113,113,0.2)", color: "#f87171" }}>
             {msg.error}
           </div>
         )}
@@ -201,9 +190,9 @@ function MessageBubble({ msg }: { msg: LocalMessage }) {
   );
 }
 
-// ── Document panel ────────────────────────────────────────────────────────────
+// ── Knowledge base panel ───────────────────────────────────────────────────────
 
-function DocPanel({ onClose }: { onClose: () => void }) {
+function KBPanel({ onClose }: { onClose: () => void }) {
   const qc = useQueryClient();
   const { data: docs = [], isLoading } = useQuery({
     queryKey: ["chat-docs"],
@@ -218,159 +207,152 @@ function DocPanel({ onClose }: { onClose: () => void }) {
     if (!file) return;
     setUploading(true);
     try {
-      await chatApi.uploadDocument(file, docType);
-      await qc.invalidateQueries({ queryKey: ["chat-docs"] });
+      await chatApi.uploadDocument(file, docType, file.name);
+      qc.invalidateQueries({ queryKey: ["chat-docs"] });
     } finally {
       setUploading(false);
       if (fileRef.current) fileRef.current.value = "";
     }
   };
 
-  const remove = async (id: number) => {
-    await chatApi.deleteDocument(id);
-    await qc.invalidateQueries({ queryKey: ["chat-docs"] });
-  };
-
   return (
-    <div
-      className="flex flex-col h-full"
-      style={{
-        background: "rgba(7,15,31,0.97)",
-        borderLeft: "1px solid rgba(255,255,255,0.08)",
-      }}
-    >
-      <div className="flex items-center justify-between px-4 py-4" style={{ borderBottom: "1px solid rgba(255,255,255,0.07)" }}>
+    <div className="flex flex-col h-full"
+      style={{ background: "rgba(5,11,25,0.98)", borderLeft: "1px solid rgba(255,255,255,0.08)" }}>
+      <div className="flex items-center justify-between px-4 py-3.5"
+        style={{ borderBottom: "1px solid rgba(255,255,255,0.07)" }}>
         <div className="flex items-center gap-2">
-          <FileText size={16} className="text-brand-400" />
-          <span className="text-sm font-semibold text-slate-200">Knowledge Base</span>
+          <FileText size={15} className="text-brand-400" />
+          <span className="text-sm font-semibold text-slate-100">Knowledge Base</span>
         </div>
-        <button onClick={onClose} className="text-slate-500 hover:text-slate-300 transition-colors">
-          <X size={16} />
+        <button onClick={onClose} className="text-slate-600 hover:text-slate-300 transition-colors p-1 rounded-lg hover:bg-white/5">
+          <X size={15} />
         </button>
       </div>
 
-      <div className="p-4 space-y-3">
-        <select
-          value={docType}
-          onChange={(e) => setDocType(e.target.value)}
-          className="w-full text-xs rounded-xl px-3 py-2 text-slate-300 bg-transparent outline-none"
-          style={{ background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.1)" }}
-        >
-          {DOC_TYPES.map((t) => (
+      <div className="p-4 space-y-2.5">
+        <select value={docType} onChange={e => setDocType(e.target.value)}
+          className="w-full text-xs rounded-xl px-3 py-2 text-slate-300 outline-none"
+          style={{ background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.1)" }}>
+          {DOC_TYPES.map(t => (
             <option key={t} value={t} className="bg-slate-900">{t.charAt(0).toUpperCase() + t.slice(1)}</option>
           ))}
         </select>
 
-        <button
-          onClick={() => fileRef.current?.click()}
-          disabled={uploading}
-          className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl text-sm font-medium transition-all"
+        <button onClick={() => fileRef.current?.click()} disabled={uploading}
+          className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl text-sm font-medium transition-all disabled:opacity-60"
           style={{
-            background: "linear-gradient(135deg, rgba(8,145,178,0.3), rgba(34,211,238,0.15))",
-            border: "1px solid rgba(34,211,238,0.25)",
+            background: "rgba(34,211,238,0.08)",
+            border: "1px solid rgba(34,211,238,0.2)",
             color: "#22d3ee",
-          }}
-        >
-          {uploading ? <Loader2 size={14} className="animate-spin" /> : <Plus size={14} />}
+          }}>
+          {uploading ? <Loader2 size={13} className="animate-spin" /> : <Plus size={13} />}
           {uploading ? "Uploading…" : "Upload Document"}
         </button>
-        <input
-          ref={fileRef}
-          type="file"
-          accept=".pdf,.docx,.txt,.md,.csv"
-          className="hidden"
-          onChange={upload}
-        />
-        <p className="text-[10px] text-slate-600 text-center">PDF, DOCX, TXT, MD, CSV</p>
+        <input ref={fileRef} type="file" accept=".pdf,.docx,.txt,.md,.csv" className="hidden" onChange={upload} />
+        <p className="text-[10px] text-slate-600 text-center">PDF · DOCX · TXT · MD · CSV</p>
       </div>
 
       <div className="flex-1 overflow-y-auto px-4 pb-4 space-y-2">
-        {isLoading && <div className="flex justify-center py-4"><Loader2 size={16} className="animate-spin text-slate-600" /></div>}
-        {docs.map((doc) => (
-          <div
-            key={doc.id}
-            className="flex items-start gap-2 p-3 rounded-xl group"
-            style={{ background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.06)" }}
-          >
-            <FileText size={14} className="text-brand-400 mt-0.5 shrink-0" />
+        {isLoading && <div className="flex justify-center py-6"><Loader2 size={15} className="animate-spin text-slate-600" /></div>}
+        {docs.map(doc => (
+          <div key={doc.id} className="flex items-start gap-2.5 p-3 rounded-xl group transition-all"
+            style={{ background: "rgba(255,255,255,0.025)", border: "1px solid rgba(255,255,255,0.06)" }}>
+            <FileText size={13} className="text-brand-400 mt-0.5 shrink-0" />
             <div className="flex-1 min-w-0">
               <p className="text-xs font-medium text-slate-200 truncate">{doc.title}</p>
-              <p className="text-[10px] text-slate-600 mt-0.5">
-                {doc.doc_type} · {doc.chunk_count} chunks ·{" "}
-                <span style={{ color: doc.status === "ready" ? "#34d399" : doc.status === "failed" ? "#f87171" : "#fbbf24" }}>
-                  {doc.status}
-                </span>
+              <p className="text-[10px] mt-0.5" style={{ color: doc.status === "ready" ? "#34d399" : doc.status === "failed" ? "#f87171" : "#fbbf24" }}>
+                {doc.doc_type} · {doc.chunk_count} chunks · {doc.status}
               </p>
             </div>
-            <button
-              onClick={() => remove(doc.id)}
-              className="opacity-0 group-hover:opacity-100 text-slate-600 hover:text-red-400 transition-all"
-            >
-              <Trash2 size={12} />
+            <button onClick={() => chatApi.deleteDocument(doc.id).then(() => qc.invalidateQueries({ queryKey: ["chat-docs"] }))}
+              className="opacity-0 group-hover:opacity-100 text-slate-700 hover:text-red-400 transition-all shrink-0">
+              <Trash2 size={11} />
             </button>
           </div>
         ))}
         {docs.length === 0 && !isLoading && (
-          <p className="text-xs text-slate-600 text-center py-4">
-            No documents yet. Upload SOPs, manuals, or calibration records.
-          </p>
+          <div className="py-8 text-center">
+            <FileText size={24} className="text-slate-800 mx-auto mb-2" />
+            <p className="text-xs text-slate-600">Upload SOPs, manuals, or calibration records for grounded AI answers.</p>
+          </div>
         )}
       </div>
     </div>
   );
 }
 
-// ── Main Component ─────────────────────────────────────────────────────────────
+// ── Main ──────────────────────────────────────────────────────────────────────
 
 export function AiCopilot() {
   const qc = useQueryClient();
 
-  const [activeSessionId, setActiveSessionId] = useState<number | null>(null);
-  const [messages, setMessages] = useState<LocalMessage[]>([]);
+  // State
+  const [messages, setMessages] = useState<Msg[]>([]);
   const [input, setInput] = useState("");
-  const [streaming, setStreaming] = useState(false);
-  const [showDocs, setShowDocs] = useState(false);
+  const [showKB, setShowKB] = useState(false);
   const [showSidebar, setShowSidebar] = useState(true);
   const [searchTerm, setSearchTerm] = useState("");
   const [editingId, setEditingId] = useState<number | null>(null);
   const [editTitle, setEditTitle] = useState("");
+
+  // Refs — avoid stale closures
+  const activeSessionIdRef = useRef<number | null>(null);
+  const streamingRef = useRef(false);
   const abortRef = useRef<AbortController | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
 
+  // Derived state that mirrors the ref (for rendering)
+  const [activeSessionId, _setActiveSessionId] = useState<number | null>(null);
+  const [streaming, _setStreaming] = useState(false);
+
+  // Sync wrappers
+  const setActiveSessionId = (id: number | null) => {
+    activeSessionIdRef.current = id;
+    _setActiveSessionId(id);
+  };
+  const setStreaming = (v: boolean) => {
+    streamingRef.current = v;
+    _setStreaming(v);
+  };
+
+  // Queries
   const { data: sessions = [] } = useQuery({
     queryKey: ["chat-sessions"],
     queryFn: chatApi.listSessions,
-    refetchInterval: 30_000,
+    refetchInterval: 60_000,
   });
 
-  const { data: history = [] } = useQuery({
+  const { data: serverMessages = [] } = useQuery({
     queryKey: ["chat-messages", activeSessionId],
-    queryFn: () => (activeSessionId ? chatApi.getMessages(activeSessionId) : Promise.resolve([])),
+    queryFn: () => activeSessionId ? chatApi.getMessages(activeSessionId) : Promise.resolve([]),
     enabled: !!activeSessionId,
+    staleTime: 5_000,
   });
 
-  // Sync persisted messages to local state
+  // ── Sync server messages → local state (ONLY when not streaming) ──────────
   useEffect(() => {
-    if (history.length > 0) {
-      const mapped: LocalMessage[] = history
-        .filter((m) => m.role === "user" || m.role === "assistant")
-        .map((m) => ({
-          id: String(m.id),
-          role: m.role as "user" | "assistant",
-          content: m.content ?? "",
-          toolCalls: [],
-        }));
-      setMessages(mapped);
-    } else {
+    if (streamingRef.current) return;                     // never clobber live stream
+    if (serverMessages.length === 0) {
       setMessages([]);
+      return;
     }
-  }, [history]);
+    const mapped: Msg[] = serverMessages
+      .filter(m => m.role === "user" || m.role === "assistant")
+      .map(m => ({
+        id: String(m.id),
+        role: m.role as "user" | "assistant",
+        content: m.content ?? "",
+        toolCalls: [],
+        streaming: false,
+      }));
+    setMessages(mapped);
+  }, [serverMessages]);
 
-  useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages]);
+  // Auto-scroll
+  useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: "smooth" }); }, [messages]);
 
+  // Mutations
   const createSession = useMutation({
     mutationFn: (title: string) => chatApi.createSession(title),
     onSuccess: (session) => {
@@ -382,513 +364,422 @@ export function AiCopilot() {
 
   const deleteSession = useMutation({
     mutationFn: chatApi.deleteSession,
-    onSuccess: (_, deletedId) => {
+    onSuccess: (_, id) => {
       qc.invalidateQueries({ queryKey: ["chat-sessions"] });
-      if (activeSessionId === deletedId) {
+      if (activeSessionIdRef.current === id) {
         setActiveSessionId(null);
         setMessages([]);
       }
     },
   });
 
+  // ── Session actions ────────────────────────────────────────────────────────
+  const newChat = useCallback(() => createSession.mutate("New chat"), [createSession]);
+
+  const selectSession = (id: number) => {
+    if (streamingRef.current) { abortRef.current?.abort(); setStreaming(false); }
+    setActiveSessionId(id);
+    setMessages([]);
+    qc.invalidateQueries({ queryKey: ["chat-messages", id] });
+  };
+
   const renameSession = async (id: number, title: string) => {
+    if (!title.trim()) return;
     await chatApi.renameSession(id, title);
     qc.invalidateQueries({ queryKey: ["chat-sessions"] });
     setEditingId(null);
   };
 
-  const startNewChat = useCallback(() => {
-    createSession.mutate("New chat");
-  }, [createSession]);
-
-  const selectSession = (id: number) => {
-    if (streaming) {
-      abortRef.current?.abort();
-      setStreaming(false);
-    }
-    setActiveSessionId(id);
-    setMessages([]);
-  };
-
+  // ── Send message ──────────────────────────────────────────────────────────
   const sendMessage = useCallback(async (text: string) => {
     const content = text.trim();
-    if (!content || streaming) return;
+    if (!content || streamingRef.current) return;
 
-    let sessionId = activeSessionId;
+    // Resolve session (use ref to avoid stale closure)
+    let sessionId = activeSessionIdRef.current;
     if (!sessionId) {
-      const session = await chatApi.createSession(content.slice(0, 60));
-      qc.invalidateQueries({ queryKey: ["chat-sessions"] });
-      sessionId = session.id;
-      setActiveSessionId(session.id);
+      try {
+        const session = await chatApi.createSession(content.slice(0, 60));
+        qc.invalidateQueries({ queryKey: ["chat-sessions"] });
+        setActiveSessionId(session.id);
+        sessionId = session.id;
+      } catch {
+        return;
+      }
     }
 
     setInput("");
-    const userMsgId = `u-${Date.now()}`;
-    const asstMsgId = `a-${Date.now()}`;
+    const uId = makeId();
+    const aId = makeId();
 
-    setMessages((prev) => [
+    // Optimistically add user + placeholder assistant message
+    setMessages(prev => [
       ...prev,
-      { id: userMsgId, role: "user", content, toolCalls: [] },
-      { id: asstMsgId, role: "assistant", content: "", toolCalls: [], streaming: true },
+      { id: uId, role: "user", content, toolCalls: [], streaming: false },
+      { id: aId, role: "assistant", content: "", toolCalls: [], streaming: true },
     ]);
 
     setStreaming(true);
     abortRef.current = new AbortController();
-
     let accContent = "";
+
+    const finalSessionId = sessionId; // capture for closure
 
     try {
       await chatApi.streamMessage(
-        sessionId,
+        finalSessionId,
         content,
         (event: SseEvent) => {
-          if (event.type === "token") {
-            accContent += event.content;
-            setMessages((prev) =>
-              prev.map((m) =>
-                m.id === asstMsgId ? { ...m, content: accContent } : m
-              )
-            );
-          } else if (event.type === "tool_call") {
-            setMessages((prev) =>
-              prev.map((m) => {
-                if (m.id !== asstMsgId) return m;
-                return {
-                  ...m,
-                  toolCalls: [...m.toolCalls, { name: event.name, args: event.args }],
-                };
-              })
-            );
-          } else if (event.type === "tool_result") {
-            setMessages((prev) =>
-              prev.map((m) => {
-                if (m.id !== asstMsgId) return m;
-                // attach result to the last matching tool call
+          switch (event.type) {
+            case "token":
+              accContent += event.content;
+              setMessages(prev => prev.map(m =>
+                m.id === aId ? { ...m, content: accContent } : m
+              ));
+              break;
+
+            case "tool_call":
+              setMessages(prev => prev.map(m => {
+                if (m.id !== aId) return m;
+                return { ...m, toolCalls: [...m.toolCalls, { name: event.name, args: event.args, done: false }] };
+              }));
+              break;
+
+            case "tool_result":
+              setMessages(prev => prev.map(m => {
+                if (m.id !== aId) return m;
                 const calls = [...m.toolCalls];
                 for (let i = calls.length - 1; i >= 0; i--) {
-                  if (calls[i].name === event.name && !calls[i].result) {
-                    calls[i] = { ...calls[i], result: event.data };
+                  if (calls[i].name === event.name && !calls[i].done) {
+                    calls[i] = { ...calls[i], result: event.data, done: true };
                     break;
                   }
                 }
                 return { ...m, toolCalls: calls };
-              })
-            );
-          } else if (event.type === "done" || event.type === "error") {
-            const errMsg = event.type === "error" ? event.message : undefined;
-            setMessages((prev) =>
-              prev.map((m) =>
-                m.id === asstMsgId
-                  ? { ...m, streaming: false, error: errMsg }
-                  : m
-              )
-            );
-            setStreaming(false);
-            qc.invalidateQueries({ queryKey: ["chat-sessions"] });
-            qc.invalidateQueries({ queryKey: ["chat-messages", sessionId] });
+              }));
+              break;
+
+            case "done":
+              // Mark stream complete — do NOT invalidate queries yet, just stop streaming
+              setMessages(prev => prev.map(m =>
+                m.id === aId ? { ...m, streaming: false } : m
+              ));
+              setStreaming(false);
+              // Refresh session list + messages after a short delay
+              // so the server has time to commit the assistant message
+              setTimeout(() => {
+                qc.invalidateQueries({ queryKey: ["chat-sessions"] });
+                qc.invalidateQueries({ queryKey: ["chat-messages", finalSessionId] });
+              }, 800);
+              break;
+
+            case "error":
+              setMessages(prev => prev.map(m =>
+                m.id === aId ? { ...m, streaming: false, error: event.message } : m
+              ));
+              setStreaming(false);
+              break;
           }
         },
         abortRef.current.signal,
       );
     } catch (err) {
       if ((err as Error).name !== "AbortError") {
-        setMessages((prev) =>
-          prev.map((m) =>
-            m.id === asstMsgId
-              ? { ...m, streaming: false, error: "Connection error. Please try again." }
-              : m
-          )
-        );
+        setMessages(prev => prev.map(m =>
+          m.id === aId ? { ...m, streaming: false, error: "Connection error. Please try again." } : m
+        ));
       }
       setStreaming(false);
     }
-  }, [activeSessionId, streaming, qc]);
+  }, [qc]);
 
-  const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+  // ── Keyboard handler ───────────────────────────────────────────────────────
+  const onKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
       sendMessage(input);
     }
   };
 
-  const filteredSessions = sessions.filter((s) =>
-    s.title.toLowerCase().includes(searchTerm.toLowerCase())
-  );
-
+  // ── Derived ────────────────────────────────────────────────────────────────
+  const filtered = sessions.filter(s => s.title.toLowerCase().includes(searchTerm.toLowerCase()));
   const isEmpty = messages.length === 0;
+  const currentSession = sessions.find(s => s.id === activeSessionId);
 
   // ── Render ─────────────────────────────────────────────────────────────────
-
   return (
-    <div className="flex h-full" style={{ height: "calc(100dvh - 56px)" }}>
+    <div className="flex overflow-hidden" style={{ height: "calc(100dvh - 56px)" }}>
 
-      {/* ── Left Sidebar ─────────────────────────────────────────── */}
+      {/* ── Sidebar ────────────────────────────────────────────────────────── */}
       <aside
         className={clsx(
-          "flex-col shrink-0 transition-all duration-300 overflow-hidden",
-          showSidebar ? "flex w-72" : "hidden",
-          "lg:flex",
-          !showSidebar && "lg:hidden",
+          "flex-col shrink-0 z-30 transition-all duration-300",
+          showSidebar ? "flex w-64" : "hidden lg:hidden",
         )}
         style={{
-          background: "rgba(3,7,18,0.9)",
+          background: "rgba(3,7,18,0.95)",
           borderRight: "1px solid rgba(255,255,255,0.07)",
-          backdropFilter: "blur(20px)",
+          backdropFilter: "blur(24px)",
         }}
       >
-        {/* Header */}
-        <div className="px-4 pt-5 pb-3" style={{ borderBottom: "1px solid rgba(255,255,255,0.06)" }}>
-          <div className="flex items-center gap-2 mb-4">
-            <div
-              className="w-8 h-8 rounded-xl flex items-center justify-center"
-              style={{
-                background: "linear-gradient(135deg, #0891b2, #22d3ee)",
-                boxShadow: "0 0 16px rgba(34,211,238,0.3)",
-              }}
-            >
-              <Bot size={15} className="text-white" />
+        {/* Logo + search */}
+        <div className="px-4 pt-4 pb-3" style={{ borderBottom: "1px solid rgba(255,255,255,0.06)" }}>
+          <div className="flex items-center gap-2.5 mb-4">
+            <div className="w-8 h-8 rounded-xl flex items-center justify-center shrink-0"
+              style={{ background: "linear-gradient(135deg,#0891b2,#22d3ee)", boxShadow: "0 0 14px rgba(34,211,238,0.28)" }}>
+              <Bot size={14} className="text-white" />
             </div>
             <div>
               <p className="text-sm font-bold text-white leading-none">Copilot</p>
               <p className="text-[10px] text-slate-500 mt-0.5">AI Inventory Assistant</p>
             </div>
+            <button onClick={() => setShowSidebar(false)}
+              className="ml-auto text-slate-600 hover:text-slate-400 transition-colors p-1 rounded-lg hover:bg-white/5 lg:hidden">
+              <X size={14} />
+            </button>
           </div>
-
-          {/* Search */}
-          <div
-            className="flex items-center gap-2 px-3 py-2 rounded-xl"
-            style={{ background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.08)" }}
-          >
-            <Search size={13} className="text-slate-500 shrink-0" />
-            <input
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-              placeholder="Search chats"
-              className="flex-1 bg-transparent text-xs text-slate-300 placeholder-slate-600 outline-none"
-            />
+          <div className="flex items-center gap-2 px-3 py-2 rounded-xl"
+            style={{ background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.08)" }}>
+            <Search size={12} className="text-slate-600 shrink-0" />
+            <input value={searchTerm} onChange={e => setSearchTerm(e.target.value)}
+              placeholder="Search chats…"
+              className="flex-1 bg-transparent text-xs text-slate-300 placeholder-slate-700 outline-none" />
           </div>
         </div>
 
-        {/* New Chat */}
+        {/* New Chat button */}
         <div className="px-3 pt-3">
-          <button
-            onClick={startNewChat}
-            className="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-sm font-medium transition-all group"
-            style={{
-              background: "rgba(34,211,238,0.07)",
-              border: "1px solid rgba(34,211,238,0.15)",
-              color: "#22d3ee",
-            }}
-          >
-            <Plus size={15} />
-            New chat
+          <button onClick={newChat}
+            className="w-full flex items-center gap-2 px-3 py-2.5 rounded-xl text-sm font-medium transition-all group"
+            style={{ background: "rgba(34,211,238,0.06)", border: "1px solid rgba(34,211,238,0.14)", color: "#22d3ee" }}>
+            <Plus size={14} />
+            <span>New chat</span>
           </button>
         </div>
 
         {/* Chat history */}
         <div className="flex-1 overflow-y-auto px-3 py-3 space-y-0.5 scrollbar-none">
-          {filteredSessions.length > 0 && (
-            <p className="text-[10px] font-medium text-slate-600 uppercase tracking-wider px-1 mb-1.5">
+          {filtered.length > 0 && (
+            <p className="text-[10px] font-semibold text-slate-700 uppercase tracking-wider px-1 mb-2">
               Recent chats
             </p>
           )}
-          {filteredSessions.map((session) => (
-            <div
-              key={session.id}
+          {filtered.map(s => (
+            <div key={s.id}
+              onClick={() => selectSession(s.id)}
               className={clsx(
-                "group flex items-center gap-2 px-3 py-2.5 rounded-xl cursor-pointer transition-all duration-150",
-                activeSessionId === session.id
-                  ? "text-slate-200"
-                  : "text-slate-500 hover:text-slate-300",
+                "group flex items-center gap-2 px-3 py-2 rounded-xl cursor-pointer transition-all duration-100",
+                activeSessionId === s.id ? "text-slate-200" : "text-slate-500 hover:text-slate-300",
               )}
-              style={
-                activeSessionId === session.id
-                  ? { background: "rgba(34,211,238,0.08)", border: "1px solid rgba(34,211,238,0.15)" }
-                  : { border: "1px solid transparent" }
-              }
-              onClick={() => selectSession(session.id)}
-            >
-              {editingId === session.id ? (
-                <input
-                  autoFocus
-                  value={editTitle}
-                  onChange={(e) => setEditTitle(e.target.value)}
-                  onBlur={() => renameSession(session.id, editTitle)}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter") renameSession(session.id, editTitle);
+              style={activeSessionId === s.id
+                ? { background: "rgba(34,211,238,0.07)", border: "1px solid rgba(34,211,238,0.14)" }
+                : { border: "1px solid transparent" }}>
+
+              {editingId === s.id ? (
+                <input autoFocus value={editTitle}
+                  onChange={e => setEditTitle(e.target.value)}
+                  onBlur={() => renameSession(s.id, editTitle)}
+                  onKeyDown={e => {
+                    if (e.key === "Enter") renameSession(s.id, editTitle);
                     if (e.key === "Escape") setEditingId(null);
                   }}
-                  onClick={(e) => e.stopPropagation()}
-                  className="flex-1 bg-transparent text-xs text-slate-200 outline-none border-b border-brand-400/50"
-                />
+                  onClick={e => e.stopPropagation()}
+                  className="flex-1 bg-transparent text-xs text-slate-200 outline-none border-b border-brand-400/40" />
               ) : (
-                <span className="flex-1 text-xs truncate">{session.title}</span>
+                <span className="flex-1 text-xs truncate">{s.title}</span>
               )}
-              <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
-                <button
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    setEditingId(session.id);
-                    setEditTitle(session.title);
-                  }}
-                  className="p-1 rounded-lg text-slate-600 hover:text-slate-300 transition-colors"
-                >
-                  <Edit3 size={11} />
+
+              <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
+                <button onClick={e => { e.stopPropagation(); setEditingId(s.id); setEditTitle(s.title); }}
+                  className="p-1 rounded-lg text-slate-700 hover:text-slate-300 hover:bg-white/5 transition-all">
+                  <Edit3 size={10} />
                 </button>
-                <button
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    deleteSession.mutate(session.id);
-                  }}
-                  className="p-1 rounded-lg text-slate-600 hover:text-red-400 transition-colors"
-                >
-                  <Trash2 size={11} />
+                <button onClick={e => { e.stopPropagation(); deleteSession.mutate(s.id); }}
+                  className="p-1 rounded-lg text-slate-700 hover:text-red-400 hover:bg-red-400/5 transition-all">
+                  <Trash2 size={10} />
                 </button>
               </div>
             </div>
           ))}
-
-          {filteredSessions.length === 0 && (
-            <div className="py-8 flex flex-col items-center gap-2">
-              <Bot size={24} className="text-slate-700" />
-              <p className="text-xs text-slate-600 text-center">No chats yet. Start a conversation.</p>
+          {filtered.length === 0 && (
+            <div className="py-10 flex flex-col items-center gap-2">
+              <Bot size={22} className="text-slate-800" />
+              <p className="text-[11px] text-slate-600 text-center">No chats yet.<br />Start a new conversation.</p>
             </div>
           )}
         </div>
 
-        {/* Docs button */}
+        {/* KB button */}
         <div className="px-3 pb-4">
-          <button
-            onClick={() => setShowDocs(true)}
-            className="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-xs text-slate-500 hover:text-slate-300 transition-colors"
-            style={{ background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.07)" }}
-          >
-            <FileText size={13} />
-            Knowledge Base
-            <ChevronRight size={12} className="ml-auto" />
+          <button onClick={() => setShowKB(v => !v)}
+            className="w-full flex items-center gap-2 px-3 py-2.5 rounded-xl text-xs transition-all"
+            style={showKB
+              ? { background: "rgba(34,211,238,0.07)", border: "1px solid rgba(34,211,238,0.15)", color: "#22d3ee" }
+              : { background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.07)", color: "#64748b" }}>
+            <FileText size={12} />
+            <span>Knowledge Base</span>
+            <ChevronRight size={11} className={clsx("ml-auto transition-transform", showKB && "rotate-180")} />
           </button>
         </div>
       </aside>
 
-      {/* ── Main Chat Area ─────────────────────────────────────── */}
-      <div className="flex-1 flex flex-col overflow-hidden relative">
+      {/* ── Chat area ─────────────────────────────────────────────────────── */}
+      <div className="flex-1 flex flex-col overflow-hidden">
 
         {/* Top bar */}
-        <div
-          className="flex items-center gap-3 px-4 py-3 shrink-0"
-          style={{ borderBottom: "1px solid rgba(255,255,255,0.06)" }}
-        >
-          <button
-            onClick={() => setShowSidebar((v) => !v)}
-            className="text-slate-500 hover:text-slate-300 transition-colors lg:hidden"
-          >
-            <Menu size={18} />
-          </button>
-          <button
-            onClick={() => setShowSidebar((v) => !v)}
-            className="text-slate-500 hover:text-slate-300 transition-colors hidden lg:block"
-          >
-            <Menu size={18} />
+        <div className="flex items-center gap-3 px-4 py-3 shrink-0"
+          style={{ borderBottom: "1px solid rgba(255,255,255,0.06)", background: "rgba(3,7,18,0.6)", backdropFilter: "blur(20px)" }}>
+
+          <button onClick={() => setShowSidebar(v => !v)}
+            className="text-slate-500 hover:text-slate-300 transition-colors p-1.5 rounded-lg hover:bg-white/5">
+            <Menu size={17} />
           </button>
 
-          {activeSessionId && (
-            <p className="text-sm font-medium text-slate-300 truncate flex-1">
-              {sessions.find((s) => s.id === activeSessionId)?.title ?? "Chat"}
-            </p>
-          )}
-
-          <button
-            onClick={() => setShowDocs((v) => !v)}
-            className={clsx(
-              "flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-medium transition-all ml-auto",
-              showDocs
-                ? "text-brand-400"
-                : "text-slate-500 hover:text-slate-300",
-            )}
-            style={
-              showDocs
-                ? { background: "rgba(34,211,238,0.1)", border: "1px solid rgba(34,211,238,0.2)" }
-                : { background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.08)" }
-            }
-          >
-            <FileText size={13} />
-            <span className="hidden sm:inline">Knowledge Base</span>
-          </button>
+          <p className="text-sm font-medium text-slate-300 truncate flex-1">
+            {currentSession?.title ?? (isEmpty ? "AI Inventory Copilot" : "Chat")}
+          </p>
 
           {streaming && (
-            <button
-              onClick={() => {
-                abortRef.current?.abort();
-                setStreaming(false);
-                setMessages((prev) =>
-                  prev.map((m) => (m.streaming ? { ...m, streaming: false } : m))
-                );
-              }}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs text-red-400 transition-all"
-              style={{ background: "rgba(248,113,113,0.08)", border: "1px solid rgba(248,113,113,0.2)" }}
-            >
-              <X size={12} />
-              Stop
+            <button onClick={() => { abortRef.current?.abort(); setStreaming(false); setMessages(prev => prev.map(m => m.streaming ? { ...m, streaming: false } : m)); }}
+              className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl text-xs font-medium transition-all"
+              style={{ background: "rgba(248,113,113,0.08)", border: "1px solid rgba(248,113,113,0.2)", color: "#f87171" }}>
+              <X size={11} />Stop
             </button>
           )}
+
+          {!streaming && activeSessionId && (
+            <button onClick={() => qc.invalidateQueries({ queryKey: ["chat-messages", activeSessionId] })}
+              title="Refresh messages"
+              className="text-slate-600 hover:text-slate-400 transition-colors p-1.5 rounded-lg hover:bg-white/5">
+              <RefreshCw size={14} />
+            </button>
+          )}
+
+          <button onClick={() => setShowKB(v => !v)}
+            className={clsx(
+              "hidden sm:flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl text-xs font-medium transition-all",
+            )}
+            style={showKB
+              ? { background: "rgba(34,211,238,0.08)", border: "1px solid rgba(34,211,238,0.18)", color: "#22d3ee" }
+              : { background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.08)", color: "#64748b" }}>
+            <FileText size={12} />Knowledge Base
+          </button>
         </div>
 
-        {/* Messages / Welcome */}
-        <div className="flex-1 overflow-y-auto">
+        {/* Messages or welcome */}
+        <div className="flex-1 overflow-y-auto scroll-smooth">
           {isEmpty ? (
-            /* Welcome screen */
-            <div className="flex flex-col items-center justify-center h-full px-6 py-8 text-center">
-              <div
-                className="w-16 h-16 rounded-2xl flex items-center justify-center mb-5"
+            <div className="flex flex-col items-center justify-center h-full px-6 text-center">
+              <div className="w-14 h-14 rounded-2xl flex items-center justify-center mb-5"
                 style={{
-                  background: "linear-gradient(135deg, rgba(8,145,178,0.25), rgba(34,211,238,0.12))",
-                  border: "1px solid rgba(34,211,238,0.2)",
-                  boxShadow: "0 0 40px rgba(34,211,238,0.1)",
-                }}
-              >
-                <Beaker size={28} className="text-brand-400" />
+                  background: "linear-gradient(135deg,rgba(8,145,178,0.2),rgba(34,211,238,0.1))",
+                  border: "1px solid rgba(34,211,238,0.18)",
+                  boxShadow: "0 0 48px rgba(34,211,238,0.08)",
+                }}>
+                <Beaker size={26} className="text-brand-400" />
               </div>
-              <h2 className="text-xl font-bold text-white mb-1">
-                Hi there
-              </h2>
-              <p className="text-slate-400 text-sm mb-8">
-                Where should we start?
-              </p>
+              <h2 className="text-lg font-bold text-white mb-1">Hi there</h2>
+              <p className="text-slate-500 text-sm mb-8">Where should we start?</p>
 
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 w-full max-w-lg">
-                {SUGGESTED_PROMPTS.map(({ icon: Icon, text, color }) => (
-                  <button
-                    key={text}
-                    onClick={() => sendMessage(text)}
-                    className="flex items-center gap-3 px-4 py-3 rounded-2xl text-left text-sm font-medium transition-all hover:scale-[1.02] active:scale-[0.98]"
-                    style={{
-                      background: "rgba(255,255,255,0.04)",
-                      border: "1px solid rgba(255,255,255,0.09)",
-                      color: "#94a3b8",
-                    }}
-                  >
-                    <div
-                      className="w-7 h-7 rounded-xl flex items-center justify-center shrink-0"
-                      style={{ background: `${color}18`, border: `1px solid ${color}30` }}
-                    >
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 w-full max-w-md">
+                {SUGGESTIONS.map(({ icon: Icon, text, color }) => (
+                  <button key={text} onClick={() => sendMessage(text)}
+                    className="flex items-center gap-3 px-4 py-3 rounded-2xl text-left text-sm font-medium transition-all duration-150 hover:scale-[1.02] active:scale-[0.98]"
+                    style={{ background: "rgba(255,255,255,0.035)", border: "1px solid rgba(255,255,255,0.08)", color: "#94a3b8" }}>
+                    <div className="w-7 h-7 rounded-xl flex items-center justify-center shrink-0"
+                      style={{ background: `${color}14`, border: `1px solid ${color}28` }}>
                       <Icon size={14} style={{ color }} />
                     </div>
                     <span className="truncate">{text}</span>
                   </button>
                 ))}
               </div>
-
-              <p className="text-xs text-slate-700 mt-8">
-                Powered by SEAR Lab Inventory · AI Copilot
+              <p className="text-[10px] text-slate-800 mt-10">
+                Reads live inventory · All actions audited
               </p>
             </div>
           ) : (
-            <div className="px-4 py-4 max-w-3xl mx-auto w-full">
-              {messages.map((msg) => (
-                <MessageBubble key={msg.id} msg={msg} />
-              ))}
-              <div ref={bottomRef} />
+            <div className="px-4 py-5 max-w-3xl mx-auto w-full">
+              {messages.map(m => <MessageBubble key={m.id} msg={m} />)}
+              <div ref={bottomRef} className="h-2" />
             </div>
           )}
         </div>
 
         {/* Input bar */}
-        <div
-          className="shrink-0 px-4 pb-4 pt-3"
-          style={{ borderTop: "1px solid rgba(255,255,255,0.06)" }}
-        >
+        <div className="shrink-0 px-4 pb-4 pt-2"
+          style={{ borderTop: "1px solid rgba(255,255,255,0.06)" }}>
           <div className="max-w-3xl mx-auto">
-            <div
-              className="flex items-end gap-3 px-4 py-3 rounded-2xl transition-all"
+            <div className="flex items-end gap-2.5 px-3.5 py-2.5 rounded-2xl transition-all duration-200"
               style={{
                 background: "rgba(255,255,255,0.04)",
                 border: streaming
-                  ? "1px solid rgba(34,211,238,0.25)"
+                  ? "1px solid rgba(34,211,238,0.22)"
                   : "1px solid rgba(255,255,255,0.09)",
-                boxShadow: streaming ? "0 0 20px rgba(34,211,238,0.08)" : "none",
-              }}
-            >
-              <label
-                htmlFor="doc-upload-inline"
-                className="text-slate-600 hover:text-brand-400 transition-colors cursor-pointer shrink-0 pb-0.5"
-                title="Upload document"
-              >
-                <Paperclip size={18} />
-                <input
-                  id="doc-upload-inline"
-                  type="file"
-                  accept=".pdf,.docx,.txt,.md,.csv"
-                  className="hidden"
-                  onChange={async (e) => {
-                    const file = e.target.files?.[0];
-                    if (file) {
-                      await chatApi.uploadDocument(file);
-                      qc.invalidateQueries({ queryKey: ["chat-docs"] });
-                    }
+                boxShadow: streaming ? "0 0 20px rgba(34,211,238,0.06)" : "none",
+              }}>
+
+              {/* Attach doc */}
+              <label title="Upload document to Knowledge Base"
+                className="text-slate-700 hover:text-brand-400 transition-colors cursor-pointer shrink-0 pb-0.5">
+                <Paperclip size={17} />
+                <input type="file" accept=".pdf,.docx,.txt,.md,.csv" className="hidden"
+                  onChange={async e => {
+                    const f = e.target.files?.[0];
+                    if (f) { await chatApi.uploadDocument(f); qc.invalidateQueries({ queryKey: ["chat-docs"] }); }
                     e.target.value = "";
-                  }}
-                />
+                  }} />
               </label>
 
               <textarea
                 ref={inputRef}
                 value={input}
-                onChange={(e) => {
+                rows={1}
+                onChange={e => {
                   setInput(e.target.value);
                   e.target.style.height = "auto";
                   e.target.style.height = Math.min(e.target.scrollHeight, 140) + "px";
                 }}
-                onKeyDown={handleKeyDown}
-                placeholder={streaming ? "AI is thinking…" : "Ask anything about your lab inventory…"}
+                onKeyDown={onKeyDown}
                 disabled={streaming}
-                rows={1}
-                className="flex-1 bg-transparent text-sm text-slate-200 placeholder-slate-600 outline-none resize-none leading-relaxed"
+                placeholder={streaming ? "Thinking…" : "Ask anything about your lab inventory…"}
+                className="flex-1 bg-transparent text-sm text-slate-200 placeholder-slate-700 outline-none resize-none leading-relaxed"
                 style={{ maxHeight: 140 }}
               />
 
-              <button
-                onClick={() => sendMessage(input)}
+              <button onClick={() => sendMessage(input)}
                 disabled={!input.trim() || streaming}
                 className={clsx(
-                  "w-9 h-9 rounded-xl flex items-center justify-center transition-all shrink-0 pb-0",
+                  "w-8 h-8 rounded-xl flex items-center justify-center transition-all shrink-0",
                   input.trim() && !streaming
-                    ? "text-white scale-100 hover:scale-105"
-                    : "text-slate-600 opacity-40 cursor-not-allowed",
+                    ? "hover:scale-105 active:scale-95"
+                    : "opacity-35 cursor-not-allowed",
                 )}
-                style={
-                  input.trim() && !streaming
-                    ? {
-                        background: "linear-gradient(135deg, #0891b2, #22d3ee)",
-                        boxShadow: "0 4px 16px rgba(34,211,238,0.4)",
-                      }
-                    : { background: "rgba(255,255,255,0.06)" }
-                }
-              >
-                <Send size={16} />
+                style={input.trim() && !streaming
+                  ? { background: "linear-gradient(135deg,#0891b2,#22d3ee)", boxShadow: "0 4px 14px rgba(34,211,238,0.35)" }
+                  : { background: "rgba(255,255,255,0.06)" }}>
+                <Send size={14} className="text-white" style={{ transform: "translateX(1px)" }} />
               </button>
             </div>
-
-            <p className="text-[10px] text-slate-700 text-center mt-2">
-              SEAR Lab Copilot · Reads live inventory · All actions are audited
+            <p className="text-[10px] text-slate-800 text-center mt-2">
+              SEAR Lab Copilot · Reads live database · All actions are audited
             </p>
           </div>
         </div>
       </div>
 
-      {/* ── Knowledge Base Panel ───────────────────────────────── */}
-      {showDocs && (
-        <div className="w-72 shrink-0 hidden lg:block">
-          <DocPanel onClose={() => setShowDocs(false)} />
+      {/* ── KB Panel (desktop) ─────────────────────────────────────────────── */}
+      {showKB && (
+        <div className="hidden lg:block w-72 shrink-0">
+          <KBPanel onClose={() => setShowKB(false)} />
         </div>
       )}
 
-      {/* Mobile: doc panel as overlay */}
-      {showDocs && (
+      {/* ── KB Panel (mobile overlay) ──────────────────────────────────────── */}
+      {showKB && (
         <div className="lg:hidden fixed inset-0 z-50 flex">
-          <button className="flex-1" onClick={() => setShowDocs(false)} />
-          <div className="w-80 h-full">
-            <DocPanel onClose={() => setShowDocs(false)} />
-          </div>
+          <button className="flex-1 bg-black/50" onClick={() => setShowKB(false)} />
+          <div className="w-80 h-full"><KBPanel onClose={() => setShowKB(false)} /></div>
         </div>
       )}
     </div>

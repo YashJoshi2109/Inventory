@@ -1,11 +1,32 @@
-import { Outlet } from "react-router-dom";
+import { Outlet, NavLink, useLocation } from "react-router-dom";
 import { Toaster } from "react-hot-toast";
 import { Sidebar } from "./Sidebar";
 import { MobileNav } from "./MobileNav";
 import { TopBar } from "./TopBar";
 import { useOffline } from "@/hooks/useOffline";
-import { WifiOff, RefreshCw } from "lucide-react";
+import { WifiOff, RefreshCw, Bot } from "lucide-react";
 import { clsx } from "clsx";
+
+function CopilotFab() {
+  const location = useLocation();
+  // Hide FAB when already on the copilot page
+  if (location.pathname.startsWith("/copilot")) return null;
+  return (
+    <NavLink
+      to="/copilot"
+      title="Open AI Copilot"
+      className="lg:hidden fixed right-4 z-50 flex items-center gap-2 px-4 py-3 rounded-2xl shadow-2xl transition-all duration-200 hover:scale-105 active:scale-95"
+      style={{
+        bottom: "calc(env(safe-area-inset-bottom) + 76px)",
+        background: "linear-gradient(135deg,#0891b2,#22d3ee)",
+        boxShadow: "0 8px 32px rgba(34,211,238,0.4), 0 0 0 1px rgba(34,211,238,0.3)",
+      }}
+    >
+      <Bot size={18} className="text-white shrink-0" />
+      <span className="text-sm font-semibold text-white">AI Copilot</span>
+    </NavLink>
+  );
+}
 
 export function Layout() {
   const { isOnline, pendingCount, isSyncing, syncNow } = useOffline();
@@ -63,6 +84,9 @@ export function Layout() {
 
       {/* Mobile bottom navigation */}
       <MobileNav />
+
+      {/* Mobile AI Copilot floating button */}
+      <CopilotFab />
 
       <Toaster
         position="top-right"

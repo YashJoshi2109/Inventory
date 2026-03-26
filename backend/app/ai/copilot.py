@@ -57,17 +57,35 @@ def _sse(data: dict) -> str:
 async def run_copilot(
     *,
     messages: list[dict],         # full OpenAI-format history
-    db: AsyncSession,
+    db: AsyncSession | None,      # None = open a fresh session per tool call
     actor_id: int,
     actor_roles: list[str],
 ) -> AsyncIterator[str]:
     """
     Main agentic loop. Yields SSE strings.
     messages already include the system prompt prepended by the caller.
+
+    When db=None (streaming context) a fresh AsyncSession is opened per tool
+    call so we are not dependent on the request-scoped session that was already
+    committed before the stream started.
     """
+    from app.core.database import AsyncSessionLocal
+
+    async def _get_db():
+        if db is not None:
+            return db, False   # (session, should_close)
+        s = AsyncSessionLocal()
+        return s, True
+
     if not settings.OPENAI_API_KEY:
-        async for chunk in _fallback_responder(messages, db, actor_id, actor_roles):
-            yield chunk
+        session, should_close = await _get_db()
+        try:
+            async for chunk in _fallback_responder(messages, session, actor_id, actor_roles):
+                yield chunk
+        finally:
+            if should_close:
+                await session.commit()
+                await session.close()
         return
 
     try:
@@ -89,8 +107,16 @@ async def run_copilot(
                 temperature=0.2,
             )
         except Exception as exc:
-            log.exception("OpenAI API error: %s", exc)
-            yield _sse({"type": "error", "message": f"LLM API error: {exc}"})
+            log.warning("OpenAI API error (%s): falling back to rule-based responder", type(exc).__name__)
+            # Fall back to rule-based responder on any OpenAI error (quota, rate limit, etc.)
+            session_for_fallback, close_fallback = await _get_db()
+            try:
+                async for chunk in _fallback_responder(messages, session_for_fallback, actor_id, actor_roles):
+                    yield chunk
+            finally:
+                if close_fallback:
+                    await session_for_fallback.commit()
+                    await session_for_fallback.close()
             return
 
         # Accumulate the streamed response
@@ -138,7 +164,7 @@ async def run_copilot(
         ]
         messages.append(assistant_msg)
 
-        # Execute each tool call
+        # Execute each tool call — open a fresh session if needed
         for tc in accumulated_tool_calls:
             tool_name = tc["name"]
             try:
@@ -149,14 +175,21 @@ async def run_copilot(
             yield _sse({"type": "tool_call", "name": tool_name, "args": args})
 
             try:
-                result = await dispatch_tool(
-                    name=tool_name,
-                    args=args,
-                    db=db,
-                    actor_id=actor_id,
-                    actor_roles=actor_roles,
-                    role_names=actor_roles,
-                )
+                tool_session, tool_should_close = await _get_db()
+                try:
+                    result = await dispatch_tool(
+                        name=tool_name,
+                        args=args,
+                        db=tool_session,
+                        actor_id=actor_id,
+                        actor_roles=actor_roles,
+                        role_names=actor_roles,
+                    )
+                    if tool_should_close:
+                        await tool_session.commit()
+                finally:
+                    if tool_should_close:
+                        await tool_session.close()
             except Exception as exc:
                 result = {"error": str(exc)}
 
