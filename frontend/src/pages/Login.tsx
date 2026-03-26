@@ -13,15 +13,19 @@ interface LoginForm {
   password: string;
 }
 
+// Temporary hardcoded login for fast access during deployment/debug.
+const HARDCODED_USERNAME = "sear_admin";
+const HARDCODED_PASSWORD = "SearLab@2024";
+
 export function Login() {
   const navigate = useNavigate();
   const { setTokens, setUser } = useAuthStore();
   const [showPw, setShowPw] = useState(false);
   const { register, handleSubmit, formState: { errors, isSubmitting } } = useForm<LoginForm>();
 
-  const onSubmit = async (data: LoginForm) => {
+  const loginWithCredentials = async (username: string, password: string) => {
     try {
-      const tokens = await authApi.login(data.username, data.password);
+      const tokens = await authApi.login(username, password);
       setTokens(tokens.access_token, tokens.refresh_token);
       const user = await authApi.getMe();
       setUser(user);
@@ -29,6 +33,14 @@ export function Login() {
     } catch {
       toast.error("Invalid username or password");
     }
+  };
+
+  const onSubmit = async (data: LoginForm) => {
+    await loginWithCredentials(data.username, data.password);
+  };
+
+  const quickLogin = async () => {
+    await loginWithCredentials(HARDCODED_USERNAME, HARDCODED_PASSWORD);
   };
 
   return (
@@ -82,6 +94,9 @@ export function Login() {
 
             <Button type="submit" fullWidth loading={isSubmitting} size="lg" className="mt-2">
               Sign in
+            </Button>
+            <Button type="button" fullWidth variant="ghost" onClick={quickLogin}>
+              Quick Login (Hardcoded)
             </Button>
           </form>
         </div>
