@@ -38,6 +38,28 @@ class UserRead(OrmBase):
     created_at: datetime
     roles: list[RoleRead] = []
 
+    @field_validator("roles", mode="before")
+    @classmethod
+    def _coerce_roles(cls, v):
+        """
+        SQLAlchemy relationship `User.roles` is a list of `UserRole` rows
+        (with a `.role` relationship), but the API schema expects `RoleRead`.
+
+        This validator converts each `UserRole` -> its `.role` for correct
+        serialization and avoids 500s on `/auth/me` and `/users` endpoints.
+        """
+        if v is None:
+            return []
+
+        out: list[RoleRead | object] = []
+        for item in v:
+            role_obj = getattr(item, "role", None)
+            if role_obj is not None:
+                out.append(RoleRead.model_validate(role_obj))
+            else:
+                out.append(item)
+        return out
+
     @property
     def role_names(self) -> list[str]:
         return [r.name for r in self.roles]
