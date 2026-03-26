@@ -256,5 +256,6 @@ def register_notification_handlers() -> None:
 
     # Low stock: check after STOCK_OUT and TRANSFER.
     event_bus.subscribe(EventType.STOCK_OUT, _handle_inventory_event_for_low_stock)
+    event_bus.subscribe(EventType.STOCK_IN, _handle_inventory_event_for_low_stock)
     event_bus.subscribe(EventType.TRANSFER, _handle_inventory_event_for_low_stock)
 
