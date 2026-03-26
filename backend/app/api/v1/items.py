@@ -3,6 +3,7 @@ from decimal import Decimal
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
+from sqlalchemy import inspect as sa_inspect
 
 from app.api.v1.auth import CurrentUser, require_roles
 from app.core.database import DbSession
@@ -28,12 +29,17 @@ router = APIRouter(prefix="/items", tags=["items"])
 
 def _to_item_read(item: Item, total_qty: Decimal) -> ItemRead:
     status = "OUT" if total_qty <= 0 else ("LOW" if total_qty <= item.reorder_level else "OK")
+    # In async SQLAlchemy, lazy-loading relationships can raise MissingGreenlet.
+    # We only access relationships when they are already loaded.
+    insp = sa_inspect(item)
+    category = item.category if insp.attrs.category.loaded else None
+    barcodes = item.barcodes if insp.attrs.barcodes.loaded else []
     return ItemRead.model_validate({
         **item.__dict__,
         "total_quantity": total_qty,
         "status": status,
-        "category": item.category,
-        "barcodes": item.barcodes,
+        "category": category,
+        "barcodes": barcodes,
     })
 
 
