@@ -45,6 +45,9 @@ tiktoken>=0.7.0
 # Rate limiting
 slowapi>=0.1.9
 
+# Gemini API (primary copilot)
+google-genai==1.68.0
+
 # HTTP client (for AI services)
 httpx==0.28.0
 

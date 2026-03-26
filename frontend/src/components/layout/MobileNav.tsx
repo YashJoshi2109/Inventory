@@ -3,6 +3,7 @@ import { LayoutDashboard, Package, QrCode, Bell, BrainCircuit, MapPin, MoreHoriz
 import { clsx } from "clsx";
 import { useQuery } from "@tanstack/react-query";
 import { transactionsApi } from "@/api/transactions";
+import { rateLimitApi } from "@/api/rateLimit";
 import { useAuthStore } from "@/store/auth";
 import { useEffect, useMemo, useState } from "react";
 
@@ -17,6 +18,7 @@ export function MobileNav() {
   const location = useLocation();
   const navigate = useNavigate();
   const { logout } = useAuthStore();
+  const accessToken = useAuthStore((s) => s.accessToken);
   const [moreOpen, setMoreOpen] = useState(false);
 
   const { data: alerts } = useQuery({
@@ -25,6 +27,13 @@ export function MobileNav() {
     refetchInterval: 60_000,
   });
   const alertCount = alerts?.filter((a) => !a.is_resolved).length ?? 0;
+
+  const { data: chatRateLimit } = useQuery({
+    queryKey: ["chat-rate-limit"],
+    queryFn: () => rateLimitApi.getChatRateLimit(),
+    refetchInterval: 60_000,
+    enabled: !!accessToken,
+  });
 
   const isMoreRouteActive = useMemo(() => {
     return location.pathname.startsWith("/ai") || location.pathname.startsWith("/alerts") || location.pathname.startsWith("/copilot");
@@ -46,6 +55,14 @@ export function MobileNav() {
         borderTop: "1px solid rgba(255,255,255,0.07)",
       }}
     >
+      {/* Tiny rate-limit indicator (once per minute) */}
+      <div
+        className="pointer-events-none absolute left-3 bottom-1"
+        style={{ fontSize: 9, opacity: 0.7, color: "#e2e8f0", textShadow: "0 1px 0 rgba(0,0,0,0.2)" }}
+      >
+        AI {chatRateLimit?.remaining ?? "?"}/{chatRateLimit?.limit ?? "?"}/min
+      </div>
+
       {/* Top glow line */}
       <div
         className="absolute top-0 left-0 right-0 h-px"

@@ -7,12 +7,13 @@ Provides:
   GET  /ai/anomalies           — Recent anomaly flags
   POST /ai/index/rebuild       — Trigger search index rebuild (admin)
 """
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 
 from app.ai.demand_forecaster import forecast as run_forecast
 from app.ai.nlp_search import get_global_index, global_search, rebuild_global_index
 from app.api.v1.auth import CurrentUser, require_roles
 from app.core.database import DbSession
+from app.core.rate_limit import _chat_limiter, _get_client_ip
 from app.models.user import RoleName
 from app.repositories.item_repo import ItemRepository
 from app.repositories.transaction_repo import InventoryEventRepository, StockLevelRepository
@@ -21,6 +22,15 @@ from app.schemas.item import ItemSummary
 from pydantic import BaseModel
 
 router = APIRouter(prefix="/ai", tags=["ai"])
+
+
+class ChatRateLimitStatus(BaseModel):
+    ip: str
+    limit: int
+    window_seconds: int
+    used: int
+    remaining: int
+    retry_after_seconds: int
 
 
 class ForecastResponse(BaseModel):
@@ -41,6 +51,20 @@ class SearchResponse(BaseModel):
     query: str
     hits: list[dict]
     total: int
+
+
+@router.get("/rate-limit", response_model=ChatRateLimitStatus)
+async def chat_rate_limit(
+    request: Request,
+    current_user: CurrentUser,
+) -> ChatRateLimitStatus:
+    """
+    Returns the current in-memory sliding-window rate-limit status for chat messages
+    for the caller's IP.
+    """
+    ip = _get_client_ip(request)
+    status = _chat_limiter.status(ip)
+    return ChatRateLimitStatus(ip=ip, **status)
 
 
 @router.get("/search", response_model=SearchResponse)

@@ -11,15 +11,19 @@ streamed back to the frontend as tool-result events.
 from __future__ import annotations
 
 import json
+from datetime import datetime
 from typing import Any
 
-from sqlalchemy import select, func, text
+import re
+
+from sqlalchemy import select, func, text, or_
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.item import Item, Category
-from app.models.location import Location
+from app.models.location import Area, Location
 from app.models.transaction import StockLevel, InventoryEvent
 from app.models.user import User
+from app.models.chat import KnowledgeDocument, DocChunk
 from app.repositories.item_repo import ItemRepository
 from app.repositories.location_repo import LocationRepository
 from app.repositories.transaction_repo import (
@@ -427,24 +431,33 @@ async def perform_transfer(
 
 async def list_locations(db: AsyncSession, location_type: str | None = None) -> dict:
     """List all lab locations (areas and racks)."""
-    q = select(Location)
-    if location_type:
-        q = q.where(Location.location_type == location_type)
-    result = await db.execute(q)
-    locs = result.scalars().all()
-    return {
-        "total": len(locs),
-        "locations": [
-            {
+    out: list[dict[str, Any]] = []
+
+    # Areas
+    if location_type in (None, "area"):
+        area_res = await db.execute(select(Area).where(Area.is_active == True))  # noqa: E712
+        for a in area_res.scalars().all():
+            out.append({
+                "id": a.id,
+                "code": a.code,
+                "name": a.name,
+                "type": "area",
+                "parent_id": None,
+            })
+
+    # Racks / bins (Location)
+    if location_type in (None, "rack"):
+        loc_res = await db.execute(select(Location).where(Location.is_active == True))  # noqa: E712
+        for l in loc_res.scalars().all():
+            out.append({
                 "id": l.id,
                 "code": l.code,
                 "name": l.name,
-                "type": l.location_type,
-                "parent_id": l.parent_id,
-            }
-            for l in locs
-        ],
-    }
+                "type": "rack",
+                "parent_id": l.area_id,
+            })
+
+    return {"total": len(out), "locations": out}
 
 
 async def get_transaction_history(
@@ -480,6 +493,78 @@ async def get_transaction_history(
         })
 
     return {"total": len(out), "transactions": out}
+
+
+async def rag_search_docs(
+    db: AsyncSession,
+    query: str,
+    doc_type: str | None = None,
+    limit: int = 6,
+) -> dict:
+    """
+    Retrieve relevant knowledge-base chunks from uploaded documents.
+
+    This is a lightweight "RAG retrieval" implementation that ranks chunks by
+    keyword overlap. It is database-grounded (reads from doc_chunks).
+
+    Later you can upgrade this tool to true embedding similarity with pgvector.
+    """
+    q = (query or "").strip().lower()
+    if not q:
+        return {"query": query, "total": 0, "chunks": []}
+
+    tokens = [t for t in re.findall(r"[a-z0-9]+", q) if len(t) >= 3]
+    if not tokens:
+        tokens = [q]
+
+    # Fetch candidate chunks (bounded) using SQL ILIKE to keep it fast.
+    conditions = [func.lower(DocChunk.content).like(f"%{t}%") for t in tokens[:12]]
+
+    q_stmt = (
+        select(DocChunk, KnowledgeDocument)
+        .join(KnowledgeDocument, KnowledgeDocument.id == DocChunk.doc_id)
+        .where(KnowledgeDocument.is_active == True)  # noqa: E712
+        .where(or_(*conditions))
+        .order_by(DocChunk.created_at.desc())
+        .limit(60)
+    )
+    if doc_type:
+        q_stmt = q_stmt.where(KnowledgeDocument.doc_type == doc_type)
+
+    result = await db.execute(q_stmt)
+    rows = result.all()
+
+    ranked: list[tuple[float, DocChunk, KnowledgeDocument]] = []
+    for chunk, doc in rows:
+        c = (chunk.content or "").lower()
+        score = 0.0
+        for t in tokens:
+            if t in c:
+                score += 1.0
+        # Boost newer docs slightly
+        if doc.created_at:
+            age_seconds = max(0.0, (datetime.utcnow() - doc.created_at.replace(tzinfo=None)).total_seconds())
+            score += 1.0 / (1.0 + age_seconds / 86400.0)
+        ranked.append((score, chunk, doc))
+
+    ranked.sort(key=lambda x: x[0], reverse=True)
+    top = ranked[:limit]
+
+    chunks = [
+        {
+            "doc_id": doc.id,
+            "doc_title": doc.title,
+            "doc_type": doc.doc_type,
+            "doc_filename": doc.filename,
+            "chunk_index": chunk.chunk_index,
+            "chunk_excerpt": (chunk.content or "")[:600],
+            "score": round(float(score), 4),
+        }
+        for score, chunk, doc in top
+        if (chunk.content or "").strip()
+    ]
+
+    return {"query": query, "doc_type": doc_type, "total": len(chunks), "chunks": chunks}
 
 
 # ── OpenAI tool schema definitions (JSON Schema) ──────────────────────────────
@@ -652,6 +737,22 @@ TOOL_SCHEMAS: list[dict[str, Any]] = [
             },
         },
     },
+    {
+        "type": "function",
+        "function": {
+            "name": "rag_search_docs",
+            "description": "Retrieve relevant knowledge-base chunks from uploaded documents (SOPs, manuals, warranties, calibration records, policies). Use this to answer SOP/policy/device questions grounded in docs.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "query": {"type": "string", "description": "What to look for in documents (keywords or question)."},
+                    "doc_type": {"type": "string", "description": "Optional filter by document type (sop, manual, calibration, invoice, policy, maintenance, general)."},
+                    "limit": {"type": "integer", "description": "How many chunks to return (1-10).", "default": 6},
+                },
+                "required": ["query"],
+            },
+        },
+    },
 ]
 
 
@@ -695,4 +796,6 @@ async def dispatch_tool(
         return await list_locations(db, **args)
     if name == "get_transaction_history":
         return await get_transaction_history(db, **args)
+    if name == "rag_search_docs":
+        return await rag_search_docs(db, **args)
     raise ValueError(f"Unknown tool: {name}")

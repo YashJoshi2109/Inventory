@@ -100,8 +100,12 @@ class Settings(BaseSettings):
     # AI
     AI_ANOMALY_DETECTION_ENABLED: bool = True
     AI_FORECAST_ENABLED: bool = True
-    OPENAI_API_KEY: str = ""          # Required for AI copilot chat
-    OPENAI_MODEL: str = "gpt-4o-mini" # LLM model (gpt-4o-mini for cost, gpt-4o for quality)
+    OPENAI_API_KEY: str = ""          # Optional fallback for AI copilot chat
+    OPENAI_MODEL: str = "gpt-4o-mini"
+
+    # Gemini (primary)
+    GEMINI_API_KEY: str = ""          # Required to enable Gemini copilot
+    GEMINI_CHAT_MODEL: str = "gemini-flash-latest"
 
     # Alerts
     LOW_STOCK_CHECK_INTERVAL_SECONDS: int = 300

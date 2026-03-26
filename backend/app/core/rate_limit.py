@@ -40,6 +40,35 @@ class SlidingWindowRateLimiter:
         bucket.append(now)
         return True, 0
 
+    def status(self, key: str) -> dict[str, int]:
+        """
+        Read-only status for UI/monitoring.
+
+        Does not add a hit; only evicts expired hits from the sliding window.
+        """
+        now = time.monotonic()
+        cutoff = now - self.window
+        bucket = self._hits[key]
+        while bucket and bucket[0] < cutoff:
+            bucket.popleft()
+
+        used = len(bucket)
+        remaining = max(0, self.limit - used)
+        if remaining > 0:
+            retry_after = 0
+        elif used > 0:
+            retry_after = int(self.window - (now - bucket[0])) + 1
+        else:
+            retry_after = 0
+
+        return {
+            "limit": self.limit,
+            "window_seconds": self.window,
+            "used": used,
+            "remaining": remaining,
+            "retry_after_seconds": retry_after,
+        }
+
 
 # Shared instances
 _chat_limiter = SlidingWindowRateLimiter(limit=30, window_seconds=60)
