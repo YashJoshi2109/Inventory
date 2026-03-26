@@ -7,7 +7,7 @@ Lab_Inventory_Barcode_System.xlsx (exact template structure).
 Run:
     pip install flask pandas openpyxl
     python app.py
-    # Open http://localhost:5000
+    # Open http://localhost:5000, https://inventory-brown-beta.vercel.app
 
 API:
     GET  /                              Dashboard UI
