@@ -890,3 +890,52 @@ async def get_email_service_status_for_ui() -> "EmailServiceStatusRead":
         note=" ".join(notes),
     )
 
+
+async def send_otp_email(*, to_email: str, full_name: str, otp: str) -> tuple[bool, str]:
+    """Send OTP verification email with premium styling."""
+    if not to_email or not otp:
+        return False, "Email or OTP not provided."
+
+    subject = "[SEAR Lab Inventory] Verify Your Email - One-Time Code"
+    
+    # Premium HTML with better styling
+    html = f"""
+    <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; max-width: 500px; margin: 0 auto;">
+        <div style="background: linear-gradient(135deg, #0891b2 0%, #06b6d4 100%); border-radius: 12px 12px 0 0; padding: 40px 20px; text-align: center;">
+            <h1 style="margin: 0; color: white; font-size: 28px; font-weight: 700;">SEAR Lab Inventory</h1>
+            <p style="margin: 8px 0 0 0; color: rgba(255,255,255,0.9); font-size: 14px;">Email Verification</p>
+        </div>
+        <div style="background: #f8f9fa; border-radius: 0 0 12px 12px; padding: 40px 20px; text-align: center;">
+            <p style="margin: 0 0 20px 0; color: #1f2937; font-size: 16px;">
+                Hi <b>{full_name}</b>,
+            </p>
+            <p style="margin: 0 0 30px 0; color: #4b5563; font-size: 14px;">
+                Your one-time verification code is:
+            </p>
+            <div style="background: white; border: 2px solid #e5e7eb; border-radius: 8px; padding: 24px; margin: 0 0 20px 0;">
+                <p style="margin: 0; font-size: 48px; font-weight: 700; color: #0891b2; letter-spacing: 8px; font-family: 'Monaco', 'Courier New', monospace;">
+                    {otp}
+                </p>
+            </div>
+            <p style="margin: 0 0 20px 0; color: #9ca3af; font-size: 12px;">
+                This code expires in 10 minutes
+            </p>
+            <div style="border-top: 1px solid #e5e7eb; padding-top: 20px; margin-top: 20px;">
+                <p style="margin: 0; color: #6b7280; font-size: 12px;">
+                    If you didn't request this code, please ignore this email.
+                </p>
+            </div>
+        </div>
+    </div>
+    """
+    
+    text = f"Your verification code is: {otp}. This code expires in 10 minutes."
+
+    ok, detail = await _send_email_with_detail(
+        to_emails=[to_email],
+        subject=subject,
+        html=html,
+        text=text,
+        prefer_resend=True,
+    )
+    return (True, "OTP email sent.") if ok else (False, f"OTP email could not be sent. {detail}")

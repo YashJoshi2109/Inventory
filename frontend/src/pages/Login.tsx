@@ -15,26 +15,17 @@ interface LoginForm {
   password: string;
 }
 
-// Temporary hardcoded login for fast access during deployment/debug.
-const HARDCODED_USERNAME = "sear_admin";
-const HARDCODED_PASSWORD = "SearLab@2024";
-
-type LoginVia = "form" | "quick";
-
 export function Login() {
   const navigate = useNavigate();
   const { setTokens, setUser } = useAuthStore();
   const [showPw, setShowPw] = useState(false);
-  const [loginBusy, setLoginBusy] = useState<{ active: boolean; via: LoginVia | null }>({
-    active: false,
-    via: null,
-  });
+  const [loginBusy, setLoginBusy] = useState(false);
   const { register, handleSubmit, formState: { errors } } = useForm<LoginForm>();
 
-  const loginWithCredentials = async (username: string, password: string, via: LoginVia) => {
-    setLoginBusy({ active: true, via });
+  const onSubmit = async (data: LoginForm) => {
+    setLoginBusy(true);
     try {
-      const tokens = await authApi.login(username, password);
+      const tokens = await authApi.login(data.username, data.password);
       setTokens(tokens.access_token, tokens.refresh_token);
       const user = await authApi.getMe();
       setUser(user);
@@ -42,19 +33,11 @@ export function Login() {
     } catch (e: unknown) {
       toast.error(apiErrorMessage(e, "Invalid username or password"));
     } finally {
-      setLoginBusy({ active: false, via: null });
+      setLoginBusy(false);
     }
   };
 
-  const onSubmit = async (data: LoginForm) => {
-    await loginWithCredentials(data.username, data.password, "form");
-  };
-
-  const quickLogin = async () => {
-    await loginWithCredentials(HARDCODED_USERNAME, HARDCODED_PASSWORD, "quick");
-  };
-
-  const busy = loginBusy.active;
+  const busy = loginBusy;
 
   return (
     <div className="min-h-dvh bg-surface flex flex-col items-center justify-center p-4">
@@ -67,10 +50,12 @@ export function Login() {
       <div className="w-full max-w-sm relative">
         {/* Logo */}
         <div className="flex flex-col items-center mb-8">
-          <div className="w-14 h-14 bg-brand-600 rounded-2xl flex items-center justify-center mb-4 shadow-lg shadow-brand-600/30">
-            <Beaker size={28} className="text-white" />
-          </div>
-          <h1 className="text-2xl font-bold text-white">SEAR Lab Inventory</h1>
+          <img 
+            src="/favicon.webp" 
+            alt="UTA SEAR Lab" 
+            className="w-14 h-14 rounded-2xl mb-4 shadow-lg shadow-cyan-500/30 object-cover"
+          />
+          <h1 className="text-2xl font-bold text-white">UTA SEAR Lab Inventory</h1>
           <p className="text-slate-400 text-sm mt-1">AI-powered laboratory inventory control</p>
         </div>
 
@@ -182,22 +167,12 @@ export function Login() {
             <Button
               type="submit"
               fullWidth
-              loading={busy && loginBusy.via === "form"}
-              disabled={busy && loginBusy.via !== "form"}
+              loading={busy}
+              disabled={busy}
               size="lg"
               className="mt-2"
             >
               Sign in
-            </Button>
-            <Button
-              type="button"
-              fullWidth
-              variant="ghost"
-              loading={busy && loginBusy.via === "quick"}
-              disabled={busy && loginBusy.via !== "quick"}
-              onClick={quickLogin}
-            >
-              Quick Login (Hardcoded)
             </Button>
           </form>
         </div>
@@ -209,6 +184,13 @@ export function Login() {
             className="text-brand-400 hover:text-brand-300 font-medium transition-colors"
           >
             Create one
+          </Link>
+          {" · "}
+          <Link
+            to="/verify-email"
+            className="text-brand-400 hover:text-brand-300 font-medium transition-colors"
+          >
+            Verify email
           </Link>
         </p>
         <p className="text-center text-xs text-slate-700 mt-3">

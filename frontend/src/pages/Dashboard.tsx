@@ -1,5 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { type ComponentType } from "react";
+import { motion } from "framer-motion";
 import { dashboardApi } from "@/api/transactions";
 import { Spinner } from "@/components/ui/Spinner";
 import {
@@ -14,6 +15,7 @@ import {
 } from "recharts";
 import { clsx } from "clsx";
 import type { InventoryEvent } from "@/types";
+import { animationVariants } from "@/utils/animations";
 
 const EVENT_ICONS = {
   STOCK_IN:   { icon: ArrowUpRight,   color: "#22d3ee", bg: "rgba(34,211,238,0.1)" },
@@ -75,8 +77,13 @@ function KpiCard({
   bgClass: string;
 }) {
   return (
-    <div
-      className={clsx("rounded-2xl p-5 relative overflow-hidden transition-all duration-200 card-glow", bgClass)}
+    <motion.div
+      variants={animationVariants.scaleIn}
+      initial="hidden"
+      whileInView="visible"
+      viewport={{ once: true, margin: "-50px" }}
+      whileHover={{ y: -4, transition: { duration: 0.3 } }}
+      className={clsx("rounded-2xl p-5 relative overflow-hidden transition-all duration-200 card-glow cursor-pointer", bgClass)}
       style={{ backdropFilter: "blur(12px)" }}
     >
       {/* Background glow */}
@@ -90,11 +97,26 @@ function KpiCard({
           <p className="text-xs font-medium uppercase tracking-wider" style={{ color: `${accent}99` }}>
             {title}
           </p>
-          <p className="text-3xl font-bold text-white mt-1 tracking-tight">{value}</p>
+          <motion.p 
+            className="text-3xl font-bold text-white mt-1 tracking-tight"
+            initial={{ opacity: 0, y: 8 }}
+            whileInView={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.1 }}
+            viewport={{ once: true }}
+          >
+            {value}
+          </motion.p>
           {subtitle && (
-            <p className="text-xs mt-1" style={{ color: `${accent}70` }}>
+            <motion.p 
+              className="text-xs mt-1" 
+              style={{ color: `${accent}70` }}
+              initial={{ opacity: 0 }}
+              whileInView={{ opacity: 1 }}
+              transition={{ delay: 0.15 }}
+              viewport={{ once: true }}
+            >
               {subtitle}
-            </p>
+            </motion.p>
           )}
         </div>
         <div
@@ -104,7 +126,7 @@ function KpiCard({
           <Icon size={20} style={{ color: accent }} />
         </div>
       </div>
-    </div>
+    </motion.div>
   );
 }
 
@@ -176,7 +198,12 @@ export function Dashboard() {
     <div className="p-4 lg:p-6 pb-24 lg:pb-8 space-y-5 animate-fade-in">
 
       {/* KPI row */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+      <motion.div 
+        className="grid grid-cols-2 lg:grid-cols-4 gap-3"
+        variants={animationVariants.staggerContainer}
+        initial="hidden"
+        animate="visible"
+      >
         {KPI_CONFIGS.map(({ key, title, icon, accent, bgClass, subKey, subLabel }) => {
           const value = (stats as unknown as Record<string, number>)[key];
           const subValue = subKey ? (stats as unknown as Record<string, number>)[subKey] : undefined;
@@ -188,18 +215,19 @@ export function Dashboard() {
               : undefined;
 
           return (
-            <KpiCard
-              key={key}
-              title={title}
-              value={value?.toLocaleString() ?? "0"}
-              subtitle={subKey ? subtitle : undefined}
-              icon={icon}
-              accent={accent}
-              bgClass={bgClass}
-            />
+            <motion.div key={key} variants={animationVariants.listItem}>
+              <KpiCard
+                title={title}
+                value={value?.toLocaleString() ?? "0"}
+                subtitle={subKey ? subtitle : undefined}
+                icon={icon}
+                accent={accent}
+                bgClass={bgClass}
+              />
+            </motion.div>
           );
         })}
-      </div>
+      </motion.div>
 
       {/* Charts row */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
@@ -351,7 +379,11 @@ export function Dashboard() {
       </div>
 
       {/* Recent activity */}
-      <div
+      <motion.div
+        variants={animationVariants.fadeInUp}
+        initial="hidden"
+        whileInView="visible"
+        viewport={{ once: true, margin: "-50px" }}
         className="rounded-2xl overflow-hidden"
         style={{
           background: "rgba(7,15,31,0.6)",
@@ -379,12 +411,20 @@ export function Dashboard() {
               <p className="text-slate-500 text-sm">No recent activity</p>
             </div>
           ) : (
-            stats.recent_activity.map((event) => (
-              <ActivityRow key={event.id} event={event} />
-            ))
+            <motion.div
+              variants={animationVariants.staggerContainer}
+              initial="hidden"
+              animate="visible"
+            >
+              {stats.recent_activity.map((event) => (
+                <motion.div key={event.id} variants={animationVariants.listItem}>
+                  <ActivityRow event={event} />
+                </motion.div>
+              ))}
+            </motion.div>
           )}
         </div>
-      </div>
+      </motion.div>
     </div>
   );
 }

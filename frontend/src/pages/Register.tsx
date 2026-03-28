@@ -1,14 +1,15 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { useForm } from "react-hook-form";
 import { AnimatePresence, motion } from "framer-motion";
-import { Beaker, Eye, EyeOff, UserPlus, ShieldCheck, User, Briefcase } from "lucide-react";
+import { Eye, EyeOff, UserPlus, ShieldCheck, User, Briefcase } from "lucide-react";
 import toast from "react-hot-toast";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
 import { authApi } from "@/api/auth";
 import { useAuthStore } from "@/store/auth";
 import { apiErrorMessage } from "@/utils/apiError";
+import { RegistrationTimeline } from "@/components/RegistrationTimeline";
 
 interface RegisterForm {
   full_name: string;
@@ -46,6 +47,21 @@ export function Register() {
   const [showPw, setShowPw] = useState(false);
   const [registerBusy, setRegisterBusy] = useState(false);
   const [selectedRole, setSelectedRole] = useState<"viewer" | "manager">("viewer");
+  const [showSuccess, setShowSuccess] = useState(false);
+  const [registeredEmail, setRegisteredEmail] = useState<string | null>(null);
+  const [emailVerifiedStep, setEmailVerifiedStep] = useState(false);
+  const [otpCode, setOtpCode] = useState("");
+  const [otpBusy, setOtpBusy] = useState(false);
+  const [resendBusy, setResendBusy] = useState(false);
+
+  const timelineSteps = useMemo(
+    () => [
+      { id: "account", label: "Account created", completed: true as boolean },
+      { id: "verify", label: "Verify email", completed: emailVerifiedStep },
+      { id: "ready", label: "Lab access", completed: emailVerifiedStep },
+    ],
+    [emailVerifiedStep],
+  );
 
   const {
     register,
@@ -71,11 +87,28 @@ export function Register() {
       setTokens(tokens.access_token, tokens.refresh_token);
       const user = await authApi.getMe();
       setUser(user);
+
+      const emailLower = data.email.trim().toLowerCase();
+      setRegisteredEmail(emailLower);
+      setEmailVerifiedStep(!!user.email_verified);
+      setOtpCode("");
+      setShowSuccess(true);
+
       toast.success(
-        `Welcome, ${user.full_name}! You're signed in. If Resend or SMTP is configured on the server, a welcome email may follow shortly—check spam folders.`,
-        { duration: 5500 },
+        `Welcome, ${user.full_name}! Check your email for a 6-digit code to verify your address.`,
+        { duration: 5000 },
       );
-      navigate("/dashboard");
+
+      if (!user.email_verified) {
+        try {
+          await authApi.sendOtp(emailLower);
+          toast.success("Verification code sent.", { duration: 3500 });
+        } catch (e: unknown) {
+          toast.error(apiErrorMessage(e, "Could not send verification email. You can resend from this screen."));
+        }
+      } else {
+        setTimeout(() => navigate("/dashboard"), 1600);
+      }
     } catch (e: unknown) {
       toast.error(apiErrorMessage(e, "Registration failed. Try again."));
     } finally {
@@ -84,7 +117,43 @@ export function Register() {
   };
 
   const pw = watch("password");
-  const busy = registerBusy;
+  const busy = registerBusy || showSuccess;
+
+  const handleVerifyOtp = async () => {
+    if (!registeredEmail) return;
+    const digits = otpCode.replace(/\D/g, "").slice(0, 6);
+    if (digits.length !== 6) {
+      toast.error("Enter the 6-digit code from your email.");
+      return;
+    }
+    setOtpBusy(true);
+    try {
+      const tok = await authApi.verifyOtp(registeredEmail, digits);
+      setTokens(tok.access_token, tok.refresh_token);
+      const me = await authApi.getMe();
+      setUser(me);
+      setEmailVerifiedStep(true);
+      toast.success("Email verified. Taking you to the dashboard.");
+      setTimeout(() => navigate("/dashboard"), 1400);
+    } catch (e: unknown) {
+      toast.error(apiErrorMessage(e, "Invalid or expired code."));
+    } finally {
+      setOtpBusy(false);
+    }
+  };
+
+  const handleResendOtp = async () => {
+    if (!registeredEmail) return;
+    setResendBusy(true);
+    try {
+      await authApi.sendOtp(registeredEmail);
+      toast.success("If an account exists, a new code was sent.");
+    } catch (e: unknown) {
+      toast.error(apiErrorMessage(e, "Could not resend code."));
+    } finally {
+      setResendBusy(false);
+    }
+  };
 
   return (
     <div className="min-h-dvh bg-surface flex flex-col items-center justify-center p-4 relative overflow-hidden">
@@ -103,17 +172,13 @@ export function Register() {
       <div className="w-full max-w-md relative">
         {/* Logo */}
         <div className="flex flex-col items-center mb-7">
-          <div
-            className="w-14 h-14 rounded-2xl flex items-center justify-center mb-4 animate-glow-pulse"
-            style={{
-              background: "linear-gradient(135deg, #0891b2, #06b6d4)",
-              boxShadow: "0 0 30px rgba(34,211,238,0.35)",
-            }}
-          >
-            <Beaker size={26} className="text-white" />
-          </div>
+          <img 
+            src="/favicon.webp" 
+            alt="UTA SEAR Lab" 
+            className="w-14 h-14 rounded-2xl mb-4 shadow-lg shadow-cyan-500/30 object-cover"
+          />
           <h1 className="text-2xl font-bold text-white">Create Account</h1>
-          <p className="text-slate-500 text-sm mt-1">Join SEAR Lab Inventory System</p>
+          <p className="text-slate-500 text-sm mt-1">Join UTA SEAR Lab Inventory System</p>
         </div>
 
         {/* Card */}
@@ -127,7 +192,79 @@ export function Register() {
           }}
         >
           <AnimatePresence>
-            {busy && (
+            {showSuccess ? (
+              <motion.div
+                key="success-overlay"
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                transition={{ duration: 0.3 }}
+                className="absolute inset-0 z-30 rounded-2xl bg-gradient-to-b from-slate-900 to-slate-950/95 backdrop-blur-md flex flex-col items-center justify-center p-4 sm:p-6 overflow-y-auto max-h-[min(520px,85vh)]"
+              >
+                <div className="w-full max-w-sm flex flex-col gap-4">
+                  <RegistrationTimeline
+                    steps={timelineSteps}
+                    isVisible
+                    footerTitle={
+                      emailVerifiedStep
+                        ? "✨ Welcome to the team!"
+                        : "Almost there"
+                    }
+                    footerSubtitle={
+                      emailVerifiedStep
+                        ? "Your account is verified and ready."
+                        : "Enter the code we sent to your email, or continue and verify later from the sign-in page."
+                    }
+                  />
+                  {!emailVerifiedStep ? (
+                    <div className="space-y-3 rounded-xl border border-white/10 bg-slate-950/60 p-4">
+                      <Input
+                        label="6-digit code"
+                        placeholder="000000"
+                        inputMode="numeric"
+                        maxLength={6}
+                        autoComplete="one-time-code"
+                        value={otpCode}
+                        onChange={(e) => setOtpCode(e.target.value.replace(/\D/g, "").slice(0, 6))}
+                        disabled={otpBusy}
+                      />
+                      <div className="flex flex-col gap-2">
+                        <Button
+                          type="button"
+                          fullWidth
+                          loading={otpBusy}
+                          disabled={otpBusy || resendBusy}
+                          onClick={() => void handleVerifyOtp()}
+                        >
+                          Verify email
+                        </Button>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          fullWidth
+                          loading={resendBusy}
+                          disabled={otpBusy || resendBusy}
+                          onClick={() => void handleResendOtp()}
+                        >
+                          Resend code
+                        </Button>
+                        <Button
+                          type="button"
+                          variant="secondary"
+                          fullWidth
+                          disabled={otpBusy || resendBusy}
+                          onClick={() => navigate("/dashboard")}
+                        >
+                          Continue to dashboard
+                        </Button>
+                      </div>
+                    </div>
+                  ) : null}
+                </div>
+              </motion.div>
+            ) : null}
+            
+            {busy && !showSuccess && (
               <motion.div
                 key="register-overlay"
                 role="status"

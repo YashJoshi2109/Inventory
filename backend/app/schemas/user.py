@@ -33,6 +33,7 @@ class UserRead(OrmBase):
     full_name: str
     is_active: bool
     is_superuser: bool
+    email_verified: bool = False
     avatar_url: str | None = None
     last_login_at: datetime | None = None
     created_at: datetime
@@ -88,3 +89,13 @@ class PasswordChangeRequest(OrmBase):
 
 class AdminPasswordResetRequest(OrmBase):
     new_password: str = Field(min_length=8, max_length=128)
+
+
+class OTPVerifyRequest(OrmBase):
+    email: EmailStr
+    otp: str = Field(min_length=6, max_length=6, pattern=r"^\d{6}$")
+
+
+class OTPSendRequest(OrmBase):
+    email: EmailStr
+

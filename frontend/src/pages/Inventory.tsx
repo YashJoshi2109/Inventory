@@ -17,6 +17,7 @@ import {
 } from "lucide-react";
 import { clsx } from "clsx";
 import type { ItemSummary } from "@/types";
+import { useHaptic } from "@/hooks/useHaptic";
 
 const STATUS_FILTERS = [
   { label: "All", value: "" },
@@ -26,6 +27,7 @@ const STATUS_FILTERS = [
 ];
 
 export function Inventory() {
+  const { triggerHaptic } = useHaptic();
   const [searchParams, setSearchParams] = useSearchParams();
   const [page, setPage] = useState(1);
   const [showAddModal, setShowAddModal] = useState(false);
@@ -86,6 +88,7 @@ export function Inventory() {
       });
     },
     onSuccess: () => {
+      triggerHaptic("success");
       toast.success("Item created with barcode");
       setShowAddModal(false);
       setNewItem({
@@ -99,6 +102,7 @@ export function Inventory() {
       queryClient.invalidateQueries({ queryKey: ["items"] });
     },
     onError: (err: unknown) => {
+      triggerHaptic("error");
       const msg = (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail;
       toast.error(typeof msg === "string" ? msg : "Failed to create item");
     },

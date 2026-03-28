@@ -27,6 +27,23 @@ test.describe("Production API (no browser)", () => {
     expect(res.status()).toBe(401);
   });
 
+  test("POST /auth/otp/send returns 200 (enumeration-safe)", async ({ request }) => {
+    const res = await request.post(`${apiURL}/auth/otp/send`, {
+      data: { email: "nonexistent-smoke-otp@example.com" },
+    });
+    expect(res.ok(), await res.text()).toBeTruthy();
+    const body = await res.json();
+    expect(body.success).toBe(true);
+    expect(typeof body.message).toBe("string");
+  });
+
+  test("POST /auth/otp/verify rejects unknown email or bad code", async ({ request }) => {
+    const res = await request.post(`${apiURL}/auth/otp/verify`, {
+      data: { email: "nonexistent-smoke-otp@example.com", otp: "123456" },
+    });
+    expect(res.status()).toBe(400);
+  });
+
   test("POST /auth/login + GET /auth/me", async ({ request }) => {
     const login = await request.post(`${apiURL}/auth/login`, {
       data: { username: smokeUser, password: smokePass },

@@ -8,7 +8,8 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
 from app.core.database import DbSession
 from app.core.events import DomainEvent, EventType, event_bus
-from app.core.notifications import send_login_email, send_welcome_email
+from app.core.notifications import send_login_email, send_otp_email, send_welcome_email
+from app.core.otp import consume_otp, issue_otp_for_email
 from app.core.security import (
     create_access_token,
     create_refresh_token,
@@ -17,7 +18,15 @@ from app.core.security import (
 )
 from app.models.user import User, UserRole
 from app.repositories.user_repo import UserRepository
-from app.schemas.user import LoginRequest, RefreshRequest, TokenResponse, UserRead
+from app.schemas.common import MessageResponse
+from app.schemas.user import (
+    LoginRequest,
+    OTPSendRequest,
+    OTPVerifyRequest,
+    RefreshRequest,
+    TokenResponse,
+    UserRead,
+)
 from app.core.config import settings
 from app.core.security import hash_password
 from app.repositories.user_repo import RoleRepository
@@ -102,9 +111,13 @@ async def register(body: RegisterRequest, session: DbSession) -> TokenResponse:
         # Race condition protection: unique constraint on users.email / users.username
         raise HTTPException(status_code=409, detail="Email or username already registered")
 
-    role = await role_repo.get_by_name(body.role)
-    if role:
-        session.add(UserRole(user_id=user.id, role_id=role.id))
+    # Ensure role name is lowercase for database lookup
+    role_name = body.role.lower().strip()
+    role = await role_repo.get_by_name(role_name)
+    if not role:
+        raise HTTPException(status_code=400, detail=f"Role '{body.role}' not found. Available roles: viewer, manager")
+    
+    session.add(UserRole(user_id=user.id, role_id=role.id))
     await session.flush()
     await session.refresh(user)
 
@@ -126,7 +139,8 @@ async def register(body: RegisterRequest, session: DbSession) -> TokenResponse:
 
         asyncio.create_task(_send_welcome_and_log())
 
-    role_names = [body.role]
+    # Get actual role names from database assignment
+    role_names = [ur.role.name for ur in user.roles if ur.role]
     access = create_access_token(user.id, extra={"roles": role_names, "username": user.username})
     refresh = create_refresh_token(user.id)
     return TokenResponse(
@@ -180,6 +194,71 @@ async def login(body: LoginRequest, request: Request, session: DbSession) -> Tok
                 _log.warning("Login email failed user_id=%s email=%s detail=%s", uid, to_email, detail)
 
         asyncio.create_task(_send_login_and_log())
+
+    return TokenResponse(
+        access_token=access,
+        refresh_token=refresh,
+        expires_in=settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60,
+    )
+
+
+OTP_SEND_OK = MessageResponse(
+    message="If an account exists for this email, a verification code was sent.",
+    success=True,
+)
+
+
+@router.post("/otp/send", response_model=MessageResponse)
+async def otp_send(body: OTPSendRequest, session: DbSession) -> MessageResponse:
+    """Request a 6-digit email OTP for verification. Response text is fixed to avoid account enumeration."""
+    issued = await issue_otp_for_email(session, email=body.email)
+    if issued is None:
+        return OTP_SEND_OK
+    otp, user = issued
+    ok, detail = await send_otp_email(to_email=user.email, full_name=user.full_name, otp=otp)
+    if not ok:
+        user.otp_code = None
+        user.otp_expires_at = None
+        await session.flush()
+        _log.warning("OTP email send failed email=%s detail=%s", user.email, detail)
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Could not send verification email. Try again later or contact support.",
+        )
+    return OTP_SEND_OK
+
+
+@router.post("/otp/verify", response_model=TokenResponse)
+async def otp_verify(body: OTPVerifyRequest, request: Request, session: DbSession) -> TokenResponse:
+    """Verify OTP, mark email verified, and return access/refresh tokens."""
+    ok, user = await consume_otp(session, email=body.email, otp=body.otp)
+    if not ok or not user:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid or expired verification code.",
+        )
+    if not user.is_active:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Account disabled")
+
+    user.last_login_at = datetime.now(timezone.utc)
+    await session.flush()
+
+    role_names = [ur.role.name for ur in user.roles if ur.role]
+    access = create_access_token(user.id, extra={"roles": role_names, "username": user.username})
+    refresh = create_refresh_token(user.id)
+
+    await event_bus.publish(
+        DomainEvent(
+            event_type=EventType.USER_LOGIN,
+            payload={
+                "user_id": user.id,
+                "username": user.username,
+                "ip": request.client.host if request.client else None,
+                "via": "otp_verify",
+            },
+            actor_id=user.id,
+        )
+    )
 
     return TokenResponse(
         access_token=access,

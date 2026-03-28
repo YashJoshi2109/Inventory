@@ -20,6 +20,7 @@ import { itemsApi } from "@/api/items";
 import type { ScanResult } from "@/types";
 import { useQuery } from "@tanstack/react-query";
 import { openOrDownloadDataUrl } from "@/utils/fileActions";
+import { useHaptic } from "@/hooks/useHaptic";
 
 type ScanMode = "add" | "remove" | "transfer" | "modify";
 
@@ -330,6 +331,7 @@ async function fetchQrWithRetry(itemId: number, attempts = 3): Promise<string | 
 }
 
 function AddFlow({ onReset }: { onReset: () => void }) {
+  const { triggerHaptic } = useHaptic();
   const [sub, setSub] = useState<AddSubMode>("choose");
   const [item, setItem] = useState<ScanResult | null>(null);
   const [rack, setRack] = useState<ScanResult | null>(null);
@@ -384,21 +386,26 @@ function AddFlow({ onReset }: { onReset: () => void }) {
       try {
         const result = await scanApi.lookup(value);
         if (result.result_type === "unknown") {
+          triggerHaptic("error");
           toast.error(`Unknown barcode: ${value}`);
           return;
         }
         if (target === "item" && result.result_type === "item") {
+          triggerHaptic("success");
           setItem(result);
           setSub("scan-rack");
           toast.success(`Item loaded: ${result.name}`);
         } else if (target === "rack" && result.result_type === "location") {
+          triggerHaptic("success");
           setRack(result);
           setSub(sub === "new-item-rack" ? "new-item-confirm" : "confirm");
           toast.success(`Location: ${result.name}`);
         } else {
+          triggerHaptic("warning");
           toast.error(`Expected ${target === "item" ? "item QR" : "rack / location QR"} — try again`);
         }
       } catch {
+        triggerHaptic("error");
         toast.error("Lookup failed. Try again.");
       } finally {
         setLoading(false);
@@ -407,7 +414,7 @@ function AddFlow({ onReset }: { onReset: () => void }) {
         }, 500);
       }
     },
-    [sub],
+    [sub, triggerHaptic],
   );
 
   const scanNewItemPresetLocation = useCallback(async (value: string) => {

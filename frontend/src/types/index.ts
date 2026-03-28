@@ -12,6 +12,8 @@ export interface User {
   full_name: string;
   is_active: boolean;
   is_superuser: boolean;
+  /** Present once backend exposes it; older cached sessions may omit this. */
+  email_verified?: boolean;
   avatar_url: string | null;
   last_login_at: string | null;
   created_at: string;
