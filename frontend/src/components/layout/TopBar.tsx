@@ -1,8 +1,10 @@
 import { useLocation } from "react-router-dom";
-import { LogOut, Search } from "lucide-react";
+import { LogOut, Mail, Search } from "lucide-react";
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
+import { useQuery } from "@tanstack/react-query";
 import { useAuthStore } from "@/store/auth";
+import { dashboardApi } from "@/api/dashboard";
 
 const titles: Record<string, string> = {
   "/dashboard":    "Dashboard",
@@ -22,6 +24,13 @@ export function TopBar() {
   const navigate = useNavigate();
   const [query, setQuery] = useState("");
   const { user, logout } = useAuthStore();
+
+  const { data: emailStatus } = useQuery({
+    queryKey: ["email-service-status"],
+    queryFn: () => dashboardApi.getEmailServiceStatus(),
+    staleTime: 5 * 60_000,
+    enabled: Boolean(user),
+  });
 
   const handleSearch = (e: React.FormEvent) => {
     e.preventDefault();
@@ -56,6 +65,23 @@ export function TopBar() {
       <h1 className="text-base font-bold text-white hidden lg:block">{title}</h1>
 
       <div className="flex-1" />
+
+      {user && emailStatus?.active_provider === "brevo" && emailStatus.daily_limit_hint != null && (
+        <div
+          className="flex items-center gap-1.5 px-2 py-1 rounded-lg shrink-0 max-w-[140px] sm:max-w-[220px]"
+          style={{
+            background: "rgba(99,102,241,0.12)",
+            border: "1px solid rgba(99,102,241,0.25)",
+          }}
+          title={emailStatus.note || `Brevo transactional email — about ${emailStatus.daily_limit_hint} sends/day on typical free tier.`}
+        >
+          <Mail size={14} className="text-indigo-300 shrink-0" aria-hidden />
+          <span className="text-[11px] font-medium text-indigo-100/90 leading-tight truncate">
+            Brevo ~{emailStatus.daily_limit_hint}/day
+            {emailStatus.brevo_credits_remaining != null ? ` · ${emailStatus.brevo_credits_remaining} cr.` : ""}
+          </span>
+        </div>
+      )}
 
       <form onSubmit={handleSearch} className="hidden sm:flex items-center">
         <div className="relative">

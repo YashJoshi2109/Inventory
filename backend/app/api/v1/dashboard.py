@@ -5,15 +5,22 @@ from fastapi import APIRouter
 
 from app.api.v1.auth import CurrentUser
 from app.core.database import DbSession
+from app.core.notifications import get_email_service_status_for_ui
 from app.repositories.item_repo import ItemRepository, CategoryRepository
 from app.repositories.transaction_repo import (
     AlertRepository,
     InventoryEventRepository,
     StockLevelRepository,
 )
-from app.schemas.transaction import DashboardStats, InventoryEventRead
+from app.schemas.transaction import DashboardStats, EmailServiceStatusRead, InventoryEventRead
 
 router = APIRouter(prefix="/dashboard", tags=["dashboard"])
+
+
+@router.get("/email-service-status", response_model=EmailServiceStatusRead)
+async def email_service_status(_current_user: CurrentUser) -> EmailServiceStatusRead:
+    """Email provider + free-tier hint for the portal (authenticated)."""
+    return await get_email_service_status_for_ui()
 
 
 def _to_event_read(event) -> InventoryEventRead:

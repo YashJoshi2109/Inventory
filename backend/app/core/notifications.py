@@ -57,6 +57,105 @@ def _format_resend_http_error(exc: httpx.HTTPStatusError) -> str:
     return f"Resend HTTP {status}: {parsed}{hint}"
 
 
+def _format_brevo_http_error(exc: httpx.HTTPStatusError) -> str:
+    status = exc.response.status_code if exc.response else 0
+    raw = ""
+    if exc.response:
+        try:
+            raw = exc.response.text or ""
+        except Exception:
+            raw = ""
+    parsed = ""
+    if raw.strip():
+        try:
+            data = json.loads(raw)
+            if isinstance(data, dict):
+                if data.get("message") is not None:
+                    parsed = str(data["message"]).strip()
+                elif data.get("error") is not None:
+                    parsed = str(data["error"]).strip()
+        except (json.JSONDecodeError, TypeError):
+            pass
+    if not parsed:
+        parsed = raw.strip().replace("\n", " ")
+        if len(parsed) > 220:
+            parsed = parsed[:220] + "…"
+    return f"Brevo HTTP {status}: {parsed}"
+
+
+def _brevo_attachments_from_resend(attachments_resend: list[dict[str, Any]] | None) -> list[dict[str, str]]:
+    out: list[dict[str, str]] = []
+    for a in attachments_resend or []:
+        name = a.get("filename") or a.get("name") or "attachment"
+        content = a.get("content") or ""
+        if isinstance(content, str) and content.strip():
+            out.append({"name": str(name), "content": content})
+    return out
+
+
+def _brevo_configured() -> bool:
+    return bool(str(settings.BREVO_API_KEY or "").strip() and str(settings.BREVO_SENDER_EMAIL or "").strip())
+
+
+async def _send_brevo_email(
+    *,
+    to_emails: list[str],
+    subject: str,
+    html: str,
+    text: str,
+    attachments: list[dict[str, str]] | None = None,
+    raise_on_fail: bool = False,
+) -> bool:
+    """
+    Brevo transactional API: https://developers.brevo.com/docs/getting-started
+    """
+    if not _brevo_configured() or not to_emails:
+        return False
+
+    sender_email = str(settings.BREVO_SENDER_EMAIL).strip()
+    sender_name = (settings.BREVO_SENDER_NAME or settings.APP_NAME or "SIER Lab").strip()
+
+    headers = {
+        "accept": "application/json",
+        "content-type": "application/json",
+        "api-key": str(settings.BREVO_API_KEY).strip(),
+        "User-Agent": "sear-lab-inventory/1.0",
+    }
+    recipients = [{"email": str(e).strip().lower()} for e in to_emails if e and str(e).strip()]
+    if not recipients:
+        return False
+
+    payload: dict[str, Any] = {
+        "sender": {"name": sender_name, "email": sender_email},
+        "to": recipients,
+        "subject": subject,
+        "htmlContent": html or f"<pre>{text}</pre>",
+        "textContent": text or "",
+    }
+    if attachments:
+        payload["attachment"] = attachments
+
+    try:
+        async with httpx.AsyncClient(timeout=25.0) as client:
+            r = await client.post("https://api.brevo.com/v3/smtp/email", headers=headers, json=payload)
+            r.raise_for_status()
+            return True
+    except httpx.HTTPStatusError as exc:
+        log.warning(
+            "Brevo email failed (subject=%s): %s",
+            subject,
+            _format_brevo_http_error(exc),
+        )
+        if raise_on_fail:
+            raise
+        return False
+    except Exception:
+        log.exception("Brevo email failed (subject=%s)", subject)
+        if raise_on_fail:
+            raise
+        return False
+
+
 def _smtp_configured() -> bool:
     if not settings.SMTP_ENABLED:
         return False
@@ -215,9 +314,18 @@ async def _send_email(
     attachments_resend: list[dict[str, Any]] | None = None,
     attachments_smtp: list[dict[str, Any]] | None = None,
 ) -> bool:
-    """
-    Primary: SMTP (if configured). Fallback: Resend.
-    """
+    """Brevo (if configured), else SMTP then Resend."""
+    if _brevo_configured():
+        b_att = _brevo_attachments_from_resend(attachments_resend)
+        if await _send_brevo_email(
+            to_emails=to_emails,
+            subject=subject,
+            html=html,
+            text=text,
+            attachments=b_att or None,
+            raise_on_fail=False,
+        ):
+            return True
     smtp_ok = await _send_smtp_email(
         to_emails=to_emails,
         subject=subject,
@@ -247,11 +355,61 @@ async def _send_email_with_detail(
     prefer_resend: bool = False,
 ) -> tuple[bool, str]:
     """
-    Deliver email via SMTP and/or Resend.
+    Brevo first (if configured), then Resend/SMTP chain.
+    """
+    if not to_emails:
+        return False, "No recipients provided."
 
-    Default: SMTP first, then Resend (typical self-hosted setup).
-    prefer_resend=True: Resend first, then SMTP — best on PaaS where outbound SMTP
-    is blocked or slow while HTTPS to Resend works.
+    chain = ""
+    if _brevo_configured():
+        b_att = _brevo_attachments_from_resend(attachments_resend)
+        try:
+            brevo_ok = await _send_brevo_email(
+                to_emails=to_emails,
+                subject=subject,
+                html=html,
+                text=text,
+                attachments=b_att or None,
+                raise_on_fail=True,
+            )
+            if brevo_ok:
+                return True, "Email sent via Brevo."
+        except httpx.HTTPStatusError as exc:
+            chain = _format_brevo_http_error(exc) + " "
+        except Exception as exc:
+            chain = f"Brevo failed ({exc.__class__.__name__}). "
+        else:
+            chain = "Brevo did not return success. "
+
+    ok, detail = await _deliver_via_resend_and_smtp(
+        to_emails=to_emails,
+        subject=subject,
+        html=html,
+        text=text,
+        attachments_resend=attachments_resend,
+        attachments_smtp=attachments_smtp,
+        prefer_resend=prefer_resend,
+    )
+    if ok:
+        return True, detail
+    return False, f"{chain}{detail}".strip()
+
+
+async def _deliver_via_resend_and_smtp(
+    *,
+    to_emails: list[str],
+    subject: str,
+    html: str,
+    text: str,
+    attachments_resend: list[dict[str, Any]] | None = None,
+    attachments_smtp: list[dict[str, Any]] | None = None,
+    prefer_resend: bool = False,
+) -> tuple[bool, str]:
+    """
+    Resend and/or SMTP only (no Brevo). Used after Brevo attempt in _send_email_with_detail.
+
+    Default: SMTP first, then Resend.
+    prefer_resend=True: Resend first, then SMTP.
     """
     if not to_emails:
         return False, "No recipients provided."
@@ -465,7 +623,11 @@ async def _handle_transfer_email(event: DomainEvent) -> None:
 async def _check_and_notify_low_stock(*, changed_item_id: int | None = None) -> None:
     if not settings.RESEND_ENABLE_LOW_STOCK:
         return
-    if not settings.RESEND_API_KEY or not settings.RESEND_FROM_EMAIL:
+    if not (
+        _brevo_configured()
+        or (settings.RESEND_API_KEY and settings.RESEND_FROM_EMAIL)
+        or _smtp_configured()
+    ):
         return
 
     async with AsyncSessionLocal() as session:
@@ -647,4 +809,84 @@ async def send_login_email(*, to_email: str, full_name: str, ip: str | None) -> 
         prefer_resend=True,
     )
     return (True, "Login email sent.") if ok else (False, f"Login email could not be sent. {detail}")
+
+
+async def _fetch_brevo_credits_remaining() -> int | None:
+    """Best-effort remaining credits from Brevo /v3/account (shape varies by plan)."""
+    if not _brevo_configured():
+        return None
+    try:
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            r = await client.get(
+                "https://api.brevo.com/v3/account",
+                headers={
+                    "accept": "application/json",
+                    "api-key": str(settings.BREVO_API_KEY).strip(),
+                    "User-Agent": "sear-lab-inventory/1.0",
+                },
+            )
+            r.raise_for_status()
+            data = r.json()
+    except Exception:
+        return None
+
+    if not isinstance(data, dict):
+        return None
+    plan = data.get("plan")
+    if isinstance(plan, list):
+        for entry in plan:
+            if not isinstance(entry, dict):
+                continue
+            for key in ("credits", "creditsRemain", "creditsRemaining"):
+                if entry.get(key) is not None:
+                    try:
+                        return int(entry[key])
+                    except (TypeError, ValueError):
+                        continue
+    return None
+
+
+async def get_email_service_status_for_ui() -> "EmailServiceStatusRead":
+    from app.schemas.transaction import EmailServiceStatusRead
+
+    brevo = _brevo_configured()
+    resend = bool(settings.RESEND_API_KEY and settings.RESEND_FROM_EMAIL)
+    smtp = _smtp_configured()
+
+    if brevo:
+        active = "brevo"
+        limit_hint = settings.BREVO_FREE_TIER_DAILY_LIMIT
+    elif resend:
+        active = "resend"
+        limit_hint = None
+    elif smtp:
+        active = "smtp"
+        limit_hint = None
+    else:
+        active = None
+        limit_hint = None
+
+    credits: int | None = None
+    if brevo:
+        credits = await _fetch_brevo_credits_remaining()
+
+    notes: list[str] = []
+    if brevo and limit_hint:
+        notes.append(
+            f"Brevo free tier is typically up to {limit_hint} emails/day; confirm usage in your Brevo dashboard."
+        )
+    if credits is not None:
+        notes.append(f"Brevo reports approximately {credits} credits remaining (if applicable to your plan).")
+    if not (brevo or resend or smtp):
+        notes.append("Configure BREVO_API_KEY + BREVO_SENDER_EMAIL, or Resend, or SMTP to send mail.")
+
+    return EmailServiceStatusRead(
+        active_provider=active,
+        brevo_configured=brevo,
+        resend_configured=resend,
+        smtp_configured=smtp,
+        daily_limit_hint=limit_hint if brevo else None,
+        brevo_credits_remaining=credits,
+        note=" ".join(notes),
+    )
 

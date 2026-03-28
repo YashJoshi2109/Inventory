@@ -120,7 +120,15 @@ class Settings(BaseSettings):
     SMTP_STARTTLS: bool = True
     SMTP_SSL: bool = False
 
-    # Resend (primary email notifications for alerts)
+    # Brevo (Sendinblue) transactional email — HTTPS API, works on PaaS without SMTP.
+    # Free tier is typically ~300 emails/day; see https://developers.brevo.com/docs/getting-started
+    BREVO_API_KEY: str = ""
+    BREVO_SENDER_EMAIL: str = ""
+    BREVO_SENDER_NAME: str = "SEAR Lab Inventory"
+    # Shown in the portal when Brevo is active (Brevo does not always expose remaining quota via API).
+    BREVO_FREE_TIER_DAILY_LIMIT: int = 300
+
+    # Resend (fallback if Brevo is not configured)
     RESEND_API_KEY: str = ""
     # Use a verified-domain address in production; Resend’s onboarding@ sender only delivers to your account email.
     RESEND_FROM_EMAIL: str = ""

@@ -293,6 +293,21 @@ docker compose up --build
 # API docs: http://localhost:8000/docs
 ```
 
+### Production smoke (auth + email API)
+
+```bash
+# Shell (curl). Use SMOKE_ALLOW_EMAIL_STATUS_404=1 until Render runs the latest backend with /dashboard/email-service-status.
+SMOKE_ALLOW_EMAIL_STATUS_404=1 ./scripts/smoke-api.sh
+
+# Playwright — API only (fast, no browser binary needed for these tests)
+cd frontend && npm install && SKIP_EMAIL_STATUS_TEST=1 npm run smoketest:api
+
+# Playwright — UI + API (install Chromium once)
+cd frontend && npx playwright install chromium && SKIP_EMAIL_STATUS_TEST=1 npm run smoketest
+```
+
+Optional env: `PLAYWRIGHT_BASE_URL` (default `https://inventory-brown-beta.vercel.app`), `PLAYWRIGHT_API_URL` (default Render API), `SMOKE_LOGIN_USERNAME`, `SMOKE_LOGIN_PASSWORD`. Unset `SKIP_EMAIL_STATUS_TEST` after redeploying the backend so the email-status route is asserted.
+
 ---
 
 ## Environment Variables

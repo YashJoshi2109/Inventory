@@ -130,3 +130,15 @@ class DashboardStats(OrmBase):
     category_breakdown: list[dict]
     recent_activity: list[InventoryEventRead]
     top_consumed: list[dict]
+
+
+class EmailServiceStatusRead(OrmBase):
+    """Email provider summary for the portal (no secrets)."""
+
+    active_provider: str | None = None
+    brevo_configured: bool = False
+    resend_configured: bool = False
+    smtp_configured: bool = False
+    daily_limit_hint: int | None = None
+    brevo_credits_remaining: int | None = None
+    note: str = ""
