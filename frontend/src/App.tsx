@@ -1,6 +1,7 @@
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
+import { authApi } from "@/api/auth";
 import { Layout } from "@/components/layout/Layout";
 import { Dashboard } from "@/pages/Dashboard";
 import { Inventory } from "@/pages/Inventory";
@@ -30,18 +31,45 @@ const queryClient = new QueryClient({
 });
 
 /**
- * Waits for persisted auth state rehydration before rendering routes.
- * This prevents brief auth flicker on first load.
+ * Waits for Zustand persist rehydration, then validates stored JWT against the API.
+ * Avoids showing the app as logged-in when tokens are expired or from an old deploy.
  */
 function AuthBootstrap({ children }: { children: React.ReactNode }) {
-  const { isAuthenticated } = useAuthStore();
-  const [ready, setReady] = useState(isAuthenticated);
+  const [ready, setReady] = useState(false);
 
   useEffect(() => {
-    // Zustand persist rehydrates asynchronously; wait one tick before rendering.
-    const timer = window.setTimeout(() => setReady(true), 50);
-    return () => window.clearTimeout(timer);
-  }, [isAuthenticated]);
+    let cancelled = false;
+
+    const waitHydration = () =>
+      new Promise<void>((resolve) => {
+        if (useAuthStore.persist.hasHydrated()) {
+          resolve();
+          return;
+        }
+        const unsub = useAuthStore.persist.onFinishHydration(() => {
+          unsub();
+          resolve();
+        });
+      });
+
+    void (async () => {
+      await waitHydration();
+      const { accessToken, logout, setUser } = useAuthStore.getState();
+      if (accessToken) {
+        try {
+          const user = await authApi.getMe();
+          if (!cancelled) setUser(user);
+        } catch {
+          if (!cancelled) logout();
+        }
+      }
+      if (!cancelled) setReady(true);
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   if (!ready) {
     return (

@@ -27,6 +27,9 @@ from sqlalchemy.exc import IntegrityError
 
 class RegisterRequest(LoginRequest):
     """Public self-registration — only viewer/manager roles are allowed."""
+
+    username: str = Field(min_length=3, max_length=100, pattern=r"^[a-zA-Z0-9_.-]+$")
+    password: str = Field(min_length=8, max_length=128)
     email: EmailStr
     full_name: str = Field(min_length=1, max_length=255)
     role: str = Field(default="viewer", pattern=r"^(viewer|manager)$")

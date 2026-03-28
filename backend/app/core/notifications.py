@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import json
 import logging
 import smtplib
 from datetime import datetime, timezone
@@ -25,7 +26,40 @@ from app.repositories.transaction_repo import AlertRepository, StockLevelReposit
 log = logging.getLogger(__name__)
 
 
+def _format_resend_http_error(exc: httpx.HTTPStatusError) -> str:
+    """Turn Resend API errors into short, actionable messages for logs and admin UI."""
+    status = exc.response.status_code if exc.response else 0
+    raw = ""
+    if exc.response:
+        try:
+            raw = exc.response.text or ""
+        except Exception:
+            raw = ""
+    parsed = ""
+    if raw.strip():
+        try:
+            data = json.loads(raw)
+            if isinstance(data, dict) and data.get("message") is not None:
+                parsed = str(data["message"]).strip()
+        except (json.JSONDecodeError, TypeError):
+            pass
+    if not parsed:
+        parsed = raw.strip().replace("\n", " ")
+        if len(parsed) > 320:
+            parsed = parsed[:320] + "…"
+    hint = ""
+    lower = parsed.lower()
+    if status == 403 and ("testing emails" in lower or "verify a domain" in lower or "onboarding@" in lower):
+        hint = (
+            " Tip: With Resend’s test sender, only the account owner’s inbox receives mail. "
+            "Verify your domain in Resend and set RESEND_FROM_EMAIL to an address on that domain."
+        )
+    return f"Resend HTTP {status}: {parsed}{hint}"
+
+
 def _smtp_configured() -> bool:
+    if not settings.SMTP_ENABLED:
+        return False
     return bool(settings.SMTP_HOST and settings.SMTP_PORT and settings.SMTP_USER and settings.SMTP_PASSWORD)
 
 
@@ -154,18 +188,13 @@ async def _send_resend_email(
             r.raise_for_status()
             return True
     except httpx.HTTPStatusError as exc:
-        # Include response body for actionable debugging (safe: Resend doesn't echo API key).
-        try:
-            resp_text = exc.response.text
-        except Exception:
-            resp_text = "<unreadable>"
-        log.exception(
-            "Resend email send failed (subject=%s, status=%s, from=%s, to=%s, body=%s)",
+        brief = _format_resend_http_error(exc)
+        log.warning(
+            "Resend email send failed (subject=%s, from=%s, to=%s): %s",
             subject,
-            exc.response.status_code if exc.response else None,
             payload.get("from"),
             payload.get("to"),
-            resp_text[:1000],
+            brief,
         )
         if raise_on_fail:
             raise
@@ -215,15 +244,62 @@ async def _send_email_with_detail(
     text: str,
     attachments_resend: list[dict[str, Any]] | None = None,
     attachments_smtp: list[dict[str, Any]] | None = None,
+    prefer_resend: bool = False,
 ) -> tuple[bool, str]:
     """
-    Try SMTP first, then Resend. Returns (ok, detail_message).
+    Deliver email via SMTP and/or Resend.
+
+    Default: SMTP first, then Resend (typical self-hosted setup).
+    prefer_resend=True: Resend first, then SMTP — best on PaaS where outbound SMTP
+    is blocked or slow while HTTPS to Resend works.
     """
     if not to_emails:
         return False, "No recipients provided."
 
     smtp_enabled = _smtp_configured()
     resend_enabled = bool(settings.RESEND_API_KEY and settings.RESEND_FROM_EMAIL)
+    smtp_err = "SMTP is not configured."
+
+    if prefer_resend and resend_enabled:
+        resend_failed = ""
+        try:
+            resend_ok = await _send_resend_email(
+                to_emails=to_emails,
+                subject=subject,
+                html=html,
+                text=text,
+                attachments=attachments_resend,
+                raise_on_fail=True,
+            )
+            if resend_ok:
+                return True, "Email sent via Resend."
+        except httpx.HTTPStatusError as exc:
+            resend_failed = _format_resend_http_error(exc)
+        except Exception as exc:
+            resend_failed = f"Resend failed: {exc.__class__.__name__}".strip()
+        else:
+            resend_failed = "Resend returned without success (check API key / from address)."
+
+        if smtp_enabled:
+            try:
+                smtp_ok = await _send_smtp_email(
+                    to_emails=to_emails,
+                    subject=subject,
+                    html=html,
+                    text=text,
+                    attachments=attachments_smtp,
+                    raise_on_fail=True,
+                )
+                if smtp_ok:
+                    return True, "Email sent via SMTP (Resend was unavailable or failed)."
+            except Exception as exc:
+                detail = str(exc).strip() or exc.__class__.__name__
+                if len(detail) > 180:
+                    detail = detail[:180] + "…"
+                smtp_part = f"SMTP failed ({exc.__class__.__name__}): {detail}"
+                return False, f"{resend_failed} {smtp_part}".strip()
+            return False, f"{resend_failed} SMTP did not succeed.".strip()
+        return False, resend_failed
 
     if smtp_enabled:
         try:
@@ -238,7 +314,10 @@ async def _send_email_with_detail(
             if smtp_ok:
                 return True, "Email sent via SMTP."
         except Exception as exc:
-            smtp_err = f"SMTP failed: {exc.__class__.__name__}"
+            detail = str(exc).strip() or exc.__class__.__name__
+            if len(detail) > 180:
+                detail = detail[:180] + "…"
+            smtp_err = f"SMTP failed ({exc.__class__.__name__}): {detail}"
             if not resend_enabled:
                 return False, smtp_err
     else:
@@ -256,16 +335,9 @@ async def _send_email_with_detail(
             )
             if resend_ok:
                 return True, "Email sent via Resend fallback."
+            return False, f"{smtp_err} Resend returned without success (check API key / from address)."
         except httpx.HTTPStatusError as exc:
-            status = exc.response.status_code if exc.response else 0
-            body = ""
-            try:
-                body = exc.response.text
-            except Exception:
-                body = ""
-            if len(body) > 350:
-                body = body[:350] + "…"
-            return False, f"{smtp_err} Resend failed (HTTP {status}): {body}".strip()
+            return False, f"{smtp_err} {_format_resend_http_error(exc)}".strip()
         except Exception as exc:
             return False, f"{smtp_err} Resend failed: {exc.__class__.__name__}".strip()
 
@@ -537,7 +609,13 @@ async def send_welcome_email(*, to_email: str, full_name: str, username: str) ->
     )
     text = f"Welcome to SEAR Lab Inventory. Username: {username}."
 
-    ok, detail = await _send_email_with_detail(to_emails=[to_email], subject=subject, html=html, text=text)
+    ok, detail = await _send_email_with_detail(
+        to_emails=[to_email],
+        subject=subject,
+        html=html,
+        text=text,
+        prefer_resend=True,
+    )
     return (True, "Welcome email sent.") if ok else (False, f"Welcome email could not be sent. {detail}")
 
 
@@ -561,6 +639,12 @@ async def send_login_email(*, to_email: str, full_name: str, ip: str | None) -> 
     )
     text = f"Login notification. IP: {ip or 'unknown'}."
 
-    ok, detail = await _send_email_with_detail(to_emails=[to_email], subject=subject, html=html, text=text)
+    ok, detail = await _send_email_with_detail(
+        to_emails=[to_email],
+        subject=subject,
+        html=html,
+        text=text,
+        prefer_resend=True,
+    )
     return (True, "Login email sent.") if ok else (False, f"Login email could not be sent. {detail}")
 

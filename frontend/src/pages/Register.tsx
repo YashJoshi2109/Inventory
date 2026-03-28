@@ -1,12 +1,14 @@
 import { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { useForm } from "react-hook-form";
+import { AnimatePresence, motion } from "framer-motion";
 import { Beaker, Eye, EyeOff, UserPlus, ShieldCheck, User, Briefcase } from "lucide-react";
 import toast from "react-hot-toast";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
 import { authApi } from "@/api/auth";
 import { useAuthStore } from "@/store/auth";
+import { apiErrorMessage } from "@/utils/apiError";
 
 interface RegisterForm {
   full_name: string;
@@ -42,13 +44,14 @@ export function Register() {
   const navigate = useNavigate();
   const { setTokens, setUser } = useAuthStore();
   const [showPw, setShowPw] = useState(false);
+  const [registerBusy, setRegisterBusy] = useState(false);
   const [selectedRole, setSelectedRole] = useState<"viewer" | "manager">("viewer");
 
   const {
     register,
     handleSubmit,
     watch,
-    formState: { errors, isSubmitting },
+    formState: { errors },
   } = useForm<RegisterForm>({ defaultValues: { role: "viewer" } });
 
   const onSubmit = async (data: RegisterForm) => {
@@ -56,6 +59,7 @@ export function Register() {
       toast.error("Passwords do not match");
       return;
     }
+    setRegisterBusy(true);
     try {
       const tokens = await authApi.register({
         username: data.username.trim(),
@@ -67,15 +71,20 @@ export function Register() {
       setTokens(tokens.access_token, tokens.refresh_token);
       const user = await authApi.getMe();
       setUser(user);
-      toast.success(`Welcome, ${user.full_name}!`);
+      toast.success(
+        `Welcome, ${user.full_name}! You're signed in. If Resend or SMTP is configured on the server, a welcome email may follow shortly—check spam folders.`,
+        { duration: 5500 },
+      );
       navigate("/dashboard");
     } catch (e: unknown) {
-      const msg = (e as { response?: { data?: { detail?: string } } })?.response?.data?.detail;
-      toast.error(typeof msg === "string" ? msg : "Registration failed. Try again.");
+      toast.error(apiErrorMessage(e, "Registration failed. Try again."));
+    } finally {
+      setRegisterBusy(false);
     }
   };
 
   const pw = watch("password");
+  const busy = registerBusy;
 
   return (
     <div className="min-h-dvh bg-surface flex flex-col items-center justify-center p-4 relative overflow-hidden">
@@ -109,7 +118,7 @@ export function Register() {
 
         {/* Card */}
         <div
-          className="rounded-2xl p-6"
+          className="relative rounded-2xl p-6 overflow-hidden"
           style={{
             background: "rgba(7,15,31,0.8)",
             backdropFilter: "blur(20px)",
@@ -117,6 +126,77 @@ export function Register() {
             boxShadow: "0 16px 48px rgba(0,0,0,0.5)",
           }}
         >
+          <AnimatePresence>
+            {busy && (
+              <motion.div
+                key="register-overlay"
+                role="status"
+                aria-live="polite"
+                aria-busy="true"
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                transition={{ duration: 0.22 }}
+                className="absolute inset-0 z-20 flex flex-col items-center justify-center gap-5 rounded-2xl bg-slate-950/90 backdrop-blur-md px-6"
+              >
+                <div className="relative flex h-28 w-28 items-center justify-center">
+                  {[0, 1, 2].map((i) => (
+                    <motion.div
+                      key={i}
+                      className="absolute rounded-full border-2 border-violet-400/45"
+                      style={{ width: 52 + i * 34, height: 52 + i * 34 }}
+                      animate={{
+                        scale: [1, 1.12, 1],
+                        opacity: [0.42 - i * 0.1, 0.06, 0.42 - i * 0.1],
+                      }}
+                      transition={{
+                        duration: 2.4,
+                        repeat: Infinity,
+                        ease: "easeInOut",
+                        delay: i * 0.4,
+                      }}
+                    />
+                  ))}
+                  <motion.div
+                    animate={{ y: [0, -6, 0] }}
+                    transition={{ duration: 2, repeat: Infinity, ease: "easeInOut" }}
+                    className="relative z-10 flex h-14 w-14 items-center justify-center rounded-2xl bg-gradient-to-br from-violet-500 via-fuchsia-500 to-cyan-500 shadow-lg shadow-violet-500/35"
+                  >
+                    <UserPlus className="text-white drop-shadow-sm" size={26} strokeWidth={2} />
+                  </motion.div>
+                </div>
+                <div className="text-center space-y-1.5">
+                  <motion.p
+                    className="text-sm font-semibold tracking-tight text-slate-100"
+                    initial={{ opacity: 0, y: 6 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ delay: 0.05 }}
+                  >
+                    Creating your account
+                  </motion.p>
+                  <p className="text-xs leading-relaxed text-slate-400 max-w-[260px] mx-auto">
+                    Saving your profile and waking the API—first request after idle can take a moment.
+                  </p>
+                </div>
+                <div className="flex gap-1" aria-hidden>
+                  {[0, 1, 2, 3].map((i) => (
+                    <motion.span
+                      key={i}
+                      className="h-1.5 w-1.5 rounded-full bg-violet-400 shadow-[0_0_8px_rgba(167,139,250,0.6)]"
+                      animate={{ y: [0, -8, 0], opacity: [0.35, 1, 0.35] }}
+                      transition={{
+                        duration: 0.75,
+                        repeat: Infinity,
+                        ease: "easeInOut",
+                        delay: i * 0.12,
+                      }}
+                    />
+                  ))}
+                </div>
+              </motion.div>
+            )}
+          </AnimatePresence>
+
           <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
             {/* Full name + username */}
             <div className="grid grid-cols-2 gap-3">
@@ -125,6 +205,7 @@ export function Register() {
                 placeholder="Dr. Jane Smith"
                 error={errors.full_name?.message}
                 autoComplete="name"
+                disabled={busy}
                 {...register("full_name", { required: "Full name is required" })}
               />
               <Input
@@ -132,6 +213,7 @@ export function Register() {
                 placeholder="jane.smith"
                 error={errors.username?.message}
                 autoComplete="username"
+                disabled={busy}
                 {...register("username", {
                   required: "Username is required",
                   minLength: { value: 3, message: "Min 3 characters" },
@@ -146,6 +228,7 @@ export function Register() {
               placeholder="jane@university.edu"
               error={errors.email?.message}
               autoComplete="email"
+              disabled={busy}
               {...register("email", {
                 required: "Email is required",
                 pattern: { value: /^[^\s@]+@[^\s@]+\.[^\s@]+$/, message: "Valid email required" },
@@ -159,11 +242,13 @@ export function Register() {
                 placeholder="••••••••"
                 error={errors.password?.message}
                 autoComplete="new-password"
+                disabled={busy}
                 rightIcon={
                   <button
                     type="button"
+                    disabled={busy}
                     onClick={() => setShowPw((p) => !p)}
-                    className="text-slate-500 hover:text-slate-300"
+                    className="text-slate-500 hover:text-slate-300 disabled:opacity-40"
                   >
                     {showPw ? <EyeOff size={15} /> : <Eye size={15} />}
                   </button>
@@ -179,6 +264,7 @@ export function Register() {
                 placeholder="••••••••"
                 error={errors.confirm_password?.message}
                 autoComplete="new-password"
+                disabled={busy}
                 {...register("confirm_password", {
                   required: "Please confirm",
                   validate: (v) => v === pw || "Passwords do not match",
@@ -197,8 +283,9 @@ export function Register() {
                   <button
                     key={id}
                     type="button"
+                    disabled={busy}
                     onClick={() => setSelectedRole(id)}
-                    className="flex flex-col items-center gap-2 p-3.5 rounded-xl text-center transition-all duration-150 hover:scale-[1.02]"
+                    className="flex flex-col items-center gap-2 p-3.5 rounded-xl text-center transition-all duration-150 hover:scale-[1.02] disabled:opacity-50 disabled:pointer-events-none"
                     style={{
                       background: selectedRole === id ? bg : "rgba(255,255,255,0.02)",
                       border: `1px solid ${selectedRole === id ? border : "rgba(255,255,255,0.07)"}`,
@@ -230,7 +317,8 @@ export function Register() {
               type="submit"
               fullWidth
               size="lg"
-              loading={isSubmitting}
+              loading={busy}
+              disabled={busy}
               leftIcon={<UserPlus size={17} />}
               className="mt-2"
             >

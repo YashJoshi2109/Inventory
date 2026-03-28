@@ -110,6 +110,8 @@ class Settings(BaseSettings):
     # Alerts
     LOW_STOCK_CHECK_INTERVAL_SECONDS: int = 300
     ALERT_EMAIL_ENABLED: bool = False
+    # Set SMTP_ENABLED=false on hosts that block outbound SMTP (e.g. some PaaS) and use Resend only.
+    SMTP_ENABLED: bool = True
     SMTP_HOST: str = ""
     SMTP_PORT: int = 587
     SMTP_USER: str = ""
@@ -120,6 +122,7 @@ class Settings(BaseSettings):
 
     # Resend (primary email notifications for alerts)
     RESEND_API_KEY: str = ""
+    # Use a verified-domain address in production; Resend’s onboarding@ sender only delivers to your account email.
     RESEND_FROM_EMAIL: str = ""
     # When using Resend's testing sender (e.g. onboarding@resend.dev), Resend only
     # delivers to the account owner's email. This allows us to enforce that at auth time.

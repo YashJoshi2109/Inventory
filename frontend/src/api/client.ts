@@ -6,7 +6,8 @@ const BASE_URL = import.meta.env.VITE_API_URL ?? "/api/v1";
 
 export const apiClient: AxiosInstance = axios.create({
   baseURL: BASE_URL,
-  timeout: 15_000,
+  // Render cold starts can exceed 15s; auth must survive first request after idle.
+  timeout: 45_000,
   headers: { "Content-Type": "application/json" },
 });
 
