@@ -1,5 +1,6 @@
 from datetime import datetime, timezone
 import asyncio
+import logging
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
@@ -14,11 +15,10 @@ from app.core.security import (
     decode_token,
     verify_password,
 )
-from app.models.user import User
+from app.models.user import User, UserRole
 from app.repositories.user_repo import UserRepository
 from app.schemas.user import LoginRequest, RefreshRequest, TokenResponse, UserRead
 from app.core.config import settings
-from app.models.user import User, UserRole
 from app.core.security import hash_password
 from app.repositories.user_repo import RoleRepository
 from pydantic import EmailStr, Field
@@ -36,6 +36,7 @@ class RegisterRequest(LoginRequest):
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 bearer = HTTPBearer(auto_error=False)
+_log = logging.getLogger(__name__)
 
 
 async def get_current_user(
@@ -108,16 +109,21 @@ async def register(body: RegisterRequest, session: DbSession) -> TokenResponse:
     await session.refresh(user)
 
     # Fire-and-forget welcome email (do not block registration).
+    # Copy primitives before create_task: the task may run while the request session
+    # is committing/closing; touching ORM instances afterward can break the commit.
     if user.email:
+        to_email = user.email
+        full_nm = user.full_name
+        uname = user.username
+        uid = user.id
+
         async def _send_welcome_and_log() -> None:
             ok, detail = await send_welcome_email(
-                to_email=user.email, full_name=user.full_name, username=user.username
+                to_email=to_email, full_name=full_nm, username=uname
             )
             if not ok:
-                import logging
-                logging.getLogger(__name__).warning(
-                    "Welcome email failed user_id=%s email=%s detail=%s", user.id, user.email, detail
-                )
+                _log.warning("Welcome email failed user_id=%s email=%s detail=%s", uid, to_email, detail)
+
         asyncio.create_task(_send_welcome_and_log())
 
     role_names = [body.role]
@@ -159,17 +165,20 @@ async def login(body: LoginRequest, request: Request, session: DbSession) -> Tok
 
     # Fire-and-forget login notification email (do not block login).
     if user.email:
+        to_email = user.email
+        full_nm = user.full_name
+        uid = user.id
+        client_ip = request.client.host if request.client else None
+
         async def _send_login_and_log() -> None:
             ok, detail = await send_login_email(
-                to_email=user.email,
-                full_name=user.full_name,
-                ip=request.client.host if request.client else None,
+                to_email=to_email,
+                full_name=full_nm,
+                ip=client_ip,
             )
             if not ok:
-                import logging
-                logging.getLogger(__name__).warning(
-                    "Login email failed user_id=%s email=%s detail=%s", user.id, user.email, detail
-                )
+                _log.warning("Login email failed user_id=%s email=%s detail=%s", uid, to_email, detail)
+
         asyncio.create_task(_send_login_and_log())
 
     return TokenResponse(

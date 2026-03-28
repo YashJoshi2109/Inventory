@@ -3,6 +3,7 @@ from typing import Any
 
 from jose import JWTError, jwt
 from passlib.context import CryptContext
+from passlib.exc import UnknownHashError
 
 from app.core.config import settings
 
@@ -14,7 +15,13 @@ def hash_password(password: str) -> str:
 
 
 def verify_password(plain: str, hashed: str) -> bool:
-    return pwd_context.verify(plain, hashed)
+    """Return False on mismatch or malformed stored hash (never raise to callers)."""
+    if not hashed:
+        return False
+    try:
+        return pwd_context.verify(plain or "", hashed)
+    except (UnknownHashError, ValueError):
+        return False
 
 
 def create_access_token(subject: str | Any, extra: dict | None = None) -> str:

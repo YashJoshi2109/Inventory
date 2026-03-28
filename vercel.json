@@ -5,10 +5,18 @@
   "framework": "vite",
   "build": {
     "env": {
-      "VITE_API_URL": "https://sierlab-inventory-backend.onrender.com/api/v1"
+      "VITE_API_URL": "/api/v1"
     }
   },
   "rewrites": [
+    {
+      "source": "/api/v1/:path*",
+      "destination": "https://sierlab-inventory-backend.onrender.com/api/v1/:path*"
+    },
+    {
+      "source": "/uploads/:path*",
+      "destination": "https://sierlab-inventory-backend.onrender.com/uploads/:path*"
+    },
     { "source": "/(.*)", "destination": "/index.html" }
   ],
   "headers": [

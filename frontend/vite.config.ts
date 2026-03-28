@@ -40,6 +40,8 @@ export default defineConfig({
       },
       workbox: {
         globPatterns: ["**/*.{js,css,html,ico,png,svg,woff2}"],
+        // Do not serve SPA shell for /api or /uploads navigations if intercepted by SW.
+        navigateFallbackDenylist: [/^\/api/, /^\/uploads/],
         runtimeCaching: [
           {
             urlPattern: /^https?:\/\/.*\/api\/v1\/(items|locations|dashboard)/,

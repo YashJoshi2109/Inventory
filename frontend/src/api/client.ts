@@ -2,7 +2,21 @@ import axios, { type AxiosInstance, type AxiosRequestConfig } from "axios";
 import { useAuthStore } from "@/store/auth";
 import { offlineQueue } from "@/offline/queue";
 
-const BASE_URL = import.meta.env.VITE_API_URL ?? "/api/v1";
+/**
+ * API base URL (no trailing slash).
+ * - Production on Vercel: use `/api/v1` so requests stay same-origin; vercel.json rewrites
+ *   proxy to Render (avoids CORS on custom domains and fixes SPA catch-all eating `/api/*`).
+ * - Override with VITE_API_URL for direct backend access (must list your web origin in CORS).
+ */
+function resolveApiBaseUrl(): string {
+  const raw = import.meta.env.VITE_API_URL;
+  if (raw === undefined || raw === null) return "/api/v1";
+  const s = String(raw).trim();
+  if (s === "") return "/api/v1";
+  return s.replace(/\/+$/, "");
+}
+
+const BASE_URL = resolveApiBaseUrl();
 
 export const apiClient: AxiosInstance = axios.create({
   baseURL: BASE_URL,
