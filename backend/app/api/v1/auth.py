@@ -139,8 +139,8 @@ async def register(body: RegisterRequest, session: DbSession) -> TokenResponse:
 
         asyncio.create_task(_send_welcome_and_log())
 
-    # Get actual role names from database assignment
-    role_names = [ur.role.name for ur in user.roles if ur.role]
+    # Use the already-resolved role_name directly — avoids async lazy-load of user.roles
+    role_names = [role_name]
     access = create_access_token(user.id, extra={"roles": role_names, "username": user.username})
     refresh = create_refresh_token(user.id)
     return TokenResponse(

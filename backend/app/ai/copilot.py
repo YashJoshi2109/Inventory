@@ -234,9 +234,18 @@ async def run_copilot(
 
             # If no tool calls, finish with model text
             if not tool_calls:
-                final_text = getattr(resp, "text", "") or ""
+                try:
+                    final_text = getattr(resp, "text", "") or ""
+                except Exception:
+                    final_text = ""
                 if not final_text.strip():
-                    final_text = "OK."
+                    # Try extracting text from parts directly
+                    for part in parts:
+                        t = getattr(part, "text", None)
+                        if t:
+                            final_text += t
+                if not final_text.strip():
+                    final_text = "I couldn't find any relevant information for that query. Try rephrasing or ask about specific items, stock levels, or locations."
                 for chunk in _chunk_text(final_text, size=6):
                     yield _sse({"type": "token", "content": chunk})
                 break

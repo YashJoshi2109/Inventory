@@ -293,7 +293,8 @@ export function AiCopilot() {
   const [messages, setMessages] = useState<Msg[]>([]);
   const [input, setInput] = useState("");
   const [showKB, setShowKB] = useState(false);
-  const [showSidebar, setShowSidebar] = useState(true);
+  // Start sidebar hidden on mobile (< 1024px), visible on desktop
+  const [showSidebar, setShowSidebar] = useState(() => window.innerWidth >= 1024);
   const [searchTerm, setSearchTerm] = useState("");
   const [editingId, setEditingId] = useState<number | null>(null);
   const [editTitle, setEditTitle] = useState("");
@@ -557,14 +558,20 @@ export function AiCopilot() {
   return (
     <div className="flex overflow-hidden" style={{ height: "calc(100dvh - 56px)" }}>
 
+      {/* ── Mobile sidebar overlay backdrop ───────────────────────────────── */}
+      {showSidebar && (
+        <div
+          className="lg:hidden fixed inset-0 z-40 bg-black/50 backdrop-blur-sm"
+          onClick={() => setShowSidebar(false)}
+        />
+      )}
+
       {/* ── Sidebar ────────────────────────────────────────────────────────── */}
+      {showSidebar && (
       <aside
-        className={clsx(
-          "flex-col shrink-0 z-30 transition-all duration-300",
-          showSidebar ? "flex w-64" : "hidden lg:hidden",
-        )}
+        className="flex flex-col shrink-0 z-50 w-72 lg:w-64 fixed inset-y-0 left-0 lg:relative lg:inset-auto"
         style={{
-          background: "rgba(3,7,18,0.95)",
+          background: "rgba(3,7,18,0.98)",
           borderRight: "1px solid rgba(255,255,255,0.07)",
           backdropFilter: "blur(24px)",
         }}
@@ -581,7 +588,7 @@ export function AiCopilot() {
               <p className="text-[10px] text-slate-500 mt-0.5">AI Inventory Assistant</p>
             </div>
             <button onClick={() => setShowSidebar(false)}
-              className="ml-auto text-slate-600 hover:text-slate-400 transition-colors p-1 rounded-lg hover:bg-white/5 lg:hidden">
+              className="ml-auto text-slate-600 hover:text-slate-400 transition-colors p-1 rounded-lg hover:bg-white/5">
               <X size={14} />
             </button>
           </div>
@@ -669,6 +676,7 @@ export function AiCopilot() {
           </button>
         </div>
       </aside>
+      )}
 
       {/* ── Chat area ─────────────────────────────────────────────────────── */}
       <div className="flex-1 flex flex-col overflow-hidden">

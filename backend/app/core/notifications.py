@@ -672,7 +672,7 @@ async def _check_and_notify_low_stock(*, changed_item_id: int | None = None) -> 
             if alert:
                 created_any = True
                 await session.commit()
-                await _send_low_stock_email(item=item, total_qty=total_qty, recipients=recipients)
+                # Email notifications for low stock are disabled — alerts appear in the UI only.
 
         if created_any:
             return

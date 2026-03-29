@@ -79,11 +79,12 @@ define(['./workbox-52f2a342'], (function (workbox) { 'use strict';
    */
   workbox.precacheAndRoute([{
     "url": "index.html",
-    "revision": "0.2jqver5909k"
+    "revision": "0.n0g9a8buf"
   }], {});
   workbox.cleanupOutdatedCaches();
   workbox.registerRoute(new workbox.NavigationRoute(workbox.createHandlerBoundToURL("index.html"), {
-    allowlist: [/^\/$/]
+    allowlist: [/^\/$/],
+    denylist: [/^\/api/, /^\/uploads/]
   }));
   workbox.registerRoute(/^https?:\/\/.*\/api\/v1\/(items|locations|dashboard)/, new workbox.NetworkFirst({
     "cacheName": "api-cache",

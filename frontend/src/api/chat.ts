@@ -107,8 +107,16 @@ export const chatApi = {
     });
 
     if (!response.ok) {
-      const err = await response.text().catch(() => "Unknown error");
-      onEvent({ type: "error", message: `HTTP ${response.status}: ${err}` });
+      const raw = await response.text().catch(() => "");
+      let message = `HTTP ${response.status}: ${raw || "Unknown error"}`;
+      if (response.status === 429) {
+        message = "Rate limit reached — please wait a moment before sending another message.";
+      } else if (response.status === 401 || response.status === 403) {
+        message = "Authentication error. Please refresh the page and sign in again.";
+      } else if (response.status >= 500) {
+        message = "The AI service is temporarily unavailable. Please try again in a few seconds.";
+      }
+      onEvent({ type: "error", message });
       return;
     }
 
