@@ -13,10 +13,14 @@ import { Import } from "@/pages/Import";
 import { Alerts } from "@/pages/Alerts";
 import { AiInsights } from "@/pages/AiInsights";
 import { AiCopilot } from "@/pages/AiCopilot";
+import { Settings } from "@/pages/Settings";
 import { Login } from "@/pages/Login";
 import { Register } from "@/pages/Register";
 import { VerifyEmail } from "@/pages/VerifyEmail";
+import { ForgotPassword } from "@/pages/ForgotPassword";
 import { useAuthStore } from "@/store/auth";
+import { useThemeStore } from "@/store/theme";
+import { SkeletonApp } from "@/components/ui/Skeleton";
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -73,14 +77,7 @@ function AuthBootstrap({ children }: { children: React.ReactNode }) {
   }, []);
 
   if (!ready) {
-    return (
-      <div className="min-h-dvh bg-surface flex items-center justify-center">
-        <div className="flex flex-col items-center gap-3">
-          <div className="w-8 h-8 rounded-full border-2 border-brand-400 border-t-transparent animate-spin" />
-          <p className="text-sm text-slate-500">Starting SEAR Lab...</p>
-        </div>
-      </div>
-    );
+    return <SkeletonApp />;
   }
 
   return <>{children}</>;
@@ -94,15 +91,23 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
   return <>{children}</>;
 }
 
+function ThemeInit() {
+  const apply = useThemeStore((s) => s.apply);
+  useEffect(() => { apply(); }, [apply]);
+  return null;
+}
+
 export default function App() {
   return (
     <QueryClientProvider client={queryClient}>
       <BrowserRouter>
+        <ThemeInit />
         <AuthBootstrap>
           <Routes>
             <Route path="/login" element={<Login />} />
             <Route path="/register" element={<Register />} />
             <Route path="/verify-email" element={<VerifyEmail />} />
+            <Route path="/forgot-password" element={<ForgotPassword />} />
             <Route
               path="/"
               element={(
@@ -122,6 +127,7 @@ export default function App() {
               <Route path="alerts" element={<Alerts />} />
               <Route path="ai" element={<AiInsights />} />
               <Route path="copilot" element={<AiCopilot />} />
+              <Route path="settings" element={<Settings />} />
             </Route>
             <Route path="*" element={<Navigate to="/dashboard" replace />} />
           </Routes>

@@ -16,6 +16,7 @@ const titles: Record<string, string> = {
   "/import":       "Import",
   "/ai":           "AI Insights",
   "/users":        "Users",
+  "/settings":     "Settings",
 };
 
 export function TopBar() {
@@ -48,9 +49,10 @@ export function TopBar() {
     <header
       className="h-14 px-4 lg:px-6 flex items-center gap-4 shrink-0 relative"
       style={{
-        background: "rgba(3,7,18,0.7)",
+        background: "var(--bg-topbar)",
         backdropFilter: "blur(16px)",
-        borderBottom: "1px solid rgba(255,255,255,0.06)",
+        borderBottom: "1px solid var(--border-subtle)",
+        transition: "background 0.25s ease",
       }}
     >
       {/* Bottom glow line */}
@@ -61,8 +63,8 @@ export function TopBar() {
         }}
       />
 
-      <h1 className="text-base font-bold text-white lg:hidden">{title}</h1>
-      <h1 className="text-base font-bold text-white hidden lg:block">{title}</h1>
+      <h1 className="text-base font-bold lg:hidden" style={{ color: "var(--text-primary)" }}>{title}</h1>
+      <h1 className="text-base font-bold hidden lg:block" style={{ color: "var(--text-primary)" }}>{title}</h1>
 
       <div className="flex-1" />
 

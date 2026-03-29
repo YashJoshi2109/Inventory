@@ -7,7 +7,7 @@ import { Card } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
 import { Badge } from "@/components/ui/Badge";
 import { StatusBadge } from "@/components/ui/StatusBadge";
-import { Spinner } from "@/components/ui/Spinner";
+import { SkeletonCard } from "@/components/ui/Skeleton";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { Input } from "@/components/ui/Input";
 import { Modal } from "@/components/ui/Modal";
@@ -168,7 +168,7 @@ export function Inventory() {
 
       {/* Table / list */}
       {isLoading ? (
-        <div className="flex justify-center py-20"><Spinner size="lg" /></div>
+        <SkeletonCard rows={10} />
       ) : !data?.items.length ? (
         <EmptyState
           icon={<Package size={40} />}

@@ -7,7 +7,7 @@ import { itemsApi } from "@/api/items";
 import { Card } from "@/components/ui/Card";
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
-import { Spinner } from "@/components/ui/Spinner";
+import { Skeleton, SkeletonCard } from "@/components/ui/Skeleton";
 import { openOrDownloadBlob } from "@/utils/fileActions";
 
 export function ItemDetail() {
@@ -35,8 +35,20 @@ export function ItemDetail() {
 
   if (isLoading) {
     return (
-      <div className="flex justify-center py-20">
-        <Spinner size="lg" />
+      <div className="p-4 lg:p-6 space-y-5 max-w-3xl">
+        <div className="flex items-center gap-3">
+          <Skeleton className="h-8 w-8" rounded="xl" />
+          <Skeleton className="h-5 w-48" rounded="md" />
+        </div>
+        <div className="grid grid-cols-2 gap-4">
+          {Array.from({ length: 6 }).map((_, i) => (
+            <div key={i} className="space-y-1.5">
+              <Skeleton className="h-2.5 w-20" />
+              <Skeleton className="h-4 w-32" rounded="md" />
+            </div>
+          ))}
+        </div>
+        <SkeletonCard rows={5} />
       </div>
     );
   }
@@ -108,8 +120,10 @@ export function ItemDetail() {
       <Card className="p-5">
         <h3 className="text-sm font-semibold text-slate-200 mb-3">Rack-wise Stock</h3>
         {loadingLevels ? (
-          <div className="flex justify-center py-8">
-            <Spinner size="sm" />
+          <div className="space-y-2 py-2">
+            {Array.from({ length: 4 }).map((_, i) => (
+              <Skeleton key={i} className="h-9 w-full" rounded="xl" />
+            ))}
           </div>
         ) : !levels?.length ? (
           <p className="text-sm text-slate-500">No stock in any rack yet.</p>

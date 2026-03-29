@@ -3,7 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import { aiApi } from "@/api/transactions";
 import { Card, CardContent, CardHeader } from "@/components/ui/Card";
 import { Input } from "@/components/ui/Input";
-import { Spinner } from "@/components/ui/Spinner";
+import { Skeleton } from "@/components/ui/Skeleton";
 import { Badge } from "@/components/ui/Badge";
 import { BrainCircuit, Search, TrendingDown, Calendar, Zap } from "lucide-react";
 import { clsx } from "clsx";
@@ -59,7 +59,13 @@ export function AiInsights() {
             leftIcon={<Search size={15} />}
           />
 
-          {searchLoading && <div className="flex justify-center mt-4"><Spinner /></div>}
+          {searchLoading && (
+            <div className="mt-4 space-y-2">
+              {Array.from({ length: 3 }).map((_, i) => (
+                <Skeleton key={i} className="h-16 w-full" rounded="xl" />
+              ))}
+            </div>
+          )}
 
           {searchResults && searchResults.hits.length > 0 && (
             <div className="mt-4 space-y-2">
@@ -107,7 +113,18 @@ export function AiInsights() {
           </CardHeader>
           <CardContent>
             {forecastLoading ? (
-              <div className="flex justify-center py-8"><Spinner /></div>
+              <div className="space-y-3 py-2">
+                <div className="flex items-center justify-between">
+                  <div className="space-y-1.5">
+                    <Skeleton className="h-4 w-40" rounded="md" />
+                    <Skeleton className="h-3 w-24" />
+                  </div>
+                  <Skeleton className="h-6 w-20" rounded="full" />
+                </div>
+                {Array.from({ length: 4 }).map((_, i) => (
+                  <Skeleton key={i} className="h-10 w-full" rounded="xl" />
+                ))}
+              </div>
             ) : forecast ? (
               <div className="space-y-4">
                 <div className="flex items-center justify-between">

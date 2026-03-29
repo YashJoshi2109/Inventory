@@ -1,7 +1,8 @@
+
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { transactionsApi } from "@/api/transactions";
 import { Button } from "@/components/ui/Button";
-import { Spinner } from "@/components/ui/Spinner";
+import { SkeletonCard, Skeleton } from "@/components/ui/Skeleton";
 import {
   Bell, CheckCircle2, AlertTriangle, XCircle, Info, Package, Clock,
 } from "lucide-react";
@@ -65,8 +66,15 @@ export function Alerts() {
 
   if (isLoading) {
     return (
-      <div className="flex justify-center items-center py-32">
-        <Spinner size="lg" />
+      <div className="p-4 lg:p-6 pb-24 lg:pb-6 space-y-4 max-w-3xl">
+        <div className="flex items-start justify-between gap-4">
+          <div className="space-y-2">
+            <Skeleton className="h-6 w-32" rounded="xl" />
+            <Skeleton className="h-3 w-48" />
+          </div>
+        </div>
+        <SkeletonCard rows={5} />
+        <SkeletonCard rows={3} />
       </div>
     );
   }

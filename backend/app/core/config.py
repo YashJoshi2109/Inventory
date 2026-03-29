@@ -141,6 +141,15 @@ class Settings(BaseSettings):
     RESEND_ENABLE_TRANSFER: bool = True
     ALERT_EMAIL_RECIPIENT_ROLES: list[str] = ["admin", "manager"]
 
+    # WebAuthn / Passkeys — biometric login (Face ID, Touch ID, FIDO2 keys)
+    # RP_ID: bare domain only — no scheme, no port (e.g. "localhost" or "inventory-brown-beta.vercel.app")
+    WEBAUTHN_RP_ID: str = "localhost"
+    WEBAUTHN_RP_NAME: str = "SEAR Lab Inventory"
+    # Primary origin (kept for backwards compat)
+    WEBAUTHN_ORIGIN: str = "http://localhost:5173"
+    # All allowed origins — verification tries each one. Include every domain the frontend runs on.
+    WEBAUTHN_ORIGINS: list[str] = ["http://localhost:5173", "http://localhost:3000"]
+
 
 @lru_cache
 def get_settings() -> Settings:

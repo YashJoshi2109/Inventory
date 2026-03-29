@@ -3,7 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import { transactionsApi } from "@/api/transactions";
 import { Card } from "@/components/ui/Card";
 import { Badge } from "@/components/ui/Badge";
-import { Spinner } from "@/components/ui/Spinner";
+import { SkeletonCard } from "@/components/ui/Skeleton";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { Button } from "@/components/ui/Button";
 import { format } from "date-fns";
@@ -68,7 +68,7 @@ export function Transactions() {
       )}
 
       {isLoading ? (
-        <div className="flex justify-center py-20"><Spinner size="lg" /></div>
+        <SkeletonCard rows={10} />
       ) : !data?.items.length ? (
         <EmptyState icon={<ClipboardList size={40} />} title="No transactions found" />
       ) : (

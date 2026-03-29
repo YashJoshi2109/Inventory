@@ -99,3 +99,13 @@ class OTPVerifyRequest(OrmBase):
 class OTPSendRequest(OrmBase):
     email: EmailStr
 
+
+class PasswordResetRequest(OrmBase):
+    email: EmailStr
+
+
+class PasswordResetConfirm(OrmBase):
+    email: EmailStr
+    otp: str = Field(min_length=6, max_length=6, pattern=r"^\d{6}$")
+    new_password: str = Field(min_length=8, max_length=128)
+

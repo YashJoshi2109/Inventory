@@ -1,12 +1,14 @@
 import { useQuery } from "@tanstack/react-query";
 import { type ComponentType } from "react";
 import { motion } from "framer-motion";
+import { useNavigate } from "react-router-dom";
 import { dashboardApi } from "@/api/transactions";
-import { Spinner } from "@/components/ui/Spinner";
+import { SkeletonKpiCard, SkeletonCard } from "@/components/ui/Skeleton";
+import { useAuthStore } from "@/store/auth";
 import {
   Package, TrendingDown, AlertTriangle,
   ArrowUpRight, ArrowDownRight, ArrowLeftRight, Activity,
-  Zap,
+  Zap, QrCode, Plus, Bell, Sparkles,
 } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
 import {
@@ -171,17 +173,33 @@ function ActivityRow({ event }: { event: InventoryEvent }) {
 
 const CHART_COLORS = ["#22d3ee", "#34d399", "#fbbf24", "#f87171", "#a78bfa", "#06b6d4"];
 
+function getGreeting() {
+  const h = new Date().getHours();
+  if (h < 12) return "Good morning";
+  if (h < 18) return "Good afternoon";
+  return "Good evening";
+}
+
 export function Dashboard() {
   const { data: stats, isLoading, error } = useQuery({
     queryKey: ["dashboard-stats"],
     queryFn: dashboardApi.getStats,
     refetchInterval: 30_000,
   });
+  const user = useAuthStore((s) => s.user);
+  const navigate = useNavigate();
+  const firstName = user?.full_name.split(" ")[0] ?? "there";
 
   if (isLoading) {
     return (
-      <div className="flex items-center justify-center h-64">
-        <Spinner size="lg" />
+      <div className="p-4 lg:p-6 pb-24 lg:pb-8 space-y-5">
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+          {Array.from({ length: 4 }).map((_, i) => <SkeletonKpiCard key={i} />)}
+        </div>
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
+          <SkeletonCard rows={6} />
+          <SkeletonCard rows={6} />
+        </div>
       </div>
     );
   }
@@ -196,6 +214,75 @@ export function Dashboard() {
 
   return (
     <div className="p-4 lg:p-6 pb-24 lg:pb-8 space-y-5 animate-fade-in">
+
+      {/* ── Welcome banner ── */}
+      <motion.div
+        variants={animationVariants.fadeInUp}
+        initial="hidden"
+        animate="visible"
+        className="rounded-2xl overflow-hidden relative"
+        style={{
+          background: "linear-gradient(135deg, rgba(8,145,178,0.22) 0%, rgba(34,211,238,0.1) 45%, rgba(167,139,250,0.12) 100%)",
+          border: "1px solid rgba(34,211,238,0.2)",
+          backdropFilter: "blur(16px)",
+        }}
+      >
+        {/* ambient orbs */}
+        <div className="absolute top-0 right-0 w-48 h-48 rounded-full blur-3xl pointer-events-none opacity-20" style={{ background: "#22d3ee" }} />
+        <div className="absolute -bottom-8 left-8 w-32 h-32 rounded-full blur-3xl pointer-events-none opacity-10" style={{ background: "#a78bfa" }} />
+
+        <div className="relative px-5 py-5">
+          <div className="flex items-start justify-between gap-4">
+            <div>
+              <div className="flex items-center gap-2 mb-1">
+                <Sparkles size={14} className="text-brand-400" />
+                <span className="text-xs font-medium text-brand-400 uppercase tracking-wider">{getGreeting()}</span>
+              </div>
+              <h1 className="text-xl font-bold text-white">{firstName} 👋</h1>
+              <p className="text-sm text-slate-400 mt-0.5">
+                {stats
+                  ? stats.active_alerts > 0
+                    ? `${stats.active_alerts} alert${stats.active_alerts > 1 ? "s" : ""} need attention · ${stats.transactions_today} transaction${stats.transactions_today !== 1 ? "s" : ""} today`
+                    : `All systems nominal · ${stats.transactions_today} transaction${stats.transactions_today !== 1 ? "s" : ""} today`
+                  : "Loading lab status…"}
+              </p>
+            </div>
+            {/* status dot */}
+            <div className="flex items-center gap-1.5 shrink-0 mt-0.5">
+              <div className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+              <span className="text-xs text-emerald-400 font-medium">Live</span>
+            </div>
+          </div>
+
+          {/* Quick actions */}
+          <div className="flex gap-2 mt-4 flex-wrap">
+            {[
+              { label: "Scan QR", icon: QrCode, to: "/scan", accent: "#22d3ee" },
+              { label: "Add Item", icon: Plus, to: "/inventory", accent: "#34d399" },
+              { label: "Alerts", icon: Bell, to: "/alerts", accent: "#f87171", badge: stats?.active_alerts },
+            ].map(({ label, icon: Icon, to, accent, badge }) => (
+              <button
+                key={to}
+                onClick={() => navigate(to)}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold transition-all hover:scale-105 active:scale-95"
+                style={{
+                  background: `${accent}18`,
+                  border: `1px solid ${accent}30`,
+                  color: accent,
+                }}
+              >
+                <Icon size={13} />
+                {label}
+                {badge != null && badge > 0 && (
+                  <span className="ml-0.5 px-1.5 py-0.5 rounded-full text-[10px] font-bold text-white" style={{ background: accent }}>
+                    {badge > 9 ? "9+" : badge}
+                  </span>
+                )}
+              </button>
+            ))}
+          </div>
+        </div>
+      </motion.div>
 
       {/* KPI row */}
       <motion.div 
@@ -255,7 +342,7 @@ export function Dashboard() {
                   paddingAngle={3}
                   dataKey="count"
                   nameKey="name"
-                  label={({ name, percent }) =>
+                  label={({ percent }) =>
                     percent > 0.07 ? `${(percent * 100).toFixed(0)}%` : ""
                   }
                   labelLine={false}

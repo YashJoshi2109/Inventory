@@ -1,5 +1,5 @@
 import { NavLink, useLocation, useNavigate } from "react-router-dom";
-import { LayoutDashboard, Package, QrCode, Bell, BrainCircuit, MapPin, MoreHorizontal, LogOut, Bot } from "lucide-react";
+import { LayoutDashboard, Package, QrCode, Bell, BrainCircuit, MapPin, MoreHorizontal, LogOut, Bot, Settings } from "lucide-react";
 import { clsx } from "clsx";
 import { useQuery } from "@tanstack/react-query";
 import { transactionsApi } from "@/api/transactions";
@@ -39,7 +39,7 @@ export function MobileNav() {
   });
 
   const isMoreRouteActive = useMemo(() => {
-    return location.pathname.startsWith("/ai") || location.pathname.startsWith("/alerts") || location.pathname.startsWith("/copilot");
+    return location.pathname.startsWith("/ai") || location.pathname.startsWith("/alerts") || location.pathname.startsWith("/copilot") || location.pathname.startsWith("/settings");
   }, [location.pathname]);
 
   const isMoreActive = isMoreRouteActive || moreOpen;
@@ -53,9 +53,10 @@ export function MobileNav() {
     <nav
       className="lg:hidden fixed bottom-0 left-0 right-0 z-40 safe-bottom"
       style={{
-        background: "rgba(3,7,18,0.92)",
+        background: "var(--bg-mobile-nav)",
         backdropFilter: "blur(24px)",
-        borderTop: "1px solid rgba(255,255,255,0.07)",
+        borderTop: "1px solid var(--border-subtle)",
+        transition: "background 0.25s ease",
       }}
     >
       {/* Tiny rate-limit indicator (once per minute) */}
@@ -288,6 +289,21 @@ export function MobileNav() {
                       {alertCount > 99 ? "99+" : alertCount}
                     </span>
                   )}
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => navigate("/settings")}
+                  className="w-full flex items-center gap-3 px-3 py-3 rounded-2xl text-left transition-colors"
+                  style={{ background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.07)" }}
+                >
+                  <div className="w-10 h-10 rounded-2xl flex items-center justify-center" style={{ background: "rgba(34,211,238,0.1)", border: "1px solid rgba(34,211,238,0.2)" }}>
+                    <Settings size={18} className="text-brand-400" />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-semibold text-white truncate">Settings</p>
+                    <p className="text-xs text-slate-500 truncate">Profile, passkeys & theme</p>
+                  </div>
                 </button>
 
                 <div className="h-px my-1" style={{ background: "rgba(255,255,255,0.06)" }} />

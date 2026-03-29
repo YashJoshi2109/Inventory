@@ -32,7 +32,7 @@ export function Layout() {
   const { isOnline, pendingCount, isSyncing, syncNow } = useOffline();
 
   return (
-    <div className="flex h-dvh bg-surface overflow-hidden">
+    <div className="flex h-dvh overflow-hidden" style={{ background: "var(--bg-page)", transition: "background 0.25s ease" }}>
       {/* Desktop sidebar */}
       <Sidebar />
 

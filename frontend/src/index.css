@@ -7,6 +7,32 @@
 @layer base {
   :root {
     color-scheme: dark;
+    --bg-page: #030712;
+    --bg-card: rgba(7, 15, 31, 0.6);
+    --bg-sidebar: rgba(3, 7, 18, 0.85);
+    --bg-topbar: rgba(3, 7, 18, 0.8);
+    --bg-mobile-nav: rgba(3, 7, 18, 0.92);
+    --text-primary: #f1f5f9;
+    --text-muted: #64748b;
+    --text-secondary: #94a3b8;
+    --border-subtle: rgba(255, 255, 255, 0.07);
+    --border-card: rgba(255, 255, 255, 0.08);
+    --grid-line: rgba(34, 211, 238, 0.03);
+  }
+
+  [data-theme="light"] {
+    color-scheme: light;
+    --bg-page: #eef2f7;
+    --bg-card: rgba(255, 255, 255, 0.85);
+    --bg-sidebar: rgba(255, 255, 255, 0.92);
+    --bg-topbar: rgba(255, 255, 255, 0.85);
+    --bg-mobile-nav: rgba(255, 255, 255, 0.95);
+    --text-primary: #0f172a;
+    --text-muted: #64748b;
+    --text-secondary: #475569;
+    --border-subtle: rgba(0, 0, 0, 0.07);
+    --border-card: rgba(0, 0, 0, 0.09);
+    --grid-line: rgba(8, 145, 178, 0.04);
   }
 
   * {
@@ -18,13 +44,15 @@
   }
 
   body {
-    @apply bg-surface text-slate-100;
     font-family: "Inter", system-ui, sans-serif;
+    background-color: var(--bg-page);
+    color: var(--text-primary);
     background-image:
-      linear-gradient(rgba(34, 211, 238, 0.03) 1px, transparent 1px),
-      linear-gradient(90deg, rgba(34, 211, 238, 0.03) 1px, transparent 1px);
+      linear-gradient(var(--grid-line) 1px, transparent 1px),
+      linear-gradient(90deg, var(--grid-line) 1px, transparent 1px);
     background-size: 40px 40px;
     background-attachment: fixed;
+    transition: background-color 0.25s ease, color 0.25s ease;
   }
 
   /* Custom scrollbar */
@@ -81,6 +109,38 @@
     -webkit-backdrop-filter: blur(30px);
     border: 1px solid rgba(34, 211, 238, 0.15);
     box-shadow: 0 16px 48px rgba(0, 0, 0, 0.6), inset 0 1px 0 rgba(255, 255, 255, 0.08);
+  }
+
+  /* ── Light-mode glass overrides ── */
+  [data-theme="light"] .glass {
+    background: rgba(255, 255, 255, 0.82);
+    border: 1px solid rgba(0, 0, 0, 0.09);
+    box-shadow: 0 4px 24px rgba(0, 0, 0, 0.08), inset 0 1px 0 rgba(255, 255, 255, 0.9);
+  }
+  [data-theme="light"] .glass-light {
+    background: rgba(255, 255, 255, 0.6);
+    border: 1px solid rgba(0, 0, 0, 0.07);
+  }
+  [data-theme="light"] .glass-strong {
+    background: rgba(255, 255, 255, 0.95);
+    border: 1px solid rgba(8, 145, 178, 0.2);
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1), inset 0 1px 0 rgba(255, 255, 255, 1);
+  }
+  [data-theme="light"] .stat-card-cyan {
+    background: linear-gradient(135deg, rgba(34, 211, 238, 0.18) 0%, rgba(8, 145, 178, 0.1) 100%);
+    border: 1px solid rgba(34, 211, 238, 0.3);
+  }
+  [data-theme="light"] .stat-card-amber {
+    background: linear-gradient(135deg, rgba(251, 191, 36, 0.18) 0%, rgba(217, 119, 6, 0.1) 100%);
+    border: 1px solid rgba(251, 191, 36, 0.3);
+  }
+  [data-theme="light"] .stat-card-red {
+    background: linear-gradient(135deg, rgba(239, 68, 68, 0.15) 0%, rgba(185, 28, 28, 0.08) 100%);
+    border: 1px solid rgba(239, 68, 68, 0.28);
+  }
+  [data-theme="light"] .stat-card-emerald {
+    background: linear-gradient(135deg, rgba(52, 211, 153, 0.18) 0%, rgba(5, 150, 105, 0.1) 100%);
+    border: 1px solid rgba(52, 211, 153, 0.3);
   }
 
   /* ── Glow effects ── */

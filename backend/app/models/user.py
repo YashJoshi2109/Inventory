@@ -51,6 +51,9 @@ class User(Base):
     )
 
     roles: Mapped[list["UserRole"]] = relationship("UserRole", back_populates="user")
+    passkeys: Mapped[list["PasskeyCredential"]] = relationship(
+        "PasskeyCredential", back_populates="user", cascade="all, delete-orphan"
+    )
     inventory_events: Mapped[list["InventoryEvent"]] = relationship(  # type: ignore[name-defined]
         "InventoryEvent", back_populates="actor", foreign_keys="InventoryEvent.actor_id"
     )
@@ -71,6 +74,32 @@ class UserRole(Base):
 
     user: Mapped["User"] = relationship("User", back_populates="roles")
     role: Mapped["Role"] = relationship("Role", back_populates="users")
+
+
+class PasskeyCredential(Base):
+    """Stores WebAuthn / passkey credentials for biometric login (Face ID, Touch ID, FIDO2 keys)."""
+    __tablename__ = "passkey_credentials"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    # base64url-encoded credential ID from the authenticator
+    credential_id: Mapped[str] = mapped_column(String(1024), unique=True, nullable=False, index=True)
+    # CBOR-encoded public key bytes stored as hex
+    public_key: Mapped[str] = mapped_column(Text, nullable=False)
+    sign_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    # Comma-separated transports reported by authenticator: "internal", "usb", "nfc", "ble", "hybrid"
+    # "internal" = platform (Touch ID / Face ID / Windows Hello)
+    transports: Mapped[str | None] = mapped_column(String(255))
+    # Human-readable device name (e.g. "iPhone Face ID", "Windows Hello")
+    device_name: Mapped[str | None] = mapped_column(String(255))
+    # AAGUID for device type identification
+    aaguid: Mapped[str | None] = mapped_column(String(64))
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    last_used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+    user: Mapped["User"] = relationship("User", back_populates="passkeys")
 
 
 # Deferred import to avoid circular references

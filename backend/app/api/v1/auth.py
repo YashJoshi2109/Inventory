@@ -23,6 +23,8 @@ from app.schemas.user import (
     LoginRequest,
     OTPSendRequest,
     OTPVerifyRequest,
+    PasswordResetRequest,
+    PasswordResetConfirm,
     RefreshRequest,
     TokenResponse,
     UserRead,
@@ -265,6 +267,48 @@ async def otp_verify(body: OTPVerifyRequest, request: Request, session: DbSessio
         refresh_token=refresh,
         expires_in=settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60,
     )
+
+
+RESET_SEND_OK = MessageResponse(
+    message="If an account exists for this email, a password reset code was sent.",
+    success=True,
+)
+
+
+@router.post("/password-reset/request", response_model=MessageResponse)
+async def password_reset_request(body: PasswordResetRequest, session: DbSession) -> MessageResponse:
+    """Send a 6-digit OTP to the email for password reset. Enumeration-safe response."""
+    issued = await issue_otp_for_email(session, email=body.email)
+    if issued is None:
+        return RESET_SEND_OK
+    otp, user = issued
+    ok, detail = await send_otp_email(to_email=user.email, full_name=user.full_name, otp=otp)
+    if not ok:
+        user.otp_code = None
+        user.otp_expires_at = None
+        await session.flush()
+        _log.warning("Password reset OTP email failed email=%s detail=%s", user.email, detail)
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Could not send reset email. Try again later or contact support.",
+        )
+    return RESET_SEND_OK
+
+
+@router.post("/password-reset/confirm", response_model=MessageResponse)
+async def password_reset_confirm(body: PasswordResetConfirm, session: DbSession) -> MessageResponse:
+    """Verify OTP and set new password."""
+    ok, user = await consume_otp(session, email=body.email, otp=body.otp)
+    if not ok or not user:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid or expired reset code.",
+        )
+    if not user.is_active:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Account disabled")
+    user.hashed_password = hash_password(body.new_password)
+    await session.flush()
+    return MessageResponse(message="Password updated successfully.", success=True)
 
 
 @router.post("/refresh", response_model=TokenResponse)

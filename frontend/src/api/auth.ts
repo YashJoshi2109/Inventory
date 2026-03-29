@@ -6,6 +6,15 @@ export interface MessageResponse {
   success: boolean;
 }
 
+export interface PasskeyInfo {
+  id: number;
+  credential_id: string;
+  device_name: string | null;
+  aaguid: string | null;
+  created_at: string;
+  last_used_at: string | null;
+}
+
 export interface RegisterPayload {
   username: string;
   password: string;
@@ -47,6 +56,75 @@ export const authApi = {
       email,
       otp: otp.replace(/\D/g, "").slice(0, 6),
     });
+    return data;
+  },
+
+  /** Request a password-reset OTP for the given email. */
+  requestPasswordReset: async (email: string): Promise<MessageResponse> => {
+    const { data } = await apiClient.post<MessageResponse>("/auth/password-reset/request", { email });
+    return data;
+  },
+
+  /** Verify OTP and set a new password. */
+  confirmPasswordReset: async (email: string, otp: string, newPassword: string): Promise<MessageResponse> => {
+    const { data } = await apiClient.post<MessageResponse>("/auth/password-reset/confirm", {
+      email,
+      otp: otp.replace(/\D/g, "").slice(0, 6),
+      new_password: newPassword,
+    });
+    return data;
+  },
+};
+
+export const passkeyApi = {
+  /** Start passkey registration (requires active JWT session). */
+  registerBegin: async (): Promise<{ options: Record<string, unknown> }> => {
+    const { data } = await apiClient.post("/passkeys/register/begin");
+    return data;
+  },
+
+  /** Complete passkey registration. */
+  registerComplete: async (credential: unknown, deviceName?: string): Promise<MessageResponse> => {
+    const { data } = await apiClient.post<MessageResponse>("/passkeys/register/complete", {
+      credential,
+      device_name: deviceName,
+    });
+    return data;
+  },
+
+  /** Start passkey login.
+   * authenticatorType:
+   *   "platform"       → Touch ID / Face ID / Windows Hello
+   *   "cross-platform" → Another device via QR / NFC
+   *   "security-key"   → USB/NFC FIDO2 key
+   *   undefined        → no filter, browser picks
+   */
+  loginBegin: async (username?: string, authenticatorType?: string): Promise<{ options: Record<string, unknown> }> => {
+    const { data } = await apiClient.post("/passkeys/login/begin", {
+      username,
+      authenticator_type: authenticatorType,
+    });
+    return data;
+  },
+
+  /** Complete passkey login. */
+  loginComplete: async (credential: unknown, username?: string): Promise<TokenResponse> => {
+    const { data } = await apiClient.post<TokenResponse>("/passkeys/login/complete", {
+      credential,
+      username,
+    });
+    return data;
+  },
+
+  /** List registered passkeys for current user. */
+  list: async (): Promise<PasskeyInfo[]> => {
+    const { data } = await apiClient.get<PasskeyInfo[]>("/passkeys/");
+    return data;
+  },
+
+  /** Delete a registered passkey. */
+  delete: async (passkeyId: number): Promise<MessageResponse> => {
+    const { data } = await apiClient.delete<MessageResponse>(`/passkeys/${passkeyId}`);
     return data;
   },
 };

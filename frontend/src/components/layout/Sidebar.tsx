@@ -2,7 +2,7 @@ import { NavLink } from "react-router-dom";
 import {
   LayoutDashboard, Package, MapPin, QrCode,
   ClipboardList, Upload, Users,
-  Beaker, BrainCircuit, Bell, LogOut, Bot,
+  Beaker, BrainCircuit, Bell, LogOut, Bot, Settings,
 } from "lucide-react";
 import { clsx } from "clsx";
 import { useAuthStore } from "@/store/auth";
@@ -20,6 +20,7 @@ const navItems = [
   { to: "/copilot",      label: "AI Copilot",   icon: Bot, highlight2: true },
   { to: "/ai",           label: "AI Insights",  icon: BrainCircuit },
   { to: "/users",        label: "Users",        icon: Users, roles: ["admin"] },
+  { to: "/settings",    label: "Settings",     icon: Settings },
 ];
 
 export function Sidebar() {
@@ -36,9 +37,10 @@ export function Sidebar() {
     <aside
       className="hidden lg:flex flex-col w-64 shrink-0 relative"
       style={{
-        background: "rgba(3,7,18,0.85)",
+        background: "var(--bg-sidebar)",
         backdropFilter: "blur(20px)",
-        borderRight: "1px solid rgba(255,255,255,0.07)",
+        borderRight: "1px solid var(--border-subtle)",
+        transition: "background 0.25s ease",
       }}
     >
       {/* Subtle top glow */}
@@ -48,7 +50,7 @@ export function Sidebar() {
       />
 
       {/* Logo */}
-      <div className="flex items-center gap-3 px-5 py-5" style={{ borderBottom: "1px solid rgba(255,255,255,0.06)" }}>
+      <div className="flex items-center gap-3 px-5 py-5" style={{ borderBottom: "1px solid var(--border-subtle)" }}>
         <div
           className="w-9 h-9 rounded-xl flex items-center justify-center animate-glow-pulse"
           style={{
@@ -59,7 +61,7 @@ export function Sidebar() {
           <Beaker size={18} className="text-white" />
         </div>
         <div>
-          <p className="text-sm font-bold text-white tracking-tight">SEAR Lab</p>
+          <p className="text-sm font-bold tracking-tight" style={{ color: "var(--text-primary)" }}>SEAR Lab</p>
           <p className="text-[11px] text-slate-500">Inventory v1.0</p>
         </div>
       </div>
@@ -156,10 +158,10 @@ function UserCard() {
   if (!user) return null;
 
   return (
-    <div className="px-3 py-3" style={{ borderTop: "1px solid rgba(255,255,255,0.06)" }}>
+    <div className="px-3 py-3" style={{ borderTop: "1px solid var(--border-subtle)" }}>
       <div
         className="flex items-center gap-3 px-3 py-2.5 rounded-xl"
-        style={{ background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.07)" }}
+        style={{ background: "rgba(128,128,128,0.04)", border: "1px solid var(--border-card)" }}
       >
         <div
           className="w-8 h-8 rounded-xl flex items-center justify-center text-sm font-bold text-white shrink-0"
@@ -168,7 +170,7 @@ function UserCard() {
           {user.full_name[0]?.toUpperCase()}
         </div>
         <div className="flex-1 min-w-0">
-          <p className="text-sm font-semibold text-slate-200 truncate">{user.full_name}</p>
+          <p className="text-sm font-semibold truncate" style={{ color: "var(--text-primary)" }}>{user.full_name}</p>
           <p className="text-[11px] text-slate-500 truncate capitalize">
             {user.roles[0]?.name ?? "viewer"}
           </p>

@@ -3,7 +3,7 @@ import { apiClient } from "@/api/client";
 import { itemsApi } from "@/api/items";
 import { Card, CardContent, CardHeader } from "@/components/ui/Card";
 import { Badge } from "@/components/ui/Badge";
-import { Spinner } from "@/components/ui/Spinner";
+import { SkeletonCard, Skeleton } from "@/components/ui/Skeleton";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
@@ -73,7 +73,22 @@ export function Locations() {
     },
   });
 
-  if (isLoading) return <div className="flex justify-center py-20"><Spinner size="lg" /></div>;
+  if (isLoading) return (
+    <div className="p-4 lg:p-6 pb-24 lg:pb-6 space-y-4">
+      <div className="flex items-center justify-between">
+        <div className="space-y-2">
+          <Skeleton className="h-5 w-28" rounded="md" />
+          <Skeleton className="h-3 w-16" />
+        </div>
+        <div className="flex gap-2">
+          <Skeleton className="h-9 w-28" rounded="xl" />
+          <Skeleton className="h-9 w-28" rounded="xl" />
+        </div>
+      </div>
+      <SkeletonCard rows={6} />
+      <SkeletonCard rows={4} />
+    </div>
+  );
 
   return (
     <div className="p-4 lg:p-6 pb-24 lg:pb-6 space-y-4 animate-fade-in">
@@ -251,7 +266,11 @@ function AreaCard({ area }: { area: Area }) {
       {expanded && (
         <div className="border-t border-surface-border">
           {!locations ? (
-            <div className="flex justify-center py-4"><Spinner size="sm" /></div>
+            <div className="p-3 space-y-2">
+              {Array.from({ length: 3 }).map((_, i) => (
+                <Skeleton key={i} className="h-10 w-full" rounded="xl" />
+              ))}
+            </div>
           ) : locations.length === 0 ? (
             <p className="text-center py-4 text-sm text-slate-500">No bins in this area</p>
           ) : (
