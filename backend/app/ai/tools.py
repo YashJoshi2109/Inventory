@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import json
 from datetime import datetime
+from decimal import Decimal
 from typing import Any
 
 import re
@@ -30,6 +31,7 @@ from app.repositories.transaction_repo import (
     InventoryEventRepository,
     StockLevelRepository,
 )
+from app.schemas.item import ItemCreate, ItemUpdate
 from app.schemas.transaction import StockInRequest, StockOutRequest, TransferRequest
 from app.services.inventory_service import InventoryService
 
@@ -179,7 +181,7 @@ async def get_location_contents(
     """List all items currently stocked at a given location."""
     loc_result = await db.execute(
         select(Location).where(
-            func.lower(Location.code) == location_code.upper()
+            func.lower(Location.code) == location_code.lower()
         )
     )
     loc = loc_result.scalar_one_or_none()
@@ -226,15 +228,22 @@ async def list_low_stock_items(
     limit: int = 20,
 ) -> dict:
     """Return items whose total stock is at or below their reorder level."""
-    result = await db.execute(
-        select(Item).where(Item.is_active == True, Item.reorder_level > 0)  # noqa: E712
+    # Single query: JOIN items with aggregated stock totals
+    stock_totals_subq = (
+        select(StockLevel.item_id, func.sum(StockLevel.quantity).label("total_qty"))
+        .group_by(StockLevel.item_id)
+        .subquery()
     )
-    items = result.scalars().all()
-    stock_repo = StockLevelRepository(db)
+    result = await db.execute(
+        select(Item, stock_totals_subq.c.total_qty)
+        .outerjoin(stock_totals_subq, Item.id == stock_totals_subq.c.item_id)
+        .where(Item.is_active == True, Item.reorder_level > 0)  # noqa: E712
+    )
+    rows = result.all()
 
     low: list[dict] = []
-    for item in items:
-        total = float(await stock_repo.get_total_for_item(item.id))
+    for item, total_qty in rows:
+        total = float(total_qty or 0)
         if total <= float(item.reorder_level):
             low.append({
                 "id": item.id,
@@ -300,14 +309,23 @@ async def get_dashboard_summary(db: AsyncSession) -> dict:
     total_skus_r = await db.execute(select(func.count()).where(Item.is_active == True))  # noqa: E712
     total_skus = total_skus_r.scalar() or 0
 
-    stock_repo = StockLevelRepository(db)
-    items_r = await db.execute(select(Item).where(Item.is_active == True, Item.reorder_level > 0))  # noqa: E712
-    items_list = items_r.scalars().all()
-    low = 0
-    for item in items_list:
-        total = float(await stock_repo.get_total_for_item(item.id))
-        if total <= float(item.reorder_level):
-            low += 1
+    # Count low-stock items with a single aggregated query
+    stock_totals_subq = (
+        select(StockLevel.item_id, func.sum(StockLevel.quantity).label("total_qty"))
+        .group_by(StockLevel.item_id)
+        .subquery()
+    )
+    low_r = await db.execute(
+        select(func.count())
+        .select_from(Item)
+        .outerjoin(stock_totals_subq, Item.id == stock_totals_subq.c.item_id)
+        .where(
+            Item.is_active == True,  # noqa: E712
+            Item.reorder_level > 0,
+            func.coalesce(stock_totals_subq.c.total_qty, 0) <= Item.reorder_level,
+        )
+    )
+    low = low_r.scalar() or 0
 
     txn_today_r = await db.execute(
         select(func.count()).where(
@@ -495,6 +513,148 @@ async def get_transaction_history(
     return {"total": len(out), "transactions": out}
 
 
+async def create_item(
+    db: AsyncSession,
+    sku: str,
+    name: str,
+    unit: str = "pcs",
+    description: str | None = None,
+    unit_cost: float = 0.0,
+    reorder_level: float = 0.0,
+    supplier: str | None = None,
+    category_id: int | None = None,
+    notes: str | None = None,
+) -> dict:
+    """Create a new inventory item."""
+    repo = ItemRepository(db)
+    # Check if SKU already exists
+    existing = await repo.get_by_sku(sku)
+    if existing:
+        return {"error": f"Item with SKU '{sku.upper()}' already exists (id={existing.id}, name={existing.name})."}
+    data = ItemCreate(
+        sku=sku,
+        name=name,
+        unit=unit,
+        description=description,
+        unit_cost=Decimal(str(unit_cost)),
+        reorder_level=Decimal(str(reorder_level)),
+        supplier=supplier,
+        category_id=category_id,
+        notes=notes,
+    )
+    item = Item(**data.model_dump())
+    db.add(item)
+    await db.flush()
+    await db.refresh(item)
+    return {
+        "success": True,
+        "id": item.id,
+        "sku": item.sku,
+        "name": item.name,
+        "unit": item.unit,
+        "message": f"Created item '{item.name}' (SKU: {item.sku}, ID: {item.id}).",
+    }
+
+
+async def update_item(
+    db: AsyncSession,
+    item_id_or_sku: str,
+    name: str | None = None,
+    description: str | None = None,
+    unit: str | None = None,
+    unit_cost: float | None = None,
+    reorder_level: float | None = None,
+    supplier: str | None = None,
+    notes: str | None = None,
+    is_active: bool | None = None,
+) -> dict:
+    """Update fields on an existing inventory item."""
+    repo = ItemRepository(db)
+    item: Item | None = None
+    if item_id_or_sku.isdigit():
+        item = await repo.get_by_id(int(item_id_or_sku))
+    if item is None:
+        item = await repo.get_by_sku(item_id_or_sku)
+    if item is None:
+        result = await db.execute(
+            select(Item)
+            .where(Item.is_active == True, func.lower(Item.name).like(f"%{item_id_or_sku.lower()}%"))  # noqa: E712
+            .limit(1)
+        )
+        item = result.scalar_one_or_none()
+    if item is None:
+        return {"error": f"Item '{item_id_or_sku}' not found"}
+
+    changes: list[str] = []
+    if name is not None:
+        item.name = name; changes.append(f"name→{name}")
+    if description is not None:
+        item.description = description; changes.append("description updated")
+    if unit is not None:
+        item.unit = unit; changes.append(f"unit→{unit}")
+    if unit_cost is not None:
+        item.unit_cost = Decimal(str(unit_cost)); changes.append(f"unit_cost→{unit_cost}")
+    if reorder_level is not None:
+        item.reorder_level = Decimal(str(reorder_level)); changes.append(f"reorder_level→{reorder_level}")
+    if supplier is not None:
+        item.supplier = supplier; changes.append(f"supplier→{supplier}")
+    if notes is not None:
+        item.notes = notes; changes.append("notes updated")
+    if is_active is not None:
+        item.is_active = is_active; changes.append(f"is_active→{is_active}")
+
+    await db.flush()
+    return {
+        "success": True,
+        "id": item.id,
+        "sku": item.sku,
+        "name": item.name,
+        "changes": changes,
+        "message": f"Updated item '{item.name}' (SKU: {item.sku}): {', '.join(changes) or 'no changes'}.",
+    }
+
+
+async def delete_item(
+    db: AsyncSession,
+    item_id_or_sku: str,
+    hard_delete: bool = False,
+) -> dict:
+    """
+    Deactivate (soft-delete) or permanently remove an inventory item.
+    Default is soft-delete (sets is_active=False). Use hard_delete=true only when explicitly requested.
+    """
+    repo = ItemRepository(db)
+    item: Item | None = None
+    if item_id_or_sku.isdigit():
+        item = await repo.get_by_id(int(item_id_or_sku))
+    if item is None:
+        item = await repo.get_by_sku(item_id_or_sku)
+    if item is None:
+        result = await db.execute(
+            select(Item)
+            .where(func.lower(Item.name).like(f"%{item_id_or_sku.lower()}%"))
+            .limit(1)
+        )
+        item = result.scalar_one_or_none()
+    if item is None:
+        return {"error": f"Item '{item_id_or_sku}' not found"}
+
+    if hard_delete:
+        name, sku = item.name, item.sku
+        await db.delete(item)
+        await db.flush()
+        return {"success": True, "message": f"Permanently deleted item '{name}' (SKU: {sku})."}
+    else:
+        item.is_active = False
+        await db.flush()
+        return {
+            "success": True,
+            "id": item.id,
+            "sku": item.sku,
+            "message": f"Deactivated item '{item.name}' (SKU: {item.sku}). It is no longer active but its history is preserved.",
+        }
+
+
 async def rag_search_docs(
     db: AsyncSession,
     query: str,
@@ -504,29 +664,22 @@ async def rag_search_docs(
     """
     Retrieve relevant knowledge-base chunks from uploaded documents.
 
-    This is a lightweight "RAG retrieval" implementation that ranks chunks by
-    keyword overlap. It is database-grounded (reads from doc_chunks).
-
-    Later you can upgrade this tool to true embedding similarity with pgvector.
+    Uses Google text-embedding-004 cosine similarity when GEMINI_API_KEY is
+    set and chunks have stored embeddings.  Falls back to keyword ILIKE ranking.
     """
+    from app.ai.embeddings import embed_text, cosine_similarity, vec_from_json
+
     q = (query or "").strip().lower()
     if not q:
         return {"query": query, "total": 0, "chunks": []}
 
-    tokens = [t for t in re.findall(r"[a-z0-9]+", q) if len(t) >= 3]
-    if not tokens:
-        tokens = [q]
-
-    # Fetch candidate chunks (bounded) using SQL ILIKE to keep it fast.
-    conditions = [func.lower(DocChunk.content).like(f"%{t}%") for t in tokens[:12]]
-
+    # Fetch all active chunks (bounded to 200 for performance)
     q_stmt = (
         select(DocChunk, KnowledgeDocument)
         .join(KnowledgeDocument, KnowledgeDocument.id == DocChunk.doc_id)
         .where(KnowledgeDocument.is_active == True)  # noqa: E712
-        .where(or_(*conditions))
         .order_by(DocChunk.created_at.desc())
-        .limit(60)
+        .limit(200)
     )
     if doc_type:
         q_stmt = q_stmt.where(KnowledgeDocument.doc_type == doc_type)
@@ -534,17 +687,30 @@ async def rag_search_docs(
     result = await db.execute(q_stmt)
     rows = result.all()
 
+    # Try semantic ranking with embeddings
+    query_vec = await embed_text(query)
+
     ranked: list[tuple[float, DocChunk, KnowledgeDocument]] = []
     for chunk, doc in rows:
-        c = (chunk.content or "").lower()
         score = 0.0
-        for t in tokens:
-            if t in c:
-                score += 1.0
-        # Boost newer docs slightly
+        if query_vec and chunk.embedding_json:
+            try:
+                chunk_vec = vec_from_json(chunk.embedding_json)
+                score = cosine_similarity(query_vec, chunk_vec)
+            except Exception:
+                score = 0.0
+        else:
+            # Fallback: keyword overlap scoring
+            c = (chunk.content or "").lower()
+            tokens = [t for t in re.findall(r"[a-z0-9]+", q) if len(t) >= 3] or [q]
+            for t in tokens:
+                if t in c:
+                    score += 1.0 / max(1, len(tokens))
+
+        # Recency boost (very small)
         if doc.created_at:
-            age_seconds = max(0.0, (datetime.utcnow() - doc.created_at.replace(tzinfo=None)).total_seconds())
-            score += 1.0 / (1.0 + age_seconds / 86400.0)
+            age_days = max(0.0, (datetime.utcnow() - doc.created_at.replace(tzinfo=None)).total_seconds() / 86400.0)
+            score += 0.01 / (1.0 + age_days)
         ranked.append((score, chunk, doc))
 
     ranked.sort(key=lambda x: x[0], reverse=True)
@@ -753,6 +919,65 @@ TOOL_SCHEMAS: list[dict[str, Any]] = [
             },
         },
     },
+    {
+        "type": "function",
+        "function": {
+            "name": "create_item",
+            "description": "Create a brand-new inventory item. Always confirm with the user before calling. Returns the new item's ID and SKU.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "sku": {"type": "string", "description": "Unique SKU code (alphanumeric, hyphens, underscores). Will be uppercased."},
+                    "name": {"type": "string", "description": "Full item name"},
+                    "unit": {"type": "string", "description": "Unit of measure (e.g. pcs, ml, g, box)", "default": "pcs"},
+                    "description": {"type": "string", "description": "Optional item description"},
+                    "unit_cost": {"type": "number", "description": "Unit cost in dollars", "default": 0},
+                    "reorder_level": {"type": "number", "description": "Trigger reorder when stock falls to this level", "default": 0},
+                    "supplier": {"type": "string", "description": "Supplier name (optional)"},
+                    "category_id": {"type": "integer", "description": "Category ID (optional)"},
+                    "notes": {"type": "string", "description": "Additional notes"},
+                },
+                "required": ["sku", "name"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "update_item",
+            "description": "Update fields on an existing inventory item by ID, SKU, or name. Only provided fields are changed.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "item_id_or_sku": {"type": "string", "description": "Item ID number, SKU code, or item name"},
+                    "name": {"type": "string", "description": "New name"},
+                    "description": {"type": "string", "description": "New description"},
+                    "unit": {"type": "string", "description": "New unit of measure"},
+                    "unit_cost": {"type": "number", "description": "New unit cost"},
+                    "reorder_level": {"type": "number", "description": "New reorder level"},
+                    "supplier": {"type": "string", "description": "New supplier"},
+                    "notes": {"type": "string", "description": "New notes"},
+                    "is_active": {"type": "boolean", "description": "Set false to deactivate, true to reactivate"},
+                },
+                "required": ["item_id_or_sku"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "delete_item",
+            "description": "Deactivate (default) or permanently delete an inventory item. Always confirm with the user before calling. Soft-delete is reversible; hard_delete is not.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "item_id_or_sku": {"type": "string", "description": "Item ID, SKU, or name"},
+                    "hard_delete": {"type": "boolean", "description": "true = permanently remove, false = deactivate (default)", "default": False},
+                },
+                "required": ["item_id_or_sku"],
+            },
+        },
+    },
 ]
 
 
@@ -762,6 +987,9 @@ WRITE_TOOLS = {
     "perform_stock_in",
     "perform_stock_out",
     "perform_transfer",
+    "create_item",
+    "update_item",
+    "delete_item",
 }
 
 
@@ -798,4 +1026,10 @@ async def dispatch_tool(
         return await get_transaction_history(db, **args)
     if name == "rag_search_docs":
         return await rag_search_docs(db, **args)
+    if name == "create_item":
+        return await create_item(db, **args)
+    if name == "update_item":
+        return await update_item(db, **args)
+    if name == "delete_item":
+        return await delete_item(db, **args)
     raise ValueError(f"Unknown tool: {name}")

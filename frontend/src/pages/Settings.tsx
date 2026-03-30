@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useNavigate, Navigate } from "react-router-dom";
@@ -199,6 +199,35 @@ export function Settings() {
   const [addStatus, setAddStatus] = useState<"idle" | "loading" | "success" | "error">("idle");
   const [addError, setAddError] = useState<string | null>(null);
   const [deletingId, setDeletingId] = useState<number | null>(null);
+  const [profilePhoto, setProfilePhoto] = useState<string | null>(() => {
+    try {
+      return localStorage.getItem("settings.profilePhoto");
+    } catch {
+      return null;
+    }
+  });
+  const profilePhotoRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    try {
+      if (!profilePhoto) localStorage.removeItem("settings.profilePhoto");
+      else localStorage.setItem("settings.profilePhoto", profilePhoto);
+    } catch {
+      // Ignore storage failures (e.g. private browsing).
+    }
+  }, [profilePhoto]);
+
+  const onPickProfilePhoto = () => profilePhotoRef.current?.click();
+  const onProfilePhotoChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (!file.type.startsWith("image/")) return;
+
+    const reader = new FileReader();
+    reader.onload = () => setProfilePhoto(String(reader.result ?? ""));
+    reader.readAsDataURL(file);
+    e.target.value = "";
+  };
 
   useEffect(() => {
     if (user || !isAuthenticated) return;
@@ -303,14 +332,32 @@ export function Settings() {
               className="relative shrink-0"
             >
               <div
-                className="w-20 h-20 rounded-2xl flex items-center justify-center text-2xl font-bold text-white shadow-lg"
+                className="w-20 h-20 rounded-2xl overflow-hidden flex items-center justify-center text-2xl font-bold text-white shadow-lg cursor-pointer"
+                role="button"
+                tabIndex={0}
+                aria-label="Upload profile photo"
+                onClick={onPickProfilePhoto}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" || e.key === " ") onPickProfilePhoto();
+                }}
                 style={{
                   background: "linear-gradient(135deg, #0891b2, #22d3ee)",
                   boxShadow: "0 0 30px rgba(34,211,238,0.35), 0 8px 24px rgba(0,0,0,0.3)",
                 }}
               >
-                {initials}
+                {profilePhoto ? (
+                  <img src={profilePhoto} alt="User profile photo" className="w-full h-full object-cover" />
+                ) : (
+                  initials
+                )}
               </div>
+              <input
+                ref={profilePhotoRef}
+                type="file"
+                accept="image/*"
+                className="hidden"
+                onChange={onProfilePhotoChange}
+              />
               <div
                 className="absolute -bottom-1 -right-1 w-5 h-5 rounded-full flex items-center justify-center"
                 style={{ background: "#22d3ee", boxShadow: "0 0 10px rgba(34,211,238,0.5)" }}

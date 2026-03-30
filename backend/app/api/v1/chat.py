@@ -218,18 +218,28 @@ async def send_message(
     session_id: int,
     db: DbSession,
     current_user: CurrentUser,
-    content: str = Query(min_length=1, max_length=4000),
+    # Accept content as EITHER a query-param (old clients) OR a form field (new clients).
+    # Query param is checked first so legacy frontends keep working without redeployment.
+    content_q: str | None = Query(default=None, max_length=4000, alias="content"),
+    content_f: str | None = Form(default=None, max_length=4000),
+    image: UploadFile | None = File(default=None),
 ) -> StreamingResponse:
     """
-    Stream AI response via SSE.
+    Stream AI response via SSE.  Accepts multipart form so the user can
+    optionally attach an image for vision-based queries.
+    Content may arrive as a query-param (?content=…) for old clients or as
+    a multipart form field for new clients that also send images.
 
-    Persistence strategy (fixes "message disappears" bug):
+    Persistence strategy:
     1. User message + title update are flushed & committed synchronously,
        BEFORE the StreamingResponse is returned.
-    2. The SSE generator opens a FRESH database session (independent of the
-       request-scoped `db` which is committed/closed when headers are sent)
-       and saves the assistant message there once streaming is done.
+    2. The SSE generator opens a FRESH database session and saves the
+       assistant message there once streaming is done.
     """
+    content = (content_f or content_q or "").strip()
+    if not content:
+        raise HTTPException(status_code=422, detail="content is required")
+
     # ── Validate session ──────────────────────────────────────────────────
     sess_result = await db.execute(
         select(ChatSession).where(
@@ -268,6 +278,13 @@ async def send_message(
     actor_roles = [ur.role.name for ur in current_user.roles if ur.role]
     actor_id = current_user.id
 
+    # Read image bytes BEFORE committing (file upload is request-scoped)
+    image_bytes: bytes | None = None
+    image_mime: str | None = None
+    if image and image.size and image.size > 0:
+        image_bytes = await image.read()
+        image_mime = image.content_type or "image/jpeg"
+
     # Auto-title session on first user message
     if session.title in ("New chat", "") and len(history) == 1:
         session.title = content[:80]
@@ -285,6 +302,8 @@ async def send_message(
             db=None,            # copilot will open its own session for tool calls
             actor_id=actor_id,
             actor_roles=actor_roles,
+            image_bytes=image_bytes,
+            image_mime=image_mime,
         ):
             yield sse_line.encode()
 
@@ -363,12 +382,21 @@ async def upload_document(
 
     try:
         chunks = _extract_text_chunks(dest, file.content_type or "")
+        from app.ai.embeddings import embed_text, vec_to_json
         for i, chunk_text in enumerate(chunks):
+            embedding_json: str | None = None
+            try:
+                vec = await embed_text(chunk_text[:1000])  # limit per chunk
+                if vec:
+                    embedding_json = vec_to_json(vec)
+            except Exception:
+                pass
             db.add(DocChunk(
                 doc_id=doc.id,
                 chunk_index=i,
                 content=chunk_text,
                 token_count=len(chunk_text.split()),
+                embedding_json=embedding_json,
             ))
         doc.chunk_count = len(chunks)
         doc.status = DocStatus.READY

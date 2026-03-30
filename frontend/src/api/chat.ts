@@ -87,22 +87,30 @@ export const chatApi = {
   /**
    * Stream a chat message using SSE (fetch with readable stream).
    * Calls onEvent for each SSE payload, calls onDone when finished.
+   * Optional `image` attaches a photo for vision queries.
    */
   streamMessage: async (
     sessionId: number,
     content: string,
     onEvent: (event: SseEvent) => void,
     signal?: AbortSignal,
+    image?: File | null,
   ): Promise<void> => {
     const token = useAuthStore.getState().accessToken;
-    const url = `${BASE_URL}/chat/sessions/${sessionId}/messages?content=${encodeURIComponent(content)}`;
+    const url = `${BASE_URL}/chat/sessions/${sessionId}/messages`;
+
+    const form = new FormData();
+    form.append("content", content);
+    if (image) form.append("image", image);
 
     const response = await fetch(url, {
       method: "POST",
       headers: {
         Accept: "text/event-stream",
         ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        // Do NOT set Content-Type — browser sets it with the correct boundary for FormData
       },
+      body: form,
       signal,
     });
 

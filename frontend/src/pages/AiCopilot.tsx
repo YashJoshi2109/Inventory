@@ -40,10 +40,15 @@ import {
   CheckCircle2,
   AlertCircle,
   Loader2,
-  Beaker,
   Zap,
   Menu,
   RefreshCw,
+  Image,
+  Mic,
+  MicOff,
+  PackagePlus,
+  PackageCheck,
+  PackageMinus,
 } from "lucide-react";
 import { clsx } from "clsx";
 import ReactMarkdown from "react-markdown";
@@ -66,6 +71,7 @@ interface Msg {
   toolCalls: ToolCall[];
   streaming: boolean;
   error?: string;
+  imagePreview?: string; // base64 data URL for display
 }
 
 // ── Constants ─────────────────────────────────────────────────────────────────
@@ -82,15 +88,19 @@ const TOOL_META: Record<string, { label: string; color: string; bg: string }> = 
   perform_transfer:        { label: "Transferring item",      color: "#c084fc", bg: "rgba(192,132,252,0.08)" },
   list_locations:          { label: "Loading locations",      color: "#94a3b8", bg: "rgba(148,163,184,0.08)" },
   get_transaction_history: { label: "Loading transactions",   color: "#60a5fa", bg: "rgba(96,165,250,0.08)" },
+  rag_search_docs:         { label: "Searching documents",    color: "#f59e0b", bg: "rgba(245,158,11,0.08)" },
+  create_item:             { label: "Creating item",          color: "#34d399", bg: "rgba(52,211,153,0.08)" },
+  update_item:             { label: "Updating item",          color: "#60a5fa", bg: "rgba(96,165,250,0.08)" },
+  delete_item:             { label: "Removing item",          color: "#f87171", bg: "rgba(248,113,113,0.08)" },
 };
 
 const SUGGESTIONS = [
-  { icon: BarChart3,    text: "Show inventory overview",       color: "#60a5fa" },
-  { icon: TrendingDown, text: "What items are running low?",   color: "#fbbf24" },
-  { icon: Clock,        text: "Find items unused for 90 days", color: "#fb923c" },
-  { icon: Package,      text: "Search for Arduino kits",       color: "#22d3ee" },
-  { icon: MapPin,       text: "What's in Embedded Lab?",       color: "#34d399" },
-  { icon: Zap,          text: "Show recent transactions",      color: "#a78bfa" },
+  { icon: BarChart3,    text: "Show inventory overview",           color: "#60a5fa" },
+  { icon: TrendingDown, text: "What items are running low?",       color: "#fbbf24" },
+  { icon: MapPin,       text: "Show items in shelf A1",            color: "#34d399" },
+  { icon: Package,      text: "Search for Arduino kits",           color: "#22d3ee" },
+  { icon: PackagePlus,  text: "Create a new item",                 color: "#a78bfa" },
+  { icon: Zap,          text: "Show recent transactions",          color: "#fb923c" },
 ];
 
 const DOC_TYPES = ["general", "sop", "manual", "calibration", "invoice", "policy", "maintenance"];
@@ -138,12 +148,18 @@ function MessageBubble({ msg }: { msg: Msg }) {
   if (msg.role === "user") {
     return (
       <div className="flex justify-end mb-5">
-        <div className="max-w-[78%] px-4 py-2.5 rounded-2xl rounded-tr-sm text-sm text-white leading-relaxed"
-          style={{
-            background: "linear-gradient(135deg,#0891b2,#22d3ee)",
-            boxShadow: "0 4px 18px rgba(34,211,238,0.22)",
-          }}>
-          {msg.content}
+        <div className="max-w-[78%] flex flex-col items-end gap-1.5">
+          {msg.imagePreview && (
+            <img src={msg.imagePreview} alt="attached"
+              className="rounded-xl max-w-[220px] max-h-[180px] object-cover border border-white/10" />
+          )}
+          <div className="px-4 py-2.5 rounded-2xl rounded-tr-sm text-sm text-white leading-relaxed"
+            style={{
+              background: "linear-gradient(135deg,#0891b2,#22d3ee)",
+              boxShadow: "0 4px 18px rgba(34,211,238,0.22)",
+            }}>
+            {msg.content}
+          </div>
         </div>
       </div>
     );
@@ -298,6 +314,26 @@ export function AiCopilot() {
   const [searchTerm, setSearchTerm] = useState("");
   const [editingId, setEditingId] = useState<number | null>(null);
   const [editTitle, setEditTitle] = useState("");
+  // Image attachment
+  const [attachedImage, setAttachedImage] = useState<File | null>(null);
+  const [imagePreview, setImagePreview] = useState<string | null>(null);
+  const attachedImageRef = useRef<File | null>(null);
+  const imagePreviewRef = useRef<string | null>(null);
+  const imageInputRef = useRef<HTMLInputElement>(null);
+  // Voice input
+  const [isListening, setIsListening] = useState(false);
+  const [interimTranscript, setInterimTranscript] = useState(""); // live interim text
+  const [voiceSupported] = useState(() =>
+    !!(window as unknown as Record<string, unknown>).SpeechRecognition ||
+    !!(window as unknown as Record<string, unknown>).webkitSpeechRecognition
+  );
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const recognitionRef = useRef<any>(null);
+  const voiceBaseRef = useRef(""); // input value when recording started
+  const voiceConfirmedRef = useRef(""); // confirmed (final) transcript so far
+  // TTS
+  const [ttsEnabled, setTtsEnabled] = useState(false);
+  const ttsEnabledRef = useRef(false);
 
   // Refs — avoid stale closures
   const activeSessionIdRef = useRef<number | null>(null);
@@ -305,6 +341,218 @@ export function AiCopilot() {
   const abortRef = useRef<AbortController | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
+
+  // ── Image attachment handlers ──────────────────────────────────────────────
+  const handleImageSelect = (file: File) => {
+    setAttachedImage(file);
+    attachedImageRef.current = file;
+    const reader = new FileReader();
+    reader.onload = e => {
+      const preview = e.target?.result as string;
+      setImagePreview(preview);
+      imagePreviewRef.current = preview;
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const clearImage = () => {
+    setAttachedImage(null);
+    setImagePreview(null);
+    attachedImageRef.current = null;
+    imagePreviewRef.current = null;
+    if (imageInputRef.current) imageInputRef.current.value = "";
+  };
+
+  // ── Voice engine — ChatGPT-style ─────────────────────────────────────────
+  //
+  //  voiceModeRef: when true, after TTS finishes we auto-restart listening
+  //  silenceTimerRef: auto-send after 1.8s of confirmed-text silence
+  //
+  const voiceModeRef = useRef(false);
+  const [voiceMode, _setVoiceMode] = useState(false);
+  const silenceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const setVoiceMode = (v: boolean) => {
+    voiceModeRef.current = v;
+    _setVoiceMode(v);
+  };
+
+  // Pick best available TTS voice (prefer natural-sounding ones)
+  const pickVoice = (): SpeechSynthesisVoice | null => {
+    if (!window.speechSynthesis) return null;
+    const voices = window.speechSynthesis.getVoices();
+    const preferred = [
+      "Google US English",
+      "Microsoft Aria Online (Natural)",
+      "Samantha",
+      "Karen",
+      "Moira",
+      "Alex",
+      "en-US",
+    ];
+    for (const name of preferred) {
+      const v = voices.find(v => v.name.includes(name) || v.lang === name);
+      if (v) return v;
+    }
+    return voices.find(v => v.lang.startsWith("en")) ?? null;
+  };
+
+  const stripMarkdown = (text: string) =>
+    text
+      .replace(/\*\*(.+?)\*\*/g, "$1")
+      .replace(/\*(.+?)\*/g, "$1")
+      .replace(/`{1,3}[\s\S]*?`{1,3}/g, "code block")
+      .replace(/#{1,6}\s/g, "")
+      .replace(/\[(.+?)\]\(.+?\)/g, "$1")
+      .replace(/[-*+]\s/g, "")
+      .trim();
+
+  const speakText = (text: string, onEnd?: () => void) => {
+    if (!ttsEnabledRef.current || !window.speechSynthesis) {
+      onEnd?.();
+      return;
+    }
+    const clean = stripMarkdown(text);
+    if (!clean) { onEnd?.(); return; }
+    window.speechSynthesis.cancel();
+    const utt = new SpeechSynthesisUtterance(clean);
+    utt.rate = 1.08;
+    utt.pitch = 1;
+    const voice = pickVoice();
+    if (voice) utt.voice = voice;
+    if (onEnd) utt.onend = onEnd;
+    window.speechSynthesis.speak(utt);
+  };
+
+  const stopListening = (clearText = false) => {
+    if (silenceTimerRef.current) { clearTimeout(silenceTimerRef.current); silenceTimerRef.current = null; }
+    try { recognitionRef.current?.stop(); } catch { /* ignore */ }
+    recognitionRef.current = null;
+    setIsListening(false);
+    setInterimTranscript("");
+    if (clearText) {
+      voiceBaseRef.current = "";
+      voiceConfirmedRef.current = "";
+    } else if (voiceConfirmedRef.current.trim()) {
+      setInput(voiceConfirmedRef.current.trim());
+      resizeInput();
+    }
+    if (!clearText) {
+      voiceBaseRef.current = "";
+      voiceConfirmedRef.current = "";
+    }
+  };
+
+  const resizeInput = () => setTimeout(() => {
+    if (inputRef.current) {
+      inputRef.current.style.height = "auto";
+      inputRef.current.style.height = Math.min(inputRef.current.scrollHeight, 140) + "px";
+    }
+  }, 0);
+
+  const startListening = () => {
+    if (!voiceSupported) return;
+    const SR = (window as unknown as Record<string, unknown>).SpeechRecognition ||
+               (window as unknown as Record<string, unknown>).webkitSpeechRecognition;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const rec = new (SR as any)();
+    rec.lang = "en-US";
+    rec.continuous = true;
+    rec.interimResults = true;
+    rec.maxAlternatives = 1;
+
+    voiceBaseRef.current = "";
+    voiceConfirmedRef.current = "";
+    setInput("");
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    rec.onresult = (e: any) => {
+      if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current);
+
+      let confirmed = voiceBaseRef.current;
+      let interim = "";
+      for (let i = 0; i < e.results.length; i++) {
+        const seg = e.results[i][0].transcript;
+        if (e.results[i].isFinal) {
+          confirmed += seg + " ";
+        } else {
+          interim = seg;
+        }
+      }
+      voiceConfirmedRef.current = confirmed;
+      setInput((confirmed + interim).trim());
+      setInterimTranscript(interim);
+      resizeInput();
+
+      // Auto-send after 1.8s of silence (only when voice mode is on)
+      if (voiceModeRef.current && confirmed.trim()) {
+        silenceTimerRef.current = setTimeout(() => {
+          const text = voiceConfirmedRef.current.trim();
+          if (text) {
+            stopListening(true);
+            void sendMessageRef.current?.(text);
+          }
+        }, 1800);
+      }
+    };
+
+    rec.onerror = (e: Event & { error?: string }) => {
+      if ((e as { error?: string }).error === "no-speech") {
+        // no-speech is not a fatal error, just restart quietly
+        if (recognitionRef.current) {
+          try { recognitionRef.current.start(); } catch { stopListening(); }
+        }
+        return;
+      }
+      stopListening();
+    };
+
+    rec.onend = () => {
+      // Browsers stop recognition after silence — restart if we're still supposed to listen
+      if (recognitionRef.current && isListeningRef.current) {
+        try { rec.start(); } catch { stopListening(); }
+      }
+    };
+
+    recognitionRef.current = rec;
+    setIsListening(true);
+    isListeningRef.current = true;
+    try { rec.start(); } catch { setIsListening(false); isListeningRef.current = false; }
+  };
+
+  const toggleVoice = () => {
+    if (isListening) {
+      stopListening();
+    } else {
+      startListening();
+    }
+  };
+
+  // Voice mode: listen → send → speak → listen loop
+  const toggleVoiceMode = () => {
+    const next = !voiceMode;
+    setVoiceMode(next);
+    ttsEnabledRef.current = next; // voice mode always implies TTS
+    setTtsEnabled(next);
+    if (next) {
+      startListening();
+    } else {
+      stopListening();
+      window.speechSynthesis?.cancel();
+    }
+  };
+
+  const toggleTts = () => {
+    const next = !ttsEnabled;
+    setTtsEnabled(next);
+    ttsEnabledRef.current = next;
+    if (!next) window.speechSynthesis?.cancel();
+  };
+
+  // Ref needed so voice silence timer can call sendMessage without stale closure
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const sendMessageRef = useRef<((text: string) => Promise<void>) | null>(null);
+  const isListeningRef = useRef(false);
 
   const quotaAnchorRef = useRef<HTMLDivElement>(null);
   const [quotaCardOpen, setQuotaCardOpen] = useState(false);
@@ -456,14 +704,19 @@ export function AiCopilot() {
       }
     }
 
+    // Capture and clear image before clearing input (use refs for fresh values in closure)
+    const msgImage = attachedImageRef.current;
+    const msgImagePreview = imagePreviewRef.current;
+
     setInput("");
+    clearImage();
     const uId = makeId();
     const aId = makeId();
 
     // Optimistically add user + placeholder assistant message
     setMessages(prev => [
       ...prev,
-      { id: uId, role: "user", content, toolCalls: [], streaming: false },
+      { id: uId, role: "user", content, toolCalls: [], streaming: false, imagePreview: msgImagePreview ?? undefined },
       { id: aId, role: "assistant", content: "", toolCalls: [], streaming: true },
     ]);
 
@@ -508,13 +761,14 @@ export function AiCopilot() {
               break;
 
             case "done":
-              // Mark stream complete — do NOT invalidate queries yet, just stop streaming
               setMessages(prev => prev.map(m =>
                 m.id === aId ? { ...m, streaming: false } : m
               ));
               setStreaming(false);
-              // Refresh session list + messages after a short delay
-              // so the server has time to commit the assistant message
+              // Speak AI response; if voice-mode is active, restart listening after TTS
+              speakText(accContent, () => {
+                if (voiceModeRef.current) startListening();
+              });
               setTimeout(() => {
                 qc.invalidateQueries({ queryKey: ["chat-sessions"] });
                 qc.invalidateQueries({ queryKey: ["chat-messages", finalSessionId] });
@@ -530,6 +784,7 @@ export function AiCopilot() {
           }
         },
         abortRef.current.signal,
+        msgImage,
       );
     } catch (err) {
       if ((err as Error).name !== "AbortError") {
@@ -541,13 +796,8 @@ export function AiCopilot() {
     }
   }, [qc]);
 
-  // ── Keyboard handler ───────────────────────────────────────────────────────
-  const onKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
-    if (e.key === "Enter" && !e.shiftKey) {
-      e.preventDefault();
-      sendMessage(input);
-    }
-  };
+  // Keep ref in sync so voice silence timer can call sendMessage
+  useEffect(() => { sendMessageRef.current = sendMessage; }, [sendMessage]);
 
   // ── Derived ────────────────────────────────────────────────────────────────
   const filtered = sessions.filter(s => s.title.toLowerCase().includes(searchTerm.toLowerCase()));
@@ -810,14 +1060,16 @@ export function AiCopilot() {
         {/* Messages or welcome */}
         <div className="flex-1 overflow-y-auto scroll-smooth">
           {isEmpty ? (
-            <div className="flex flex-col items-center justify-center h-full px-6 text-center">
-              <div className="w-14 h-14 rounded-2xl flex items-center justify-center mb-5"
+            <div className="flex flex-col items-center justify-start h-full px-6 text-center pt-6 lg:pt-0 lg:justify-center">
+              <div
+                className="w-14 h-14 rounded-2xl overflow-hidden flex items-center justify-center mb-5"
                 style={{
                   background: "linear-gradient(135deg,rgba(8,145,178,0.2),rgba(34,211,238,0.1))",
                   border: "1px solid rgba(34,211,238,0.18)",
                   boxShadow: "0 0 48px rgba(34,211,238,0.08)",
-                }}>
-                <Beaker size={26} className="text-brand-400" />
+                }}
+              >
+                <img src="/UTA_logo.webp" alt="UTA logo" className="w-full h-full object-cover" />
               </div>
               <h2 className="text-lg font-bold text-white mb-1">Hi there</h2>
               <p className="text-slate-500 text-sm mb-8">Where should we start?</p>
@@ -848,22 +1100,65 @@ export function AiCopilot() {
         </div>
 
         {/* Input bar */}
-        <div className="shrink-0 px-4 pb-4 pt-2"
+        <div className="shrink-0 px-4 pb-16 pt-2 lg:pb-4"
           style={{ borderTop: "1px solid rgba(255,255,255,0.06)" }}>
           <div className="max-w-3xl mx-auto">
-            <div className="flex items-end gap-2.5 px-3.5 py-2.5 rounded-2xl transition-all duration-200"
+
+            {/* Image preview */}
+            {imagePreview && (
+              <div className="mb-2 flex items-start gap-2">
+                <div className="relative">
+                  <img src={imagePreview} alt="attach preview"
+                    className="rounded-xl h-16 w-auto max-w-[120px] object-cover border border-white/10" />
+                  <button onClick={clearImage}
+                    className="absolute -top-1.5 -right-1.5 w-5 h-5 rounded-full bg-slate-900 border border-white/15 flex items-center justify-center text-slate-400 hover:text-red-400 transition-colors">
+                    <X size={9} />
+                  </button>
+                </div>
+                <span className="text-[10px] text-slate-600 mt-1">Image will be sent with your message</span>
+              </div>
+            )}
+
+            {/* Listening indicator strip */}
+            {isListening && (
+              <div className="mb-1.5 flex items-center gap-2 px-1">
+                <span className="flex items-end gap-0.5">
+                  {[0,1,2,3,4].map(i => (
+                    <span key={i} className="w-0.5 rounded-full bg-red-400 animate-bounce"
+                      style={{ height: 6 + (i % 3) * 5, animationDelay: `${i * 0.1}s`, animationDuration: "0.5s" }} />
+                  ))}
+                </span>
+                <span className="text-[11px] font-medium text-red-400">
+                  {voiceMode ? "Conversation mode — speak naturally" : "Listening…"}
+                </span>
+                {interimTranscript && (
+                  <span className="text-[11px] text-slate-400 italic truncate max-w-[200px]">"{interimTranscript}"</span>
+                )}
+                {voiceMode && !interimTranscript && (
+                  <span className="text-[10px] text-slate-600">auto-sends on pause</span>
+                )}
+                <button onClick={() => stopListening()}
+                  className="ml-auto text-[10px] text-slate-600 hover:text-red-400 transition-colors px-2 py-0.5 rounded-lg border border-white/10 shrink-0">
+                  stop
+                </button>
+              </div>
+            )}
+
+            <div className="flex items-end justify-start gap-2 px-3.5 py-2.5 rounded-2xl transition-all duration-200"
               style={{
                 background: "rgba(255,255,255,0.04)",
-                border: streaming
+                border: isListening
+                  ? "1px solid rgba(248,113,113,0.35)"
+                  : streaming
                   ? "1px solid rgba(34,211,238,0.22)"
                   : "1px solid rgba(255,255,255,0.09)",
-                boxShadow: streaming ? "0 0 20px rgba(34,211,238,0.06)" : "none",
+                boxShadow: isListening ? "0 0 20px rgba(248,113,113,0.07)" : streaming ? "0 0 20px rgba(34,211,238,0.06)" : "none",
               }}>
 
-              {/* Attach doc */}
+              {/* Attach doc to KB */}
               <label title="Upload document to Knowledge Base"
-                className="text-slate-700 hover:text-brand-400 transition-colors cursor-pointer shrink-0 pb-0.5">
-                <Paperclip size={17} />
+                className="text-slate-700 hover:text-brand-400 transition-colors cursor-pointer shrink-0 pb-1">
+                <Paperclip size={16} />
                 <input type="file" accept=".pdf,.docx,.txt,.md,.csv" className="hidden"
                   onChange={async e => {
                     const f = e.target.files?.[0];
@@ -872,31 +1167,101 @@ export function AiCopilot() {
                   }} />
               </label>
 
+              {/* Attach image for vision */}
+              <label title="Attach image for AI vision"
+                className={clsx(
+                  "transition-colors cursor-pointer shrink-0 pb-1",
+                  attachedImage ? "text-brand-400" : "text-slate-700 hover:text-brand-400",
+                )}>
+                <Image size={16} />
+                <input ref={imageInputRef} type="file" accept="image/*" className="hidden"
+                  onChange={e => {
+                    const f = e.target.files?.[0];
+                    if (f) handleImageSelect(f);
+                  }} />
+              </label>
+
+              {/* Voice mode button (ChatGPT-style: tap to talk, auto-send on silence, AI speaks back) */}
+              {voiceSupported && (
+                <button
+                  onClick={voiceMode ? toggleVoiceMode : toggleVoice}
+                  title={
+                    voiceMode ? "Exit voice mode"
+                    : isListening ? "Stop listening (click mic again)"
+                    : "Voice input — tap & speak"
+                  }
+                  className={clsx(
+                    "transition-all shrink-0 pb-1 rounded-md relative",
+                    voiceMode
+                      ? "text-brand-400"
+                      : isListening ? "text-red-400" : "text-slate-700 hover:text-brand-400",
+                  )}>
+                  {isListening
+                    ? <MicOff size={16} />
+                    : <Mic size={16} />}
+                  {/* pulsing ring when listening */}
+                  {isListening && (
+                    <span className="absolute -inset-1 rounded-full border border-red-400 animate-ping opacity-50" />
+                  )}
+                </button>
+              )}
+
+              {/* Voice mode toggle — full conversational loop */}
+              {voiceSupported && (
+                <button
+                  onClick={toggleVoiceMode}
+                  title={voiceMode ? "Exit conversation mode" : "Enter conversation mode (speak ↔ AI speaks back)"}
+                  className={clsx(
+                    "transition-all shrink-0 pb-1 text-xs font-semibold px-1.5 py-0.5 rounded-lg border",
+                    voiceMode
+                      ? "border-brand-400/50 text-brand-400 bg-brand-400/10"
+                      : "border-white/10 text-slate-600 hover:text-brand-400 hover:border-brand-400/30",
+                  )}>
+                  {voiceMode ? "🎙 ON" : "🎙"}
+                </button>
+              )}
+
               <textarea
                 ref={inputRef}
                 value={input}
                 rows={1}
                 onChange={e => {
+                  // If user edits while listening, stop recognition and use typed text
+                  if (isListening) stopListening();
                   setInput(e.target.value);
                   e.target.style.height = "auto";
                   e.target.style.height = Math.min(e.target.scrollHeight, 140) + "px";
                 }}
-                onKeyDown={onKeyDown}
+                onKeyDown={e => {
+                  if (e.key === "Enter" && !e.shiftKey) {
+                    e.preventDefault();
+                    if (isListening) stopListening();
+                    sendMessage(input);
+                  }
+                }}
                 disabled={streaming}
-                placeholder={streaming ? "Thinking…" : "Ask anything about your lab inventory…"}
-                className="flex-1 bg-transparent text-sm text-slate-200 placeholder-slate-700 outline-none resize-none leading-relaxed"
-                style={{ maxHeight: 140 }}
+                placeholder={
+                  streaming ? "Thinking…"
+                  : isListening ? "Speak now — words appear here in real time…"
+                  : "Ask anything about your lab inventory…"
+                }
+                className="flex-1 bg-transparent text-sm placeholder-slate-700 outline-none resize-none leading-relaxed"
+                style={{
+                  maxHeight: 140,
+                  color: isListening ? "#fca5a5" : "#e2e8f0", // red tint while listening
+                }}
               />
 
-              <button onClick={() => sendMessage(input)}
-                disabled={!input.trim() || streaming}
+              <button
+                onClick={() => { if (isListening) stopListening(); sendMessage(input); }}
+                disabled={(!input.trim() && !attachedImage) || streaming}
                 className={clsx(
                   "w-8 h-8 rounded-xl flex items-center justify-center transition-all shrink-0",
-                  input.trim() && !streaming
+                  (input.trim() || attachedImage) && !streaming
                     ? "hover:scale-105 active:scale-95"
                     : "opacity-35 cursor-not-allowed",
                 )}
-                style={input.trim() && !streaming
+                style={(input.trim() || attachedImage) && !streaming
                   ? { background: "linear-gradient(135deg,#0891b2,#22d3ee)", boxShadow: "0 4px 14px rgba(34,211,238,0.35)" }
                   : { background: "rgba(255,255,255,0.06)" }}>
                 <Send size={14} className="text-white" style={{ transform: "translateX(1px)" }} />

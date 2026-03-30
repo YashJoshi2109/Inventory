@@ -33,14 +33,26 @@ SYSTEM_PROMPT = """You are the SEAR Lab Inventory Copilot — an expert AI assis
 Your role:
 - Answer questions about items, stock levels, locations, and transaction history using the provided tools.
 - For SOPs, manuals, warranties, calibration records, maintenance logs, invoices, and policies: use `rag_search_docs` to retrieve relevant grounded chunks, then answer only using those chunks.
-- Perform inventory operations (stock in, stock out, transfer) when asked to.
+- Perform inventory operations (stock in, stock out, transfer, create, update, delete) when asked to.
 - Identify low-stock items, overdue/idle equipment, and provide operational insights.
 - Reference only data retrieved from tools — never make up item names, quantities, or locations.
+- If the user sends an image, analyze it to identify items, barcodes, or damage and relate it to the inventory.
+
+Location queries (IMPORTANT):
+- When the user mentions a shelf, rack, bin, location, area, or a code like "A1", "B-03", "shelf A1", "rack 2":
+  call `get_location_contents` with that code, NOT `search_inventory`.
+- Location codes follow patterns like A1, A-01, B2, SHELF-A1, RACK-B, BIN-01.
+- If `get_location_contents` returns not-found, try `list_locations` to show available locations.
+
+CRUD operations:
+- To CREATE an item: use `create_item`. Always confirm the SKU and name with the user first.
+- To UPDATE an item: use `update_item`. Confirm which fields are being changed.
+- To DELETE/deactivate an item: use `delete_item`. Soft-delete by default; warn before hard-delete.
 
 Formatting rules:
 - Use bullet points for lists of items or steps.
 - Include specific numbers, SKUs, and location codes when reporting data.
-- For write operations (stock in/out/transfer), always confirm what was done with a concise summary.
+- For write operations, always confirm what was done with a concise summary.
 - Keep responses concise and actionable. Avoid long preambles.
 
 Tool usage rules:
@@ -62,6 +74,8 @@ async def run_copilot(
     db: AsyncSession | None,      # None = open a fresh session per tool call
     actor_id: int,
     actor_roles: list[str],
+    image_bytes: bytes | None = None,
+    image_mime: str | None = None,
 ) -> AsyncIterator[str]:
     """
     Main agentic loop. Yields SSE strings.
@@ -70,6 +84,9 @@ async def run_copilot(
     When db=None (streaming context) a fresh AsyncSession is opened per tool
     call so we are not dependent on the request-scoped session that was already
     committed before the stream started.
+
+    Optional image_bytes / image_mime attach an image to the last user turn
+    for vision-capable models (Gemini).
     """
     from app.core.database import AsyncSessionLocal
 
@@ -82,7 +99,6 @@ async def run_copilot(
     # ── Primary: Gemini ────────────────────────────────────────────────────
     if settings.GEMINI_API_KEY:
         try:
-            import asyncio
             from google import genai
             from google.genai import types
         except ImportError:
@@ -109,18 +125,18 @@ async def run_copilot(
         # Build Gemini conversation contents (exclude system message; use system_instruction instead)
         contents: list[types.Content] = []
         last_user_text = ""
-        for m in messages:
+        all_messages = [m for m in messages if m.get("role") != "system"]
+        for i, m in enumerate(all_messages):
             role = m.get("role")
-            if role == "system":
-                continue
             if role == "user":
                 last_user_text = m.get("content") or ""
-                contents.append(
-                    types.Content(
-                        role="user",
-                        parts=[types.Part.from_text(text=m.get("content") or "")],
-                    )
-                )
+                # Attach image to the last user message only
+                is_last_user = (i == len(all_messages) - 1 or
+                                not any(mm.get("role") == "user" for mm in all_messages[i+1:]))
+                parts: list[Any] = [types.Part.from_text(text=m.get("content") or "")]
+                if image_bytes and image_mime and is_last_user:
+                    parts.append(types.Part.from_bytes(data=image_bytes, mime_type=image_mime))
+                contents.append(types.Content(role="user", parts=parts))
             elif role == "assistant":
                 contents.append(
                     types.Content(
@@ -192,8 +208,7 @@ async def run_copilot(
 
         for _round in range(8):
             try:
-                resp = await asyncio.to_thread(
-                    client.models.generate_content,
+                resp = await client.aio.models.generate_content(
                     model=settings.GEMINI_CHAT_MODEL,
                     contents=contents,
                     config=types.GenerateContentConfig(
@@ -438,8 +453,43 @@ async def _fallback_responder(
     )
     text = (last_user or "").lower()
 
+    # Location intent: "shelf A1", "rack B", "bin 3", codes like "A1" / "A-01"
+    location_intent = (
+        any(k in text for k in ["shelf", "rack", "bin", "location", "cabinet", "drawer", "fridge", "freezer", "storage"])
+        or bool(re.search(r'\b[a-z][0-9]+\b', text))         # e.g. a1, b2, c03
+        or bool(re.search(r'\b[a-z]-\d+\b', text))           # e.g. a-01, b-03
+    )
+
     # Dispatch based on keywords
-    if any(k in text for k in ["low stock", "low-stock", "running out", "reorder", "shortage"]):
+    if location_intent:
+        # Extract location code: try code-like pattern first, else use the full query
+        match = re.search(r'\b([a-z][0-9]+|[a-z]-\d+)\b', text)
+        location_query = match.group(1).upper() if match else " ".join(
+            w for w in text.split() if w not in {"show", "what", "is", "in", "the", "at", "items", "stock", "from"}
+        )
+        yield _sse({"type": "tool_call", "name": "get_location_contents", "args": {"location_code": location_query}})
+        result = await dispatch_tool("get_location_contents", {"location_code": location_query}, db, actor_id, actor_roles, actor_roles)
+        yield _sse({"type": "tool_result", "name": "get_location_contents", "data": result})
+        if "error" in result:
+            # Try listing all locations as a fallback
+            yield _sse({"type": "tool_call", "name": "list_locations", "args": {}})
+            locs = await dispatch_tool("list_locations", {}, db, actor_id, actor_roles, actor_roles)
+            yield _sse({"type": "tool_result", "name": "list_locations", "data": locs})
+            loc_list = locs.get("locations", [])
+            response = f"Location '{location_query}' not found. Available locations:\n\n"
+            for loc in loc_list[:20]:
+                response += f"- **{loc['code']}** — {loc['name']} ({loc['type']})\n"
+        else:
+            items = result.get("items", [])
+            response = f"**{result['location_name']} ({result['location_code']})** — {result['item_count']} item(s):\n\n"
+            for it in items:
+                response += f"- **{it['name']}** ({it['sku']}): {it['quantity']} {it['unit']}\n"
+            if not items:
+                response += "_No items currently stocked here._\n"
+        for chunk in _chunk_text(response):
+            yield _sse({"type": "token", "content": chunk})
+
+    elif any(k in text for k in ["low stock", "low-stock", "running out", "reorder", "shortage"]):
         yield _sse({"type": "tool_call", "name": "list_low_stock_items", "args": {}})
         result = await dispatch_tool("list_low_stock_items", {}, db, actor_id, actor_roles, actor_roles)
         yield _sse({"type": "tool_result", "name": "list_low_stock_items", "data": result})
