@@ -43,7 +43,8 @@ export function Login() {
   const [bioNoCredentials, setBioNoCredentials] = useState(false);
   const bioInputRef = useRef<HTMLInputElement>(null);
 
-  const { register, handleSubmit, formState: { errors } } = useForm<LoginForm>();
+  const { register, handleSubmit, watch, formState: { errors } } = useForm<LoginForm>();
+  const watchedUsername = watch("username", "");
   const webAuthnSupported = typeof window !== "undefined" && browserSupportsWebAuthn();
   const { label: bioLabel } = getBiometricLabel();
 
@@ -82,8 +83,13 @@ export function Login() {
     try {
       const { options } = await passkeyApi.loginBegin(username || undefined, authenticatorType);
 
+      // Strip backend-internal field before handing to the WebAuthn library
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const { _user_key, ...webAuthnOptions } = options as any;
+      void _user_key; // unused
+
       // If the server found no matching credentials for this type, tell the user
-      const allowList = (options as { allowCredentials?: unknown[] }).allowCredentials ?? [];
+      const allowList = (webAuthnOptions as { allowCredentials?: unknown[] }).allowCredentials ?? [];
       if (authenticatorType && allowList.length === 0 && (username || "").length > 0) {
         setBioNoCredentials(true);
         setPasskeyBusy(false);
@@ -91,7 +97,7 @@ export function Login() {
       }
 
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const credential = await startAuthentication({ optionsJSON: options as any });
+      const credential = await startAuthentication({ optionsJSON: webAuthnOptions as any });
       const tokens = await passkeyApi.loginComplete(credential, username || undefined);
       setTokens(tokens.access_token, tokens.refresh_token);
       const user = await authApi.getMe();
@@ -236,7 +242,7 @@ export function Login() {
                       <button
                         type="button"
                         disabled={busy}
-                        onClick={() => void triggerBiometricAuth("platform")}
+                        onClick={() => void triggerBiometricAuth("platform", watchedUsername || undefined)}
                         className="flex flex-col items-center gap-1.5 p-3 rounded-xl border transition-all hover:scale-[1.03] disabled:opacity-50 disabled:pointer-events-none"
                         style={{ background: "rgba(34,211,238,0.06)", border: "1px solid rgba(34,211,238,0.18)" }}
                       >

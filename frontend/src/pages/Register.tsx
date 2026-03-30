@@ -362,9 +362,6 @@ export function Register() {
                       <Button type="button" variant="ghost" fullWidth size="sm" loading={resendBusy} disabled={otpBusy || resendBusy} onClick={() => void handleResendOtp()}>
                         Resend code
                       </Button>
-                      <Button type="button" variant="secondary" fullWidth size="sm" disabled={otpBusy || resendBusy} onClick={goToDashboard}>
-                        Skip for now — verify later
-                      </Button>
                     </div>
                     <p className="text-center text-[11px] text-slate-600">Code expires in 10 minutes</p>
                   </motion.div>
