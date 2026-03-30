@@ -1,7 +1,7 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, Navigate } from "react-router-dom";
 import {
   Fingerprint, Plus, Trash2, Sun, Moon, Shield, LogOut,
   ChevronRight, CheckCircle2, AlertCircle, Loader2,
@@ -10,7 +10,7 @@ import {
 } from "lucide-react";
 import { clsx } from "clsx";
 import { startRegistration } from "@simplewebauthn/browser";
-import { passkeyApi, type PasskeyInfo } from "@/api/auth";
+import { authApi, passkeyApi, type PasskeyInfo } from "@/api/auth";
 import { useAuthStore } from "@/store/auth";
 import { useThemeStore } from "@/store/theme";
 import { formatDistanceToNow } from "date-fns";
@@ -21,7 +21,8 @@ const fadeUp = {
   visible: { opacity: 1, y: 0, transition: { duration: 0.4, ease: "easeOut" } },
 };
 const stagger = {
-  visible: { transition: { staggerChildren: 0.08 } },
+  hidden: {},
+  visible: { opacity: 1, transition: { staggerChildren: 0.08 } },
 };
 
 /* ── device icon by transport ── */
@@ -192,12 +193,28 @@ function ThemeToggle() {
 
 /* ── main Settings page ── */
 export function Settings() {
-  const { user, logout } = useAuthStore();
+  const { user, logout, isAuthenticated, setUser } = useAuthStore();
   const navigate = useNavigate();
   const qc = useQueryClient();
   const [addStatus, setAddStatus] = useState<"idle" | "loading" | "success" | "error">("idle");
   const [addError, setAddError] = useState<string | null>(null);
   const [deletingId, setDeletingId] = useState<number | null>(null);
+
+  useEffect(() => {
+    if (user || !isAuthenticated) return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const me = await authApi.getMe();
+        if (!cancelled) setUser(me);
+      } catch {
+        if (!cancelled) logout();
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [user, isAuthenticated, setUser, logout]);
 
   const { data: passkeys = [], isLoading: pkLoading } = useQuery({
     queryKey: ["passkeys"],
@@ -238,7 +255,19 @@ export function Settings() {
     }
   }
 
-  if (!user) return null;
+  if (!user) {
+    if (!isAuthenticated) {
+      return <Navigate to="/login" replace />;
+    }
+    return (
+      <div className="flex flex-col items-center justify-center gap-3 p-12 min-h-[40vh]">
+        <Loader2 size={28} className="animate-spin text-brand-400" />
+        <p className="text-sm" style={{ color: "var(--text-muted)" }}>
+          Loading your profile…
+        </p>
+      </div>
+    );
+  }
 
   const initials = user.full_name
     .split(" ")
