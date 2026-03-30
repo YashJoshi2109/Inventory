@@ -323,6 +323,7 @@ export function AiCopilot() {
   // Voice input
   const [isListening, setIsListening] = useState(false);
   const [interimTranscript, setInterimTranscript] = useState(""); // live interim text
+  const [voiceError, setVoiceError] = useState<string | null>(null);
   const [voiceSupported] = useState(() =>
     !!(window as unknown as Record<string, unknown>).SpeechRecognition ||
     !!(window as unknown as Record<string, unknown>).webkitSpeechRecognition
@@ -365,33 +366,44 @@ export function AiCopilot() {
 
   // ── Voice engine — ChatGPT-style ─────────────────────────────────────────
   //
-  //  voiceModeRef: when true, after TTS finishes we auto-restart listening
-  //  silenceTimerRef: auto-send after 1.8s of confirmed-text silence
+  // Design: continuous: false + restart loop.
+  //   "continuous: true" breaks on Safari/iOS/mobile Chrome after ~2–5s.
+  //   Instead we use continuous: false and spawn a brand-new instance in
+  //   onend. This works reliably on all browsers.
+  //
+  //  isListeningRef  — single source of truth; drives the restart loop
+  //  voiceModeRef    — when true: auto-send on silence, speak reply, loop
+  //  silenceTimerRef — auto-send timer (voice mode)
   //
   const voiceModeRef = useRef(false);
   const [voiceMode, _setVoiceMode] = useState(false);
   const silenceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  const setVoiceMode = (v: boolean) => {
-    voiceModeRef.current = v;
-    _setVoiceMode(v);
+  const restartTimerRef  = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const scheduleRestart = (delay = 250) => {
+    if (!isListeningRef.current) return;
+    if (restartTimerRef.current) clearTimeout(restartTimerRef.current);
+    restartTimerRef.current = setTimeout(() => {
+      if (isListeningRef.current) spawnRecognition();
+    }, delay);
   };
 
-  // Pick best available TTS voice (prefer natural-sounding ones)
+  const setVoiceMode = (v: boolean) => { voiceModeRef.current = v; _setVoiceMode(v); };
+
+  // ── TTS ───────────────────────────────────────────────────────────────────
   const pickVoice = (): SpeechSynthesisVoice | null => {
     if (!window.speechSynthesis) return null;
     const voices = window.speechSynthesis.getVoices();
     const preferred = [
       "Google US English",
       "Microsoft Aria Online (Natural)",
+      "Microsoft Jenny Online (Natural)",
       "Samantha",
       "Karen",
       "Moira",
       "Alex",
-      "en-US",
     ];
     for (const name of preferred) {
-      const v = voices.find(v => v.name.includes(name) || v.lang === name);
+      const v = voices.find(vv => vv.name.includes(name));
       if (v) return v;
     }
     return voices.find(v => v.lang.startsWith("en")) ?? null;
@@ -399,147 +411,175 @@ export function AiCopilot() {
 
   const stripMarkdown = (text: string) =>
     text
-      .replace(/\*\*(.+?)\*\*/g, "$1")
-      .replace(/\*(.+?)\*/g, "$1")
-      .replace(/`{1,3}[\s\S]*?`{1,3}/g, "code block")
+      .replace(/\*\*(.+?)\*\*/gs, "$1")
+      .replace(/\*(.+?)\*/gs, "$1")
+      .replace(/`{1,3}[\s\S]*?`{1,3}/g, "")
       .replace(/#{1,6}\s/g, "")
       .replace(/\[(.+?)\]\(.+?\)/g, "$1")
       .replace(/[-*+]\s/g, "")
       .trim();
 
   const speakText = (text: string, onEnd?: () => void) => {
-    if (!ttsEnabledRef.current || !window.speechSynthesis) {
-      onEnd?.();
-      return;
-    }
+    if (!ttsEnabledRef.current || !window.speechSynthesis) { onEnd?.(); return; }
     const clean = stripMarkdown(text);
     if (!clean) { onEnd?.(); return; }
     window.speechSynthesis.cancel();
     const utt = new SpeechSynthesisUtterance(clean);
     utt.rate = 1.08;
     utt.pitch = 1;
+    // Voices load async — pick on demand
     const voice = pickVoice();
     if (voice) utt.voice = voice;
     if (onEnd) utt.onend = onEnd;
+    // Workaround: Chrome stops speaking after ~15s without this
+    const keepAlive = setInterval(() => {
+      if (!window.speechSynthesis.speaking) clearInterval(keepAlive);
+      else { window.speechSynthesis.pause(); window.speechSynthesis.resume(); }
+    }, 10_000);
+    utt.onend = () => { clearInterval(keepAlive); onEnd?.(); };
     window.speechSynthesis.speak(utt);
   };
 
-  const stopListening = (clearText = false) => {
-    if (silenceTimerRef.current) { clearTimeout(silenceTimerRef.current); silenceTimerRef.current = null; }
-    try { recognitionRef.current?.stop(); } catch { /* ignore */ }
-    recognitionRef.current = null;
-    setIsListening(false);
-    setInterimTranscript("");
-    if (clearText) {
-      voiceBaseRef.current = "";
-      voiceConfirmedRef.current = "";
-    } else if (voiceConfirmedRef.current.trim()) {
-      setInput(voiceConfirmedRef.current.trim());
-      resizeInput();
-    }
-    if (!clearText) {
-      voiceBaseRef.current = "";
-      voiceConfirmedRef.current = "";
-    }
-  };
-
+  // ── Core recognition ──────────────────────────────────────────────────────
   const resizeInput = () => setTimeout(() => {
-    if (inputRef.current) {
-      inputRef.current.style.height = "auto";
-      inputRef.current.style.height = Math.min(inputRef.current.scrollHeight, 140) + "px";
-    }
+    if (!inputRef.current) return;
+    inputRef.current.style.height = "auto";
+    inputRef.current.style.height = Math.min(inputRef.current.scrollHeight, 140) + "px";
   }, 0);
 
-  const startListening = () => {
-    if (!voiceSupported) return;
+  /**
+   * Spawn a brand-new SpeechRecognition instance and start it.
+   * Called both for the initial start AND for every restart after onend.
+   * NEVER calls .start() on an old/ended instance.
+   */
+  const spawnRecognition = () => {
+    if (!isListeningRef.current) return;   // already stopped — bail out
+
+    // Abort whatever might still be running (old instance can linger briefly).
+    try { recognitionRef.current?.abort(); } catch { /* ignore */ }
+    recognitionRef.current = null;
+
     const SR = (window as unknown as Record<string, unknown>).SpeechRecognition ||
                (window as unknown as Record<string, unknown>).webkitSpeechRecognition;
+    if (!SR) return;
+
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const rec = new (SR as any)();
     rec.lang = "en-US";
-    rec.continuous = true;
+    rec.continuous = false;     // ← FALSE is the key: reliable on all browsers
     rec.interimResults = true;
     rec.maxAlternatives = 1;
 
-    voiceBaseRef.current = "";
-    voiceConfirmedRef.current = "";
-    setInput("");
-
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     rec.onresult = (e: any) => {
-      if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current);
+      if (silenceTimerRef.current) { clearTimeout(silenceTimerRef.current); silenceTimerRef.current = null; }
 
-      let confirmed = voiceBaseRef.current;
+      const results = e?.results;
+      if (!results || typeof results.length !== "number") return;
+
+      const startIndex =
+        Number.isInteger(e?.resultIndex) && e.resultIndex >= 0
+          ? e.resultIndex
+          : 0;
+
       let interim = "";
-      for (let i = 0; i < e.results.length; i++) {
-        const seg = e.results[i][0].transcript;
-        if (e.results[i].isFinal) {
-          confirmed += seg + " ";
+      for (let i = startIndex; i < results.length; i++) {
+        const seg: string = results[i]?.[0]?.transcript ?? "";
+        if (!seg.trim()) continue;
+        if (results[i].isFinal) {
+          voiceConfirmedRef.current += seg + " ";
         } else {
           interim = seg;
         }
       }
-      voiceConfirmedRef.current = confirmed;
-      setInput((confirmed + interim).trim());
+
+      const display = (voiceConfirmedRef.current + interim).trim();
+      setInput((prev) => (prev === display ? prev : display));
       setInterimTranscript(interim);
       resizeInput();
 
-      // Auto-send after 1.8s of silence (only when voice mode is on)
-      if (voiceModeRef.current && confirmed.trim()) {
+      // Auto-send after 2s of silence in voice mode
+      if (voiceModeRef.current && voiceConfirmedRef.current.trim()) {
         silenceTimerRef.current = setTimeout(() => {
           const text = voiceConfirmedRef.current.trim();
-          if (text) {
-            stopListening(true);
+          if (text && !streamingRef.current) {
+            isListeningRef.current = false;
+            setIsListening(false);
+            setInterimTranscript("");
+            voiceConfirmedRef.current = "";
+            setInput("");
             void sendMessageRef.current?.(text);
           }
-        }, 1800);
+        }, 2000);
       }
     };
 
-    rec.onerror = (e: Event & { error?: string }) => {
-      if ((e as { error?: string }).error === "no-speech") {
-        // no-speech is not a fatal error, just restart quietly
-        if (recognitionRef.current) {
-          try { recognitionRef.current.start(); } catch { stopListening(); }
-        }
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    rec.onerror = (e: any) => {
+      const err: string = e.error ?? "";
+      if (err === "no-speech" || err === "aborted" || err === "network" || err === "audio-capture") {
+        // Transient errors are common on mobile browsers — keep listening loop alive.
+        scheduleRestart(err === "network" ? 650 : 300);
         return;
       }
-      stopListening();
+      // Fatal (permission denied, service blocked, etc.) — stop completely.
+      isListeningRef.current = false;
+      setIsListening(false);
+      setInterimTranscript("");
     };
 
     rec.onend = () => {
-      // Browsers stop recognition after silence — restart if we're still supposed to listen
-      if (recognitionRef.current && isListeningRef.current) {
-        try { rec.start(); } catch { stopListening(); }
-      }
+      setInterimTranscript(""); // clear interim between phrases
+      if (!isListeningRef.current) return;  // user stopped — don't restart
+      // Restart with a fresh instance after a short delay.
+      scheduleRestart(260);
     };
 
     recognitionRef.current = rec;
-    setIsListening(true);
-    isListeningRef.current = true;
-    try { rec.start(); } catch { setIsListening(false); isListeningRef.current = false; }
-  };
-
-  const toggleVoice = () => {
-    if (isListening) {
-      stopListening();
-    } else {
-      startListening();
+    try {
+      rec.start();
+    } catch {
+      // start() failed (e.g. mic still releasing) — retry after longer delay.
+      scheduleRestart(500);
     }
   };
 
-  // Voice mode: listen → send → speak → listen loop
+  const stopListening = (suppressTextCommit = false) => {
+    if (silenceTimerRef.current) { clearTimeout(silenceTimerRef.current); silenceTimerRef.current = null; }
+    if (restartTimerRef.current)  { clearTimeout(restartTimerRef.current);  restartTimerRef.current = null; }
+    isListeningRef.current = false;
+    try { recognitionRef.current?.abort(); } catch { /* ignore */ }
+    recognitionRef.current = null;
+    setIsListening(false);
+    setInterimTranscript("");
+    if (!suppressTextCommit && voiceConfirmedRef.current.trim()) {
+      setInput(voiceConfirmedRef.current.trim());
+      resizeInput();
+    }
+    voiceBaseRef.current = "";
+    voiceConfirmedRef.current = "";
+  };
+
+  const startListening = () => {
+    if (!voiceSupported || isListeningRef.current) return;
+    voiceBaseRef.current = "";
+    voiceConfirmedRef.current = "";
+    setInput("");
+    isListeningRef.current = true;
+    setIsListening(true);
+    spawnRecognition();
+  };
+
+  const toggleVoice = () => { isListening ? stopListening() : startListening(); };
+
+  // Voice mode: listen → (auto-send) → AI streams → TTS speaks → listen again
   const toggleVoiceMode = () => {
     const next = !voiceMode;
     setVoiceMode(next);
-    ttsEnabledRef.current = next; // voice mode always implies TTS
+    ttsEnabledRef.current = next;
     setTtsEnabled(next);
-    if (next) {
-      startListening();
-    } else {
-      stopListening();
-      window.speechSynthesis?.cancel();
-    }
+    if (next) { startListening(); }
+    else       { stopListening(); window.speechSynthesis?.cancel(); }
   };
 
   const toggleTts = () => {
@@ -549,7 +589,7 @@ export function AiCopilot() {
     if (!next) window.speechSynthesis?.cancel();
   };
 
-  // Ref needed so voice silence timer can call sendMessage without stale closure
+  // Ref so silence timer can call sendMessage without stale closure
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const sendMessageRef = useRef<((text: string) => Promise<void>) | null>(null);
   const isListeningRef = useRef(false);
@@ -1144,7 +1184,7 @@ export function AiCopilot() {
               </div>
             )}
 
-            <div className="flex items-end justify-start gap-2 px-3.5 py-2.5 rounded-2xl transition-all duration-200"
+            <div className="flex items-center justify-start gap-2.5 px-3.5 py-2.5 rounded-2xl transition-all duration-200"
               style={{
                 background: "rgba(255,255,255,0.04)",
                 border: isListening
