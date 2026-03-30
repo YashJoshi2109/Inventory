@@ -18,6 +18,23 @@ function resolveApiBaseUrl(): string {
 
 const BASE_URL = resolveApiBaseUrl();
 
+/** One shared refresh so many parallel 401s do not stampede /auth/refresh. */
+let refreshInFlight: Promise<{ access_token: string; refresh_token: string }> | null = null;
+
+async function refreshSession(refreshToken: string): Promise<{ access_token: string; refresh_token: string }> {
+  if (!refreshInFlight) {
+    refreshInFlight = axios
+      .post<{ access_token: string; refresh_token: string }>(`${BASE_URL}/auth/refresh`, {
+        refresh_token: refreshToken,
+      })
+      .then((r) => r.data)
+      .finally(() => {
+        refreshInFlight = null;
+      });
+  }
+  return refreshInFlight;
+}
+
 export const apiClient: AxiosInstance = axios.create({
   baseURL: BASE_URL,
   // Render cold starts can exceed 15s; auth must survive first request after idle.
@@ -40,21 +57,27 @@ apiClient.interceptors.response.use(
   async (error) => {
     const originalRequest = error.config as AxiosRequestConfig & { _retry?: boolean };
 
-    // Token expired — try refresh once
+    // Access token expired — refresh once per request, deduped across parallel 401s
     if (error.response?.status === 401 && !originalRequest._retry) {
       originalRequest._retry = true;
-      try {
-        const refreshToken = useAuthStore.getState().refreshToken;
-        if (refreshToken) {
-          const { data } = await axios.post(`${BASE_URL}/auth/refresh`, { refresh_token: refreshToken });
+      const refreshToken = useAuthStore.getState().refreshToken;
+      if (refreshToken) {
+        try {
+          const data = await refreshSession(refreshToken);
           useAuthStore.getState().setTokens(data.access_token, data.refresh_token);
           if (originalRequest.headers) {
-            originalRequest.headers["Authorization"] = `Bearer ${data.access_token}`;
+            originalRequest.headers.Authorization = `Bearer ${data.access_token}`;
           }
           return apiClient(originalRequest);
+        } catch (refreshErr: unknown) {
+          // Only clear the session when the server rejects the refresh token.
+          // Network / 502 / timeout (common on cold Render) should not log the user out.
+          const status = (refreshErr as { response?: { status?: number } })?.response?.status;
+          if (status === 401) {
+            useAuthStore.getState().logout();
+          }
+          return Promise.reject(refreshErr);
         }
-      } catch {
-        useAuthStore.getState().logout();
       }
     }
 

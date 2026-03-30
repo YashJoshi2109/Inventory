@@ -64,8 +64,12 @@ function AuthBootstrap({ children }: { children: React.ReactNode }) {
         try {
           const user = await authApi.getMe();
           if (!cancelled) setUser(user);
-        } catch {
-          if (!cancelled) logout();
+        } catch (e: unknown) {
+          // Do not wipe the session on network / gateway errors (Render cold start, timeouts).
+          const status = (e as { response?: { status?: number } })?.response?.status;
+          if (!cancelled && (status === 401 || status === 403)) {
+            logout();
+          }
         }
       }
       if (!cancelled) setReady(true);
