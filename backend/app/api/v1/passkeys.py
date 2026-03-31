@@ -119,6 +119,32 @@ def _expected_origins_for_request(request: Request, rp_id: str) -> list[str]:
     return unique
 
 
+def _decode_credential_id_to_bytes(raw_id: Any) -> bytes:
+    """
+    Normalize credential IDs from WebAuthn payloads.
+    Browsers/libraries may send base64url, base64, or byte-array-like values.
+    """
+    if isinstance(raw_id, list):
+        return bytes(raw_id)
+    if isinstance(raw_id, (bytes, bytearray)):
+        return bytes(raw_id)
+    if not isinstance(raw_id, str):
+        raise ValueError("Unsupported credential id format")
+
+    # Try strict base64url first (expected)
+    try:
+        return base64url_to_bytes(raw_id)
+    except Exception:
+        pass
+
+    # Then plain base64 (some clients include + / or padding)
+    try:
+        padded = raw_id + "=" * (-len(raw_id) % 4)
+        return base64.b64decode(padded, validate=False)
+    except Exception as exc:
+        raise ValueError("Invalid credential id encoding") from exc
+
+
 # ──────────────────────────────────────────────────────────────
 # Registration
 # ──────────────────────────────────────────────────────────────
@@ -355,20 +381,29 @@ async def passkey_login_complete(
     if not raw_id:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Missing credential id")
 
-    # rawId may be base64url string or array; normalise
-    if isinstance(raw_id, list):
-        cred_id_bytes = bytes(raw_id)
-        cred_id_str = bytes_to_base64url(cred_id_bytes)
-    else:
-        cred_id_str = raw_id
-        cred_id_bytes = base64url_to_bytes(cred_id_str)
+    try:
+        cred_id_bytes = _decode_credential_id_to_bytes(raw_id)
+    except ValueError:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid credential id format")
 
-    # Find the stored credential
+    # Primary lookup by canonical base64url string
     from sqlalchemy import select
     from app.models.user import PasskeyCredential
+    cred_id_str = bytes_to_base64url(cred_id_bytes)
     stmt = select(PasskeyCredential).where(PasskeyCredential.credential_id == cred_id_str)
     result = await session.execute(stmt)
     stored = result.scalar_one_or_none()
+
+    # Fallback: compare decoded bytes for legacy/variant encodings in DB
+    if not stored:
+        all_creds = (await session.execute(select(PasskeyCredential))).scalars().all()
+        for candidate in all_creds:
+            try:
+                if base64url_to_bytes(candidate.credential_id) == cred_id_bytes:
+                    stored = candidate
+                    break
+            except Exception:
+                continue
 
     if not stored:
         raise HTTPException(
