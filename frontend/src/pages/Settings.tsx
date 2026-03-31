@@ -274,11 +274,11 @@ export function Settings() {
     setAddStatus("loading");
     setAddError(null);
     try {
-      const { options } = await passkeyApi.registerBegin();
+      const { options, challenge_ticket } = await passkeyApi.registerBegin();
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const credential = await startRegistration({ optionsJSON: options as any });
       const deviceName = getDeviceName();
-      await passkeyApi.registerComplete(credential, deviceName);
+      await passkeyApi.registerComplete(credential, deviceName, challenge_ticket);
       setAddStatus("success");
       void qc.invalidateQueries({ queryKey: ["passkeys"] });
       setTimeout(() => setAddStatus("idle"), 2500);

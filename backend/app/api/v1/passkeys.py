@@ -22,6 +22,7 @@ from typing import Any
 from urllib.parse import urlparse
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
+from jose import JWTError, jwt
 from pydantic import BaseModel
 
 from app.api.v1.auth import CurrentUser, get_current_user
@@ -61,6 +62,7 @@ router = APIRouter(prefix="/passkeys", tags=["passkeys"])
 # Stores (challenge_bytes, rp_id) tuples so register/complete uses the same RP ID as begin
 _reg_challenges: dict[int, tuple[bytes, str]] = {}
 _auth_challenges: dict[str, tuple[bytes, str]] = {}  # keyed by username or "__discoverable__"
+_CHALLENGE_TTL_SECONDS = 300
 
 
 def _require_webauthn():
@@ -145,12 +147,71 @@ def _decode_credential_id_to_bytes(raw_id: Any) -> bytes:
         raise ValueError("Invalid credential id encoding") from exc
 
 
+def _encode_challenge_ticket(
+    *,
+    kind: str,
+    challenge: bytes,
+    rp_id: str,
+    user_id: int | None = None,
+    user_key: str | None = None,
+) -> str:
+    now_ts = int(datetime.now(timezone.utc).timestamp())
+    payload: dict[str, Any] = {
+        "typ": "webauthn_challenge",
+        "k": kind,
+        "ch": bytes_to_base64url(challenge),
+        "rp": rp_id,
+        "iat": now_ts,
+        "exp": now_ts + _CHALLENGE_TTL_SECONDS,
+    }
+    if user_id is not None:
+        payload["uid"] = user_id
+    if user_key is not None:
+        payload["uk"] = user_key
+    return jwt.encode(payload, settings.SECRET_KEY, algorithm=settings.ALGORITHM)
+
+
+def _decode_challenge_ticket(ticket: str, *, expected_kind: str) -> tuple[bytes, str, int | None, str | None]:
+    try:
+        payload = jwt.decode(ticket, settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
+    except JWTError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Invalid or expired passkey challenge token: {exc}",
+        )
+    if payload.get("typ") != "webauthn_challenge" or payload.get("k") != expected_kind:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid passkey challenge token type.",
+        )
+    challenge_raw = payload.get("ch")
+    rp_id = payload.get("rp")
+    if not isinstance(challenge_raw, str) or not isinstance(rp_id, str):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Malformed passkey challenge token.",
+        )
+    try:
+        challenge = base64url_to_bytes(challenge_raw)
+    except Exception as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Malformed passkey challenge value: {exc}",
+        )
+    uid = payload.get("uid")
+    uk = payload.get("uk")
+    uid_val = int(uid) if isinstance(uid, int) else None
+    uk_val = uk if isinstance(uk, str) else None
+    return challenge, rp_id, uid_val, uk_val
+
+
 # ──────────────────────────────────────────────────────────────
 # Registration
 # ──────────────────────────────────────────────────────────────
 
 class RegisterBeginResponse(BaseModel):
     options: dict[str, Any]
+    challenge_ticket: str
 
 
 @router.post("/register/begin", response_model=RegisterBeginResponse)
@@ -194,12 +255,19 @@ async def passkey_register_begin(
 
     # Serialize to JSON-safe dict
     options_dict = json.loads(webauthn.options_to_json(options))
-    return RegisterBeginResponse(options=options_dict)
+    challenge_ticket = _encode_challenge_ticket(
+        kind="reg",
+        challenge=options.challenge,
+        rp_id=rp_id,
+        user_id=current_user.id,
+    )
+    return RegisterBeginResponse(options=options_dict, challenge_ticket=challenge_ticket)
 
 
 class RegisterCompleteRequest(BaseModel):
     credential: dict[str, Any]
     device_name: str | None = None
+    challenge_ticket: str | None = None
 
 
 @router.post("/register/complete", response_model=MessageResponse)
@@ -212,13 +280,21 @@ async def passkey_register_complete(
     """Verify the authenticator response and store the new passkey credential."""
     _require_webauthn()
 
-    stored_reg = _reg_challenges.pop(current_user.id, None)
-    if not stored_reg:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="No pending registration challenge. Please start again.",
-        )
-    challenge, rp_id = stored_reg
+    if body.challenge_ticket:
+        challenge, rp_id, uid, _ = _decode_challenge_ticket(body.challenge_ticket, expected_kind="reg")
+        if uid is not None and uid != current_user.id:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Passkey challenge does not belong to this user.",
+            )
+    else:
+        stored_reg = _reg_challenges.pop(current_user.id, None)
+        if not stored_reg:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="No pending registration challenge. Please start again.",
+            )
+        challenge, rp_id = stored_reg
 
     verification = None
     last_exc: Exception | None = None
@@ -285,6 +361,7 @@ class AuthBeginRequest(BaseModel):
 
 class AuthBeginResponse(BaseModel):
     options: dict[str, Any]
+    challenge_ticket: str
 
 
 @router.post("/login/begin", response_model=AuthBeginResponse)
@@ -350,12 +427,19 @@ async def passkey_login_begin(
     options_dict = json.loads(webauthn.options_to_json(options))
     # Embed the user_key so the complete step can look up the challenge
     options_dict["_user_key"] = user_key
-    return AuthBeginResponse(options=options_dict)
+    challenge_ticket = _encode_challenge_ticket(
+        kind="auth",
+        challenge=options.challenge,
+        rp_id=rp_id,
+        user_key=user_key,
+    )
+    return AuthBeginResponse(options=options_dict, challenge_ticket=challenge_ticket)
 
 
 class AuthCompleteRequest(BaseModel):
     credential: dict[str, Any]
     username: str | None = None
+    challenge_ticket: str | None = None
 
 
 @router.post("/login/complete", response_model=TokenResponse)
@@ -368,13 +452,21 @@ async def passkey_login_complete(
     _require_webauthn()
 
     user_key = body.username or "__discoverable__"
-    stored_auth = _auth_challenges.pop(user_key, None)
-    if not stored_auth:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="No pending authentication challenge. Please start again.",
-        )
-    challenge, rp_id = stored_auth
+    if body.challenge_ticket:
+        challenge, rp_id, _, ticket_user_key = _decode_challenge_ticket(body.challenge_ticket, expected_kind="auth")
+        if ticket_user_key and ticket_user_key != user_key:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Passkey challenge token does not match this sign-in request.",
+            )
+    else:
+        stored_auth = _auth_challenges.pop(user_key, None)
+        if not stored_auth:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="No pending authentication challenge. Please start again.",
+            )
+        challenge, rp_id = stored_auth
 
     # Look up credential by ID
     raw_id = body.credential.get("rawId") or body.credential.get("id")

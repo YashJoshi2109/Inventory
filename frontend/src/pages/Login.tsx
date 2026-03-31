@@ -81,7 +81,7 @@ export function Login() {
     setBioNoCredentials(false);
     setPasskeyBusy(true);
     try {
-      const { options } = await passkeyApi.loginBegin(username || undefined, authenticatorType);
+      const { options, challenge_ticket } = await passkeyApi.loginBegin(username || undefined, authenticatorType);
 
       // Strip backend-internal field before handing to the WebAuthn library
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -90,7 +90,7 @@ export function Login() {
 
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const credential = await startAuthentication({ optionsJSON: webAuthnOptions as any });
-      const tokens = await passkeyApi.loginComplete(credential, username || undefined);
+      const tokens = await passkeyApi.loginComplete(credential, username || undefined, challenge_ticket);
       setTokens(tokens.access_token, tokens.refresh_token);
       const user = await authApi.getMe();
       setUser(user);

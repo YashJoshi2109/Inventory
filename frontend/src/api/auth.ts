@@ -78,16 +78,17 @@ export const authApi = {
 
 export const passkeyApi = {
   /** Start passkey registration (requires active JWT session). */
-  registerBegin: async (): Promise<{ options: Record<string, unknown> }> => {
-    const { data } = await apiClient.post("/passkeys/register/begin");
+  registerBegin: async (): Promise<{ options: Record<string, unknown>; challenge_ticket: string }> => {
+    const { data } = await apiClient.post<{ options: Record<string, unknown>; challenge_ticket: string }>("/passkeys/register/begin");
     return data;
   },
 
   /** Complete passkey registration. */
-  registerComplete: async (credential: unknown, deviceName?: string): Promise<MessageResponse> => {
+  registerComplete: async (credential: unknown, deviceName?: string, challengeTicket?: string): Promise<MessageResponse> => {
     const { data } = await apiClient.post<MessageResponse>("/passkeys/register/complete", {
       credential,
       device_name: deviceName,
+      challenge_ticket: challengeTicket,
     });
     return data;
   },
@@ -99,8 +100,8 @@ export const passkeyApi = {
    *   "security-key"   → USB/NFC FIDO2 key
    *   undefined        → no filter, browser picks
    */
-  loginBegin: async (username?: string, authenticatorType?: string): Promise<{ options: Record<string, unknown> }> => {
-    const { data } = await apiClient.post("/passkeys/login/begin", {
+  loginBegin: async (username?: string, authenticatorType?: string): Promise<{ options: Record<string, unknown>; challenge_ticket: string }> => {
+    const { data } = await apiClient.post<{ options: Record<string, unknown>; challenge_ticket: string }>("/passkeys/login/begin", {
       username,
       authenticator_type: authenticatorType,
     });
@@ -108,10 +109,11 @@ export const passkeyApi = {
   },
 
   /** Complete passkey login. */
-  loginComplete: async (credential: unknown, username?: string): Promise<TokenResponse> => {
+  loginComplete: async (credential: unknown, username?: string, challengeTicket?: string): Promise<TokenResponse> => {
     const { data } = await apiClient.post<TokenResponse>("/passkeys/login/complete", {
       credential,
       username,
+      challenge_ticket: challengeTicket,
     });
     return data;
   },

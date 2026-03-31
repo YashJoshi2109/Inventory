@@ -293,51 +293,6 @@ docker compose up --build
 # API docs: http://localhost:8000/docs
 ```
 
-### Production smoke (auth + email API)
-
-```bash
-# Shell (curl). Use SMOKE_ALLOW_EMAIL_STATUS_404=1 until Render runs the latest backend with /dashboard/email-service-status.
-SMOKE_ALLOW_EMAIL_STATUS_404=1 ./scripts/smoke-api.sh
-
-# Playwright — API only (fast, no browser binary needed for these tests)
-cd frontend && npm install && SKIP_EMAIL_STATUS_TEST=1 npm run smoketest:api
-
-# Playwright — UI + API (install Chromium once)
-cd frontend && npx playwright install chromium && SKIP_EMAIL_STATUS_TEST=1 npm run smoketest
-```
-
-Optional env: `PLAYWRIGHT_BASE_URL` (default `https://inventory-brown-beta.vercel.app`), `PLAYWRIGHT_API_URL` (default Render API), `SMOKE_LOGIN_USERNAME`, `SMOKE_LOGIN_PASSWORD`. Unset `SKIP_EMAIL_STATUS_TEST` after redeploying the backend so the email-status route is asserted.
-
----
-
-## Environment Variables
-
-### Backend `.env`
-```env
-DATABASE_URL=postgresql+asyncpg://user:pass@host:5432/db
-SECRET_KEY=your-256-bit-secret
-ALGORITHM=HS256
-ACCESS_TOKEN_EXPIRE_MINUTES=60
-REFRESH_TOKEN_EXPIRE_DAYS=30
-CORS_ORIGINS=["http://localhost:5173","https://yourapp.vercel.app"]
-```
-
-### Frontend `.env.local`
-```env
-VITE_API_URL=https://your-backend.onrender.com/api/v1
-```
-
----
-
-## Default Credentials (Development)
-```
-Admin:   sear_admin / searlab2024!
-Manager: lab_manager / searlab2024!
-Viewer:  viewer / searlab2024!
-```
-> ⚠️ Change all passwords before production deployment.
-
----
 
 ## Changelog
 

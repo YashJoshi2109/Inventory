@@ -165,10 +165,10 @@ export function Register() {
   const handleSetupPasskey = async () => {
     setBiometricBusy(true);
     try {
-      const { options } = await passkeyApi.registerBegin();
+      const { options, challenge_ticket } = await passkeyApi.registerBegin();
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const credential = await startRegistration({ optionsJSON: options as any });
-      await passkeyApi.registerComplete(credential, bioLabel);
+      await passkeyApi.registerComplete(credential, bioLabel, challenge_ticket);
       toast.success(`${bioLabel} set up! You can now sign in with biometrics.`);
       setStep("done");
       setTimeout(goToDashboard, 1800);
