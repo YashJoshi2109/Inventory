@@ -221,7 +221,7 @@ async def send_message(
     # Accept content as EITHER a query-param (old clients) OR a form field (new clients).
     # Query param is checked first so legacy frontends keep working without redeployment.
     content_q: str | None = Query(default=None, max_length=4000, alias="content"),
-    content_f: str | None = Form(default=None, max_length=4000),
+    content_f: str | None = Form(default=None, max_length=4000, alias="content"),
     image: UploadFile | None = File(default=None),
 ) -> StreamingResponse:
     """

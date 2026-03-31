@@ -450,14 +450,12 @@ export function AiCopilot() {
   /**
    * Spawn a brand-new SpeechRecognition instance and start it.
    * Called both for the initial start AND for every restart after onend.
-   * NEVER calls .start() on an old/ended instance.
+   * Does NOT call .abort() — the caller (startListening) is responsible for
+   * aborting any prior instance. Calling abort() here would re-fire onend on
+   * an already-ended instance, creating a cascading restart loop.
    */
   const spawnRecognition = () => {
     if (!isListeningRef.current) return;   // already stopped — bail out
-
-    // Abort whatever might still be running (old instance can linger briefly).
-    try { recognitionRef.current?.abort(); } catch { /* ignore */ }
-    recognitionRef.current = null;
 
     const SR = (window as unknown as Record<string, unknown>).SpeechRecognition ||
                (window as unknown as Record<string, unknown>).webkitSpeechRecognition;
@@ -517,12 +515,19 @@ export function AiCopilot() {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     rec.onerror = (e: any) => {
       const err: string = e.error ?? "";
+      if (err === "not-allowed" || err === "service-not-allowed") {
+        setVoiceError("Microphone access denied. Allow mic permission in your browser and try again.");
+        isListeningRef.current = false;
+        setIsListening(false);
+        setInterimTranscript("");
+        return;
+      }
       if (err === "no-speech" || err === "aborted" || err === "network" || err === "audio-capture") {
-        // Transient errors are common on mobile browsers — keep listening loop alive.
+        // Transient errors — keep listening loop alive.
         scheduleRestart(err === "network" ? 650 : 300);
         return;
       }
-      // Fatal (permission denied, service blocked, etc.) — stop completely.
+      // Other fatal errors — stop completely.
       isListeningRef.current = false;
       setIsListening(false);
       setInterimTranscript("");
@@ -562,11 +567,15 @@ export function AiCopilot() {
 
   const startListening = () => {
     if (!voiceSupported || isListeningRef.current) return;
+    setVoiceError(null);
     voiceBaseRef.current = "";
     voiceConfirmedRef.current = "";
     setInput("");
     isListeningRef.current = true;
     setIsListening(true);
+    // Abort any stale instance here (safe: we're doing a fresh start, not a restart)
+    try { recognitionRef.current?.abort(); } catch { /* ignore */ }
+    recognitionRef.current = null;
     spawnRecognition();
   };
 
@@ -666,22 +675,32 @@ export function AiCopilot() {
     staleTime: 5_000,
   });
 
+  // Keep a ref to current messages so the server-sync effect can preserve
+  // imagePreview (and toolCalls) without adding messages to its dep array.
+  const messagesRef = useRef<Msg[]>([]);
+  useEffect(() => { messagesRef.current = messages; }, [messages]);
+
   // ── Sync server messages → local state (ONLY when not streaming) ──────────
   useEffect(() => {
     if (streamingRef.current) return;                     // never clobber live stream
-    if (serverMessages.length === 0) {
-      setMessages([]);
-      return;
-    }
+    if (serverMessages.length === 0) return;              // keep optimistic messages intact
+    const prev = messagesRef.current;
     const mapped: Msg[] = serverMessages
       .filter(m => m.role === "user" || m.role === "assistant")
-      .map(m => ({
-        id: String(m.id),
-        role: m.role as "user" | "assistant",
-        content: m.content ?? "",
-        toolCalls: [],
-        streaming: false,
-      }));
+      .map(m => {
+        // Preserve imagePreview from optimistic local message (server never stores it)
+        const local = prev.find(
+          lm => lm.role === (m.role as "user" | "assistant") && lm.content === (m.content ?? "")
+        );
+        return {
+          id: String(m.id),
+          role: m.role as "user" | "assistant",
+          content: m.content ?? "",
+          toolCalls: local?.toolCalls ?? [],
+          streaming: false,
+          imagePreview: local?.imagePreview,
+        };
+      });
     setMessages(mapped);
   }, [serverMessages]);
 
@@ -1156,6 +1175,18 @@ export function AiCopilot() {
                   </button>
                 </div>
                 <span className="text-[10px] text-slate-600 mt-1">Image will be sent with your message</span>
+              </div>
+            )}
+
+            {/* Voice permission error */}
+            {voiceError && (
+              <div className="mb-1.5 flex items-center gap-2 px-1">
+                <AlertCircle size={12} className="text-red-400 shrink-0" />
+                <span className="text-[11px] text-red-400">{voiceError}</span>
+                <button onClick={() => setVoiceError(null)}
+                  className="ml-auto text-slate-600 hover:text-slate-400 transition-colors">
+                  <X size={11} />
+                </button>
               </div>
             )}
 
