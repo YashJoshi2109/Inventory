@@ -90,6 +90,18 @@ def _rp_id_for_request(request: Request) -> str:
         # Deployment safety: if still on default localhost RP ID, trust current origin host.
         if host and settings.WEBAUTHN_RP_ID in {"localhost", "127.0.0.1"} and host not in {"localhost", "127.0.0.1"}:
             return host
+        if host:
+            return host
+    # Fallback for proxies/CDNs where Origin may be absent.
+    fwd_host = (request.headers.get("x-forwarded-host") or "").split(",")[0].strip()
+    if fwd_host:
+        return fwd_host.split(":")[0]
+    host = request.headers.get("host", "").split(",")[0].strip()
+    if host:
+        return host.split(":")[0]
+    req_host = request.url.hostname
+    if req_host:
+        return req_host
     return settings.WEBAUTHN_RP_ID
 
 
@@ -109,6 +121,15 @@ def _expected_origins_for_request(request: Request, rp_id: str) -> list[str]:
             origins.append(req_origin)
         elif settings.CORS_ORIGIN_REGEX and re.match(settings.CORS_ORIGIN_REGEX, req_origin):
             origins.append(req_origin)
+    # Include proxy-derived origin candidates for deployments where Origin is dropped.
+    fwd_proto = (request.headers.get("x-forwarded-proto") or request.url.scheme or "https").split(",")[0].strip()
+    fwd_host = (request.headers.get("x-forwarded-host") or request.headers.get("host") or "").split(",")[0].strip()
+    if fwd_host:
+        host_only = fwd_host.split(":")[0]
+        origins.append(f"{fwd_proto or 'https'}://{host_only}")
+    if rp_id:
+        origins.append(f"https://{rp_id}")
+        origins.append(f"http://{rp_id}")
 
     # Deduplicate, preserve order
     seen: set[str] = set()
