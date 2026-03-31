@@ -213,29 +213,34 @@ export function Register() {
           <p className="text-slate-500 text-sm mt-1">Join UTA SEAR Lab Inventory System</p>
         </div>
 
-        {/* Step indicator */}
-        <div className="flex items-center gap-2 mb-5 px-1">
-          {allSteps.map((s, i) => {
-            const isPast = i < currentStepIndex;
-            const isActive = i === currentStepIndex;
-            return (
-              <div key={s.key} className="flex items-center gap-2 flex-1">
-                <div
-                  className="w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-bold shrink-0 transition-all"
-                  style={{
-                    background: isPast ? "rgba(52,211,153,0.15)" : isActive ? "rgba(34,211,238,0.15)" : "rgba(255,255,255,0.04)",
-                    border: `1.5px solid ${isPast ? "#34d399" : isActive ? "#22d3ee" : "rgba(255,255,255,0.1)"}`,
-                    color: isPast ? "#34d399" : isActive ? "#22d3ee" : "#475569",
-                  }}
-                >
-                  {isPast ? "✓" : i + 1}
+        {/* Step indicator — inline-flex + fixed connectors so the cluster centers (flex-1 children were stretching full width). */}
+        <div className="flex justify-center mb-5 px-1">
+          <div className="inline-flex items-center">
+            {allSteps.map((s, i) => {
+              const isPast = i < currentStepIndex;
+              const isActive = i === currentStepIndex;
+              return (
+                <div key={s.key} className="flex items-center">
+                  <div
+                    className="w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-bold shrink-0 transition-all"
+                    style={{
+                      background: isPast ? "rgba(52,211,153,0.15)" : isActive ? "rgba(34,211,238,0.15)" : "rgba(255,255,255,0.04)",
+                      border: `1.5px solid ${isPast ? "#34d399" : isActive ? "#22d3ee" : "rgba(255,255,255,0.1)"}`,
+                      color: isPast ? "#34d399" : isActive ? "#22d3ee" : "#475569",
+                    }}
+                  >
+                    {isPast ? "✓" : i + 1}
+                  </div>
+                  {i < allSteps.length - 1 && (
+                    <div
+                      className="w-10 sm:w-14 h-px mx-2 sm:mx-2.5 shrink-0"
+                      style={{ background: isPast ? "rgba(52,211,153,0.3)" : "rgba(255,255,255,0.07)" }}
+                    />
+                  )}
                 </div>
-                {i < allSteps.length - 1 && (
-                  <div className="flex-1 h-px" style={{ background: isPast ? "rgba(52,211,153,0.3)" : "rgba(255,255,255,0.07)" }} />
-                )}
-              </div>
-            );
-          })}
+              );
+            })}
+          </div>
         </div>
 
         {/* Card */}
