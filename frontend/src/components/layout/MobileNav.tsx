@@ -259,24 +259,6 @@ export function MobileNav() {
 
                 <button
                   type="button"
-                  onClick={() => navigate("/copilot")}
-                  className="w-full flex items-center gap-3 px-3 py-3 rounded-2xl text-left transition-colors"
-                  style={{ background: "rgba(139,92,246,0.07)", border: "1px solid rgba(167,139,250,0.2)" }}
-                >
-                  <div className="w-10 h-10 rounded-2xl flex items-center justify-center" style={{ background: "linear-gradient(135deg, rgba(139,92,246,0.25), rgba(167,139,250,0.12))", border: "1px solid rgba(167,139,250,0.3)" }}>
-                    <Bot size={18} className="text-purple-300" />
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <p className="text-sm font-semibold text-white truncate flex items-center gap-2">
-                      AI Copilot
-                      <span className="text-[9px] px-1.5 py-0.5 rounded-full uppercase tracking-wide font-bold" style={{ background: "rgba(167,139,250,0.2)", color: "#a78bfa" }}>New</span>
-                    </p>
-                    <p className="text-xs text-slate-500 truncate">Chat with your inventory</p>
-                  </div>
-                </button>
-
-                <button
-                  type="button"
                   onClick={() => navigate("/ai")}
                   className="w-full flex items-center gap-3 px-3 py-3 rounded-2xl text-left transition-colors"
                   style={{ background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.07)" }}
@@ -358,6 +340,22 @@ export function MobileNav() {
           </div>
         </>
       )}
+
+      {/* Quick AI Copilot button (mobile only) */}
+      <button
+        type="button"
+        onClick={() => navigate("/copilot")}
+        className="lg:hidden fixed right-4 bottom-[78px] z-50 w-12 h-12 rounded-2xl flex items-center justify-center transition-all hover:scale-105 active:scale-95"
+        style={{
+          background: "linear-gradient(135deg,#8b5cf6,#22d3ee)",
+          border: "1px solid rgba(255,255,255,0.28)",
+          boxShadow: "0 10px 30px rgba(34,211,238,0.35), 0 8px 20px rgba(139,92,246,0.25)",
+        }}
+        title="AI Copilot"
+        aria-label="Open AI Copilot"
+      >
+        <Bot size={19} className="text-white" />
+      </button>
     </nav>
   );
 }

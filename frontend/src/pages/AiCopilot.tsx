@@ -842,7 +842,7 @@ export function AiCopilot() {
               setTimeout(() => {
                 qc.invalidateQueries({ queryKey: ["chat-sessions"] });
                 qc.invalidateQueries({ queryKey: ["chat-messages", finalSessionId] });
-              }, 800);
+              }, 150);
               break;
 
             case "error":

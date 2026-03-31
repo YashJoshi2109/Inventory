@@ -83,7 +83,14 @@ export function Alerts() {
     <div className="p-4 lg:p-6 pb-24 lg:pb-6 space-y-6 animate-fade-in max-w-3xl">
 
       {/* Header */}
-      <div className="flex items-start justify-between gap-4 flex-wrap">
+      <div
+        className="rounded-2xl p-4 sm:p-5 flex items-start justify-between gap-4 flex-wrap"
+        style={{
+          background: "linear-gradient(135deg, rgba(8,145,178,0.14) 0%, rgba(34,211,238,0.06) 45%, rgba(248,113,113,0.08) 100%)",
+          border: "1px solid rgba(34,211,238,0.18)",
+          backdropFilter: "blur(12px)",
+        }}
+      >
         <div>
           <h2 className="text-xl font-bold text-slate-100 flex items-center gap-2">
             <div className="w-8 h-8 rounded-xl flex items-center justify-center"
@@ -209,9 +216,9 @@ function AlertCard({
       transition={{ duration: 0.22, ease: "easeOut" }}
       className="relative rounded-2xl overflow-hidden group"
       style={{
-        background: resolved ? "rgba(255,255,255,0.02)" : config.bg,
+        background: resolved ? "rgba(255,255,255,0.02)" : `linear-gradient(180deg, ${config.bg}, rgba(7,15,31,0.25))`,
         border: `1px solid ${resolved ? "rgba(255,255,255,0.05)" : config.border}`,
-        boxShadow: resolved ? "none" : `0 4px 24px ${config.bg}`,
+        boxShadow: resolved ? "none" : `0 6px 26px ${config.bg}`,
       }}
     >
       {/* Left accent bar */}

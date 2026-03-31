@@ -199,6 +199,7 @@ export function Settings() {
   const [addStatus, setAddStatus] = useState<"idle" | "loading" | "success" | "error">("idle");
   const [addError, setAddError] = useState<string | null>(null);
   const [deletingId, setDeletingId] = useState<number | null>(null);
+  const [profileLoadError, setProfileLoadError] = useState<string | null>(null);
   const [profilePhoto, setProfilePhoto] = useState<string | null>(() => {
     try {
       return localStorage.getItem("settings.profilePhoto");
@@ -235,9 +236,18 @@ export function Settings() {
     void (async () => {
       try {
         const me = await authApi.getMe();
-        if (!cancelled) setUser(me);
-      } catch {
-        if (!cancelled) logout();
+        if (!cancelled) {
+          setUser(me);
+          setProfileLoadError(null);
+        }
+      } catch (err) {
+        const status = (err as { response?: { status?: number } })?.response?.status;
+        if (cancelled) return;
+        if (status === 401) {
+          logout();
+          return;
+        }
+        setProfileLoadError("Could not load profile right now. Please refresh and try again.");
       }
     })();
     return () => {
@@ -287,6 +297,23 @@ export function Settings() {
   if (!user) {
     if (!isAuthenticated) {
       return <Navigate to="/login" replace />;
+    }
+    if (profileLoadError) {
+      return (
+        <div className="flex flex-col items-center justify-center gap-3 p-12 min-h-[40vh] text-center">
+          <AlertCircle size={28} className="text-amber-400" />
+          <p className="text-sm" style={{ color: "var(--text-secondary)" }}>
+            {profileLoadError}
+          </p>
+          <button
+            onClick={() => window.location.reload()}
+            className="px-4 py-2 rounded-xl text-sm font-semibold"
+            style={{ background: "rgba(34,211,238,0.12)", border: "1px solid rgba(34,211,238,0.3)", color: "#22d3ee" }}
+          >
+            Retry
+          </button>
+        </div>
+      );
     }
     return (
       <div className="flex flex-col items-center justify-center gap-3 p-12 min-h-[40vh]">

@@ -535,17 +535,44 @@ export function Dashboard() {
               <p className="text-slate-500 text-sm">No recent activity</p>
             </div>
           ) : (
-            <motion.div
-              variants={animationVariants.staggerContainer}
-              initial="hidden"
-              animate="visible"
-            >
-              {stats.recent_activity.map((event) => (
-                <motion.div key={event.id} variants={animationVariants.listItem}>
-                  <ActivityRow event={event} />
-                </motion.div>
-              ))}
-            </motion.div>
+            <>
+              {/* Mobile: show top 5, then route to transactions */}
+              <motion.div
+                className="lg:hidden"
+                variants={animationVariants.staggerContainer}
+                initial="hidden"
+                animate="visible"
+              >
+                {stats.recent_activity.slice(0, 5).map((event) => (
+                  <motion.div key={event.id} variants={animationVariants.listItem}>
+                    <ActivityRow event={event} />
+                  </motion.div>
+                ))}
+                {stats.recent_activity.length > 5 && (
+                  <button
+                    onClick={() => navigate("/transactions")}
+                    className="w-full mt-3 mb-4 py-2.5 rounded-xl text-sm font-semibold transition-all hover:scale-[1.01] active:scale-[0.99]"
+                    style={{ background: "rgba(34,211,238,0.1)", border: "1px solid rgba(34,211,238,0.24)", color: "#22d3ee" }}
+                  >
+                    Show more activity
+                  </button>
+                )}
+              </motion.div>
+
+              {/* Desktop: full list */}
+              <motion.div
+                className="hidden lg:block"
+                variants={animationVariants.staggerContainer}
+                initial="hidden"
+                animate="visible"
+              >
+                {stats.recent_activity.map((event) => (
+                  <motion.div key={event.id} variants={animationVariants.listItem}>
+                    <ActivityRow event={event} />
+                  </motion.div>
+                ))}
+              </motion.div>
+            </>
           )}
         </div>
       </motion.div>

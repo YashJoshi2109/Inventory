@@ -31,7 +31,7 @@ from typing import AsyncIterator
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile, status
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
-from sqlalchemy import select
+from sqlalchemy import func, select
 
 from app.ai.copilot import SYSTEM_PROMPT, run_copilot
 from app.api.v1.auth import CurrentUser
@@ -129,20 +129,26 @@ async def list_sessions(
         .limit(limit)
     )
     sessions = result.scalars().all()
-    out = []
-    for s in sessions:
-        cnt_result = await db.execute(
-            select(ChatMessage).where(ChatMessage.session_id == s.id)
-        )
-        count = len(cnt_result.scalars().all())
-        out.append(SessionOut(
+    if not sessions:
+        return []
+
+    session_ids = [s.id for s in sessions]
+    counts_result = await db.execute(
+        select(ChatMessage.session_id, func.count(ChatMessage.id))
+        .where(ChatMessage.session_id.in_(session_ids))
+        .group_by(ChatMessage.session_id)
+    )
+    counts_map = {sid: int(cnt) for sid, cnt in counts_result.all()}
+    return [
+        SessionOut(
             id=s.id,
             title=s.title,
             created_at=s.created_at,
             updated_at=s.updated_at,
-            message_count=count,
-        ))
-    return out
+            message_count=counts_map.get(s.id, 0),
+        )
+        for s in sessions
+    ]
 
 
 @router.patch("/sessions/{session_id}/title", response_model=SessionOut)

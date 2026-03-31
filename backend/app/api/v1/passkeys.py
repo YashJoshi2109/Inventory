@@ -15,6 +15,7 @@ from __future__ import annotations
 import base64
 import json
 import logging
+import re
 from datetime import datetime, timezone
 from typing import Any
 
@@ -75,13 +76,47 @@ def _rp_id_for_request(request: Request) -> str:
     Pick the WebAuthn RP_ID that matches the browser's Origin header.
     Falls back to the configured default so dev still works without an Origin header.
     """
-    origin = request.headers.get("origin", "")
+    origin = request.headers.get("origin", "").strip()
     if origin:
+        parsed = urlparse(origin)
+        host = parsed.hostname
         allowed = settings.WEBAUTHN_ORIGINS or [settings.WEBAUTHN_ORIGIN]
-        if origin in allowed:
-            parsed = urlparse(origin)
-            return parsed.hostname or settings.WEBAUTHN_RP_ID
+        if origin in allowed and host:
+            return host
+        if settings.CORS_ORIGIN_REGEX and re.match(settings.CORS_ORIGIN_REGEX, origin) and host:
+            return host
+        # Deployment safety: if still on default localhost RP ID, trust current origin host.
+        if host and settings.WEBAUTHN_RP_ID in {"localhost", "127.0.0.1"} and host not in {"localhost", "127.0.0.1"}:
+            return host
     return settings.WEBAUTHN_RP_ID
+
+
+def _expected_origins_for_request(request: Request, rp_id: str) -> list[str]:
+    """
+    Build origin candidates for verification.
+    Includes configured origins and request origin when host matches RP ID/domain.
+    """
+    configured = settings.WEBAUTHN_ORIGINS or [settings.WEBAUTHN_ORIGIN]
+    origins: list[str] = [o for o in configured if o]
+
+    req_origin = request.headers.get("origin", "").strip()
+    if req_origin:
+        parsed = urlparse(req_origin)
+        host = parsed.hostname or ""
+        if host == rp_id or host.endswith(f".{rp_id}"):
+            origins.append(req_origin)
+        elif settings.CORS_ORIGIN_REGEX and re.match(settings.CORS_ORIGIN_REGEX, req_origin):
+            origins.append(req_origin)
+
+    # Deduplicate, preserve order
+    seen: set[str] = set()
+    unique: list[str] = []
+    for origin in origins:
+        if origin in seen:
+            continue
+        seen.add(origin)
+        unique.append(origin)
+    return unique
 
 
 # ──────────────────────────────────────────────────────────────
@@ -143,6 +178,7 @@ class RegisterCompleteRequest(BaseModel):
 
 @router.post("/register/complete", response_model=MessageResponse)
 async def passkey_register_complete(
+    request: Request,
     body: RegisterCompleteRequest,
     current_user: CurrentUser,
     session: DbSession,
@@ -160,7 +196,7 @@ async def passkey_register_complete(
 
     verification = None
     last_exc: Exception | None = None
-    for origin in settings.WEBAUTHN_ORIGINS or [settings.WEBAUTHN_ORIGIN]:
+    for origin in _expected_origins_for_request(request, rp_id):
         try:
             verification = verify_registration_response(
                 credential=body.credential,
@@ -298,6 +334,7 @@ class AuthCompleteRequest(BaseModel):
 
 @router.post("/login/complete", response_model=TokenResponse)
 async def passkey_login_complete(
+    request: Request,
     body: AuthCompleteRequest,
     session: DbSession,
 ) -> TokenResponse:
@@ -346,7 +383,7 @@ async def passkey_login_complete(
 
     auth_verification = None
     last_auth_exc: Exception | None = None
-    for origin in settings.WEBAUTHN_ORIGINS or [settings.WEBAUTHN_ORIGIN]:
+    for origin in _expected_origins_for_request(request, rp_id):
         try:
             auth_verification = verify_authentication_response(
                 credential=body.credential,
