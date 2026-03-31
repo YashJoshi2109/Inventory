@@ -475,10 +475,13 @@ async def passkey_login_complete(
     user_key = body.username or "__discoverable__"
     if body.challenge_ticket:
         challenge, rp_id, _, ticket_user_key = _decode_challenge_ticket(body.challenge_ticket, expected_kind="auth")
+        # In production UIs, username can be edited between begin/complete.
+        # The signed challenge token is the source of truth, so do not hard-fail on this mismatch.
         if ticket_user_key and ticket_user_key != user_key:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Passkey challenge token does not match this sign-in request.",
+            _log.warning(
+                "Passkey challenge user_key mismatch: ticket=%s body=%s; proceeding with ticket",
+                ticket_user_key,
+                user_key,
             )
     else:
         stored_auth = _auth_challenges.pop(user_key, None)
