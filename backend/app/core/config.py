@@ -123,6 +123,18 @@ class Settings(BaseSettings):
     # Gemini (primary)
     GEMINI_API_KEY: str = ""          # Required to enable Gemini copilot
     GEMINI_CHAT_MODEL: str = "gemini-flash-latest"
+    # Vision model used by Smart Scan (/ai/vision/analyze)
+    GEMINI_VISION_MODEL: str = "gemini-2.0-flash-lite"
+    # Comma-separated or JSON list fallback models to try when quota/rate-limit hits.
+    GEMINI_VISION_FALLBACK_MODELS_RAW: str = "gemini-1.5-flash,gemini-1.5-pro"
+
+    @computed_field
+    @property
+    def GEMINI_VISION_FALLBACK_MODELS(self) -> list[str]:
+        return _coerce_env_to_str_list(
+            self.GEMINI_VISION_FALLBACK_MODELS_RAW,
+            default=["gemini-1.5-flash", "gemini-1.5-pro"],
+        )
 
     # Alerts
     LOW_STOCK_CHECK_INTERVAL_SECONDS: int = 300

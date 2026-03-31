@@ -142,6 +142,10 @@
     background: linear-gradient(135deg, rgba(52, 211, 153, 0.18) 0%, rgba(5, 150, 105, 0.1) 100%);
     border: 1px solid rgba(52, 211, 153, 0.3);
   }
+  [data-theme="light"] .stat-card-violet {
+    background: linear-gradient(135deg, rgba(167, 139, 250, 0.18) 0%, rgba(124, 58, 237, 0.1) 100%);
+    border: 1px solid rgba(167, 139, 250, 0.3);
+  }
 
   /* ── Glow effects ── */
   .glow-cyan {
@@ -232,6 +236,11 @@
   .stat-card-emerald {
     background: linear-gradient(135deg, rgba(52, 211, 153, 0.12) 0%, rgba(5, 150, 105, 0.06) 100%);
     border: 1px solid rgba(52, 211, 153, 0.2);
+  }
+
+  .stat-card-violet {
+    background: linear-gradient(135deg, rgba(167, 139, 250, 0.12) 0%, rgba(124, 58, 237, 0.06) 100%);
+    border: 1px solid rgba(167, 139, 250, 0.2);
   }
 
   /* ── Mode selector card ── */

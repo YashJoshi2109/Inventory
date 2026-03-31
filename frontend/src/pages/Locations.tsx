@@ -8,18 +8,21 @@ import { EmptyState } from "@/components/ui/EmptyState";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
 import { Modal } from "@/components/ui/Modal";
-import { MapPin, ChevronDown, QrCode } from "lucide-react";
+import { MapPin, ChevronDown, QrCode, Download, X, LayoutGrid, List, Camera } from "lucide-react";
 import { useState } from "react";
+import { useNavigate } from "react-router-dom";
 import toast from "react-hot-toast";
 import { clsx } from "clsx";
 import type { Area, Location } from "@/types";
 
 export function Locations() {
   const queryClient = useQueryClient();
+  const navigate = useNavigate();
   const [showAreaModal, setShowAreaModal] = useState(false);
   const [showLocationModal, setShowLocationModal] = useState(false);
   const [newArea, setNewArea] = useState({ code: "", name: "", building: "", floor: "" });
   const [newLocation, setNewLocation] = useState({ area_id: "", code: "", name: "", shelf: "", bin_label: "" });
+  const [viewMode, setViewMode] = useState<"list" | "map">("list");
 
   const { data: areas, isLoading } = useQuery<Area[]>({
     queryKey: ["areas"],
@@ -92,23 +95,57 @@ export function Locations() {
 
   return (
     <div className="p-4 lg:p-6 pb-24 lg:pb-6 space-y-4 animate-fade-in">
-      <div className="flex items-center justify-between">
-        <div>
-          <h2 className="text-lg font-semibold text-slate-100">Locations</h2>
-          <p className="text-xs text-slate-500">{areas?.length ?? 0} areas</p>
+      {/* ── Header ── */}
+      <div className="flex items-center justify-between gap-3 flex-wrap">
+        <div className="flex items-center gap-3">
+          <div className="w-9 h-9 rounded-xl flex items-center justify-center"
+            style={{ background: "linear-gradient(135deg,rgba(8,145,178,0.25),rgba(34,211,238,0.12))", border: "1px solid rgba(34,211,238,0.2)" }}>
+            <MapPin size={16} className="text-brand-400" />
+          </div>
+          <div>
+            <h2 className="text-lg font-bold text-slate-100">Lab Locations</h2>
+            <p className="text-xs text-slate-500">
+              {areas?.length ?? 0} areas · {areas?.reduce((s, a) => s + a.location_count, 0) ?? 0} racks
+            </p>
+          </div>
         </div>
-        <div className="flex gap-2">
-          <Button variant="secondary" size="sm" onClick={() => setShowAreaModal(true)}>
-            Add Area
-          </Button>
-          <Button variant="primary" size="sm" onClick={() => setShowLocationModal(true)}>
-            Add Rack
-          </Button>
+
+        <div className="flex items-center gap-2 flex-wrap">
+          {/* Smart scan CTA */}
+          <button
+            onClick={() => navigate("/smart-scan")}
+            className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-medium transition-all hover:scale-[1.02]"
+            style={{ background: "rgba(168,85,247,0.08)", border: "1px solid rgba(168,85,247,0.2)", color: "#c084fc" }}>
+            <Camera size={13} /> Audit with AI
+          </button>
+
+          {/* View toggle */}
+          <div className="flex rounded-xl overflow-hidden" style={{ border: "1px solid rgba(255,255,255,0.08)" }}>
+            <button onClick={() => setViewMode("list")}
+              className="flex items-center gap-1.5 px-2.5 py-2 text-xs transition-all"
+              style={viewMode === "list"
+                ? { background: "rgba(34,211,238,0.12)", color: "#22d3ee" }
+                : { background: "rgba(255,255,255,0.03)", color: "#64748b" }}>
+              <List size={13} />
+            </button>
+            <button onClick={() => setViewMode("map")}
+              className="flex items-center gap-1.5 px-2.5 py-2 text-xs transition-all"
+              style={viewMode === "map"
+                ? { background: "rgba(34,211,238,0.12)", color: "#22d3ee" }
+                : { background: "rgba(255,255,255,0.03)", color: "#64748b" }}>
+              <LayoutGrid size={13} />
+            </button>
+          </div>
+
+          <Button variant="secondary" size="sm" onClick={() => setShowAreaModal(true)}>+ Area</Button>
+          <Button variant="primary" size="sm" onClick={() => setShowLocationModal(true)}>+ Rack</Button>
         </div>
       </div>
 
       {!areas?.length ? (
         <EmptyState icon={<MapPin size={40} />} title="No locations yet" description="Add areas and bins to start scanning" />
+      ) : viewMode === "map" ? (
+        <RackMapView areas={areas} />
       ) : (
         <div className="space-y-3">
           {areas.map((area) => <AreaCard key={area.id} area={area} />)}
@@ -230,6 +267,7 @@ export function Locations() {
 
 function AreaCard({ area }: { area: Area }) {
   const [expanded, setExpanded] = useState(false);
+  const [qrModal, setQrModal] = useState<{ url: string; name: string; code: string } | null>(null);
 
   const { data: locations } = useQuery<Location[]>({
     queryKey: ["locations", area.id],
@@ -289,14 +327,13 @@ function AreaCard({ area }: { area: Area }) {
                       try {
                         const blob = await itemsApi.downloadLocationQrPng(loc.id);
                         const url = URL.createObjectURL(blob);
-                        window.open(url, "_blank", "noopener,noreferrer");
-                        setTimeout(() => URL.revokeObjectURL(url), 60_000);
+                        setQrModal({ url, name: loc.name, code: loc.code });
                       } catch {
                         toast.error("Failed to load QR code");
                       }
                     }}
                     className="p-1.5 rounded-lg hover:bg-surface-hover text-slate-400 hover:text-white transition-colors"
-                    title="Download QR label"
+                    title="View QR label"
                   >
                     <QrCode size={15} />
                   </button>
@@ -306,6 +343,135 @@ function AreaCard({ area }: { area: Area }) {
           )}
         </div>
       )}
+
+      {/* ── QR Code modal ────────────────────────────────────────────────── */}
+      {qrModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm"
+          onClick={() => { URL.revokeObjectURL(qrModal.url); setQrModal(null); }}>
+          <div
+            className="relative flex flex-col items-center gap-5 p-6 rounded-2xl shadow-2xl w-full max-w-xs"
+            style={{ background: "rgba(10,18,35,0.98)", border: "1px solid rgba(255,255,255,0.1)" }}
+            onClick={e => e.stopPropagation()}>
+            {/* Close */}
+            <button
+              onClick={() => { URL.revokeObjectURL(qrModal.url); setQrModal(null); }}
+              className="absolute top-3 right-3 text-slate-600 hover:text-slate-300 transition-colors p-1 rounded-lg hover:bg-white/5">
+              <X size={16} />
+            </button>
+
+            <div className="flex items-center gap-2">
+              <QrCode size={15} className="text-brand-400" />
+              <p className="text-sm font-semibold text-slate-200">{qrModal.name}</p>
+            </div>
+            <p className="text-xs font-mono text-slate-500 -mt-3">{qrModal.code}</p>
+
+            {/* QR image — white background so it scans correctly */}
+            <div className="p-4 bg-white rounded-xl shadow-lg">
+              <img src={qrModal.url} alt={`QR ${qrModal.code}`} className="w-48 h-48 object-contain" />
+            </div>
+
+            <p className="text-[11px] text-slate-500 text-center">Scan to identify this location</p>
+
+            <a
+              href={qrModal.url}
+              download={`QR_${qrModal.code}.png`}
+              className="flex items-center gap-2 px-5 py-2.5 rounded-xl text-sm font-medium transition-all hover:scale-[1.02]"
+              style={{ background: "rgba(34,211,238,0.08)", border: "1px solid rgba(34,211,238,0.2)", color: "#22d3ee" }}>
+              <Download size={13} />
+              Download PNG
+            </a>
+          </div>
+        </div>
+      )}
     </Card>
+  );
+}
+
+// ── Visual Rack Map ────────────────────────────────────────────────────────────
+
+function RackMapView({ areas }: { areas: Area[] }) {
+  return (
+    <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
+      {areas.map((area) => <AreaMapSection key={area.id} area={area} />)}
+    </div>
+  );
+}
+
+function AreaMapSection({ area }: { area: Area }) {
+  const { data: locations } = useQuery<Location[]>({
+    queryKey: ["locations", area.id],
+    queryFn: async () => {
+      const { data } = await apiClient.get("/locations", { params: { area_id: area.id } });
+      return data;
+    },
+  });
+
+  const RACK_COLORS = [
+    { bg: "rgba(52,211,153,0.08)", border: "rgba(52,211,153,0.2)", text: "#34d399" },
+    { bg: "rgba(34,211,238,0.08)", border: "rgba(34,211,238,0.2)", text: "#22d3ee" },
+    { bg: "rgba(96,165,250,0.08)", border: "rgba(96,165,250,0.2)", text: "#60a5fa" },
+    { bg: "rgba(168,85,247,0.08)", border: "rgba(168,85,247,0.2)", text: "#c084fc" },
+    { bg: "rgba(251,191,36,0.08)", border: "rgba(251,191,36,0.2)", text: "#fbbf24" },
+  ];
+
+  return (
+    <div className="rounded-2xl overflow-hidden"
+      style={{ background: "rgba(255,255,255,0.015)", border: "1px solid rgba(255,255,255,0.07)" }}>
+
+      {/* Area header */}
+      <div className="flex items-center gap-3 px-4 py-3"
+        style={{ borderBottom: "1px solid rgba(255,255,255,0.06)", background: "rgba(34,211,238,0.02)" }}>
+        <div className="w-8 h-8 rounded-xl flex items-center justify-center shrink-0"
+          style={{ background: "rgba(34,211,238,0.1)", border: "1px solid rgba(34,211,238,0.18)" }}>
+          <MapPin size={13} className="text-brand-400" />
+        </div>
+        <div className="flex-1 min-w-0">
+          <p className="text-sm font-semibold text-slate-200">{area.name}</p>
+          <p className="text-[10px] text-slate-500 font-mono">
+            {area.code}
+            {area.building ? ` · ${area.building}` : ""}
+            {area.floor ? ` F${area.floor}` : ""}
+          </p>
+        </div>
+        <span className="text-[10px] font-semibold px-2 py-0.5 rounded-lg"
+          style={{ background: "rgba(34,211,238,0.08)", color: "#22d3ee", border: "1px solid rgba(34,211,238,0.15)" }}>
+          {area.location_count} racks
+        </span>
+      </div>
+
+      {/* Rack grid */}
+      <div className="p-3 grid grid-cols-4 sm:grid-cols-5 lg:grid-cols-4 xl:grid-cols-5 gap-2 min-h-[80px]">
+        {!locations ? (
+          Array.from({ length: Math.min(area.location_count || 4, 10) }).map((_, i) => (
+            <div key={i} className="h-16 rounded-xl animate-pulse"
+              style={{ background: "rgba(255,255,255,0.03)" }} />
+          ))
+        ) : locations.length === 0 ? (
+          <div className="col-span-full flex items-center justify-center py-6 text-xs text-slate-700">
+            No racks — add one above
+          </div>
+        ) : (
+          locations.map((loc, idx) => {
+            const c = RACK_COLORS[idx % RACK_COLORS.length];
+            return (
+              <div key={loc.id}
+                className="flex flex-col items-center justify-center gap-0.5 h-16 rounded-xl cursor-pointer transition-all duration-150 hover:scale-105"
+                style={{ background: c.bg, border: `1px solid ${c.border}` }}
+                title={`${loc.code} — ${loc.name}`}>
+                <span className="text-[11px] font-mono font-bold leading-none" style={{ color: c.text }}>
+                  {loc.code.length > 6 ? loc.code.slice(-5) : loc.code}
+                </span>
+                <span className="text-[8px] text-slate-600 text-center leading-snug px-1 truncate max-w-full">
+                  {loc.name.length > 10 ? loc.name.slice(0, 9) + "…" : loc.name}
+                </span>
+                {loc.shelf && (
+                  <span className="text-[7px] text-slate-700 font-mono">S{loc.shelf}</span>
+                )}
+              </div>
+            );
+          })
+        )}
+      </div>
+    </div>
   );
 }

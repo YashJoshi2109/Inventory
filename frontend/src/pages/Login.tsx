@@ -88,14 +88,6 @@ export function Login() {
       const { _user_key, ...webAuthnOptions } = options as any;
       void _user_key; // unused
 
-      // If the server found no matching credentials for this type, tell the user
-      const allowList = (webAuthnOptions as { allowCredentials?: unknown[] }).allowCredentials ?? [];
-      if (authenticatorType && allowList.length === 0 && (username || "").length > 0) {
-        setBioNoCredentials(true);
-        setPasskeyBusy(false);
-        return;
-      }
-
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const credential = await startAuthentication({ optionsJSON: webAuthnOptions as any });
       const tokens = await passkeyApi.loginComplete(credential, username || undefined);
@@ -105,12 +97,18 @@ export function Login() {
       navigate("/dashboard");
     } catch (e: unknown) {
       const errName = (e as { name?: string })?.name;
+      const errMsg = (e as { message?: string })?.message ?? "";
       if (errName === "NotAllowedError") {
-        toast.error("Biometric prompt cancelled");
+        // User dismissed the prompt or biometric failed
+        toast.error("Biometric cancelled or not recognised. Try again or use your password.");
       } else if (errName === "InvalidStateError") {
-        toast.error("No passkey found for this device. Register one first.");
+        toast.error("No passkey found for this device. Sign in with your password first, then register a passkey in Settings.");
+      } else if (errName === "SecurityError" || errMsg.includes("origin")) {
+        toast.error("Passkey failed: domain mismatch. Make sure you're on the correct URL.");
+      } else if (errName === "AbortError") {
+        // silently ignore — user navigated away
       } else {
-        toast.error(apiErrorMessage(e, "Passkey sign-in failed. Try password instead."));
+        toast.error(apiErrorMessage(e, "Passkey sign-in failed. Please use password instead."));
       }
     } finally {
       setPasskeyBusy(false);
@@ -250,11 +248,11 @@ export function Login() {
                         <span className="text-[10px] text-slate-400 text-center leading-snug">{bioLabel}</span>
                       </button>
 
-                      {/* Another device — opens drawer for username + QR flow */}
+                      {/* Another device — cross-platform (QR / NFC) flow */}
                       <button
                         type="button"
                         disabled={busy}
-                        onClick={onOpenBioDrawer}
+                        onClick={() => void triggerBiometricAuth("cross-platform", watchedUsername || undefined)}
                         className="flex flex-col items-center gap-1.5 p-3 rounded-xl border transition-all hover:scale-[1.03] disabled:opacity-50 disabled:pointer-events-none"
                         style={{ background: "rgba(167,139,250,0.06)", border: "1px solid rgba(167,139,250,0.18)" }}
                       >
@@ -262,11 +260,11 @@ export function Login() {
                         <span className="text-[10px] text-slate-400 text-center leading-snug">Another device</span>
                       </button>
 
-                      {/* Security key — opens drawer */}
+                      {/* Security key */}
                       <button
                         type="button"
                         disabled={busy}
-                        onClick={onOpenBioDrawer}
+                        onClick={() => void triggerBiometricAuth("security-key", watchedUsername || undefined)}
                         className="flex flex-col items-center gap-1.5 p-3 rounded-xl border transition-all hover:scale-[1.03] disabled:opacity-50 disabled:pointer-events-none"
                         style={{ background: "rgba(251,191,36,0.06)", border: "1px solid rgba(251,191,36,0.18)" }}
                       >

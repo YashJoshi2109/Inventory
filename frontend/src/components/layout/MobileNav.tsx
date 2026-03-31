@@ -1,5 +1,5 @@
 import { NavLink, useLocation, useNavigate } from "react-router-dom";
-import { LayoutDashboard, Package, QrCode, Bell, BrainCircuit, MapPin, MoreHorizontal, LogOut, Bot, Settings } from "lucide-react";
+import { LayoutDashboard, Package, QrCode, Bell, BrainCircuit, MapPin, MoreHorizontal, LogOut, Bot, Settings, Camera } from "lucide-react";
 import { clsx } from "clsx";
 import { useQuery } from "@tanstack/react-query";
 import { transactionsApi } from "@/api/transactions";
@@ -39,7 +39,7 @@ export function MobileNav() {
   });
 
   const isMoreRouteActive = useMemo(() => {
-    return location.pathname.startsWith("/ai") || location.pathname.startsWith("/alerts") || location.pathname.startsWith("/copilot") || location.pathname.startsWith("/settings");
+    return location.pathname.startsWith("/ai") || location.pathname.startsWith("/alerts") || location.pathname.startsWith("/copilot") || location.pathname.startsWith("/settings") || location.pathname.startsWith("/smart-scan");
   }, [location.pathname]);
 
   const isMoreActive = isMoreRouteActive || moreOpen;
@@ -238,6 +238,25 @@ export function MobileNav() {
               </div>
 
               <div className="px-3 pb-3 space-y-2">
+                {/* Smart Scan */}
+                <button
+                  type="button"
+                  onClick={() => navigate("/smart-scan")}
+                  className="w-full flex items-center gap-3 px-3 py-3 rounded-2xl text-left transition-colors"
+                  style={{ background: "rgba(168,85,247,0.07)", border: "1px solid rgba(168,85,247,0.2)" }}
+                >
+                  <div className="w-10 h-10 rounded-2xl flex items-center justify-center" style={{ background: "linear-gradient(135deg,rgba(168,85,247,0.25),rgba(192,132,252,0.12))", border: "1px solid rgba(168,85,247,0.3)" }}>
+                    <Camera size={18} className="text-purple-300" />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-semibold text-white truncate flex items-center gap-2">
+                      Smart Scan
+                      <span className="text-[9px] px-1.5 py-0.5 rounded-full uppercase tracking-wide font-bold" style={{ background: "rgba(168,85,247,0.2)", color: "#c084fc" }}>AI</span>
+                    </p>
+                    <p className="text-xs text-slate-500 truncate">Camera · OCR · Classify · Audit</p>
+                  </div>
+                </button>
+
                 <button
                   type="button"
                   onClick={() => navigate("/copilot")}

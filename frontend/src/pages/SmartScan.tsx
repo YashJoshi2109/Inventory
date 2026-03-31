@@ -1,0 +1,1135 @@
+import { useCallback, useEffect, useRef, useState } from "react";
+import { useNavigate } from "react-router-dom";
+import toast from "react-hot-toast";
+import { clsx } from "clsx";
+import {
+  ArrowLeft,
+  AlertTriangle,
+  BarChart3,
+  Camera,
+  CameraOff,
+  CheckCircle2,
+  Copy,
+  Eye,
+  FileText,
+  FlipHorizontal,
+  Hash,
+  Info,
+  Loader2,
+  Package,
+  Plus,
+  RefreshCw,
+  Scan,
+  Sparkles,
+  Tag,
+  Upload,
+  X,
+} from "lucide-react";
+import { useAuthStore } from "@/store/auth";
+
+// ─── Types ────────────────────────────────────────────────────────────────────
+
+interface DetectedItem {
+  name: string;
+  category: string;
+  brand: string;
+  model: string;
+  quantity: number;
+  confidence: number;
+  notes: string;
+}
+
+interface VisionAnalysisResult {
+  detected_items: DetectedItem[];
+  ocr_text: string;
+  item_count: number;
+  damage_detected: boolean;
+  damage_notes: string;
+  metadata_suggestions: {
+    category: string;
+    tags: string[];
+    brand: string;
+    model: string;
+    usage_type: string;
+  };
+  shelf_audit: {
+    total_visible: number;
+    organized: boolean;
+    issues: string[];
+  };
+  raw_analysis: string;
+  analysis_type: string;
+}
+
+interface VisionStatus {
+  primary_model: string;
+  fallback_models: string[];
+  last_model_used: string | null;
+  quota_limited: boolean;
+  last_error: string | null;
+  checked_at: string | null;
+  last_success_at: string | null;
+}
+
+type AnalysisType = "full" | "classify" | "ocr" | "count" | "audit";
+type PageMode = "camera" | "preview" | "analyzing" | "results";
+
+// ─── API Helper ───────────────────────────────────────────────────────────────
+
+async function analyzeImage(
+  image: Blob,
+  type: string,
+  context: string
+): Promise<VisionAnalysisResult> {
+  const BASE_URL = (import.meta.env.VITE_API_URL as string | undefined) ?? "/api/v1";
+  const token = useAuthStore.getState().accessToken;
+  const form = new FormData();
+  form.append("image", image, "capture.jpg");
+  form.append("analysis_type", type);
+  form.append("context", context);
+  const response = await fetch(`${BASE_URL}/ai/vision/analyze`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${token}` },
+    body: form,
+  });
+  if (!response.ok) {
+    let detail = "";
+    try {
+      const payload = await response.json() as { detail?: string };
+      detail = payload.detail ?? "";
+    } catch {
+      // ignore parse failures
+    }
+    const message = detail || `Analysis failed: ${response.status}`;
+    throw new Error(message);
+  }
+  return response.json() as Promise<VisionAnalysisResult>;
+}
+
+// ─── Analysis Type Config ─────────────────────────────────────────────────────
+
+const ANALYSIS_TYPES: Array<{
+  id: AnalysisType;
+  label: string;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  icon: React.ComponentType<any>;
+  desc: string;
+}> = [
+  { id: "full", label: "Full Scan", icon: Sparkles, desc: "Complete analysis" },
+  { id: "classify", label: "Classify", icon: Tag, desc: "Identify item type" },
+  { id: "ocr", label: "OCR", icon: FileText, desc: "Extract text" },
+  { id: "count", label: "Count", icon: Hash, desc: "Count items" },
+  { id: "audit", label: "Audit", icon: BarChart3, desc: "Shelf audit" },
+];
+
+// ─── Confidence Bar ───────────────────────────────────────────────────────────
+
+function ConfidenceBar({ value }: { value: number }) {
+  const pct = Math.round(value * 100);
+  const color = pct >= 80 ? "#22d3ee" : pct >= 50 ? "#fbbf24" : "#f87171";
+  return (
+    <div className="flex items-center gap-2 min-w-0">
+      <div
+        className="flex-1 h-1 rounded-full"
+        style={{ background: "rgba(255,255,255,0.08)" }}
+      >
+        <div
+          className="h-1 rounded-full transition-all duration-500"
+          style={{ width: `${pct}%`, background: color }}
+        />
+      </div>
+      <span className="text-[10px] font-mono shrink-0" style={{ color }}>
+        {pct}%
+      </span>
+    </div>
+  );
+}
+
+// ─── Main Component ───────────────────────────────────────────────────────────
+
+export function SmartScan() {
+  const navigate = useNavigate();
+  const accessToken = useAuthStore((s) => s.accessToken);
+  const BASE_URL = (import.meta.env.VITE_API_URL as string | undefined) ?? "/api/v1";
+
+  const [mode, setMode] = useState<PageMode>("camera");
+  const [analysisType, setAnalysisType] = useState<AnalysisType>("full");
+
+  const [capturedImage, setCapturedImage] = useState<Blob | null>(null);
+  const [capturedPreview, setCapturedPreview] = useState<string | null>(null);
+
+  const [results, setResults] = useState<VisionAnalysisResult | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const streamRef = useRef<MediaStream | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const [cameraAvailable, setCameraAvailable] = useState(true);
+  const [cameraError, setCameraError] = useState<string | null>(null);
+  const [visionStatus, setVisionStatus] = useState<VisionStatus | null>(null);
+  const [cameraFacing, setCameraFacing] = useState<"environment" | "user">("environment");
+  const [showRawAnalysis, setShowRawAnalysis] = useState(false);
+
+  useEffect(() => {
+    if (!accessToken) return;
+    let alive = true;
+
+    const loadVisionStatus = async () => {
+      try {
+        const res = await fetch(`${BASE_URL}/ai/vision/status`, {
+          headers: { Authorization: `Bearer ${accessToken}` },
+        });
+        if (!res.ok) return;
+        const payload = await res.json() as VisionStatus;
+        if (alive) setVisionStatus(payload);
+      } catch {
+        // ignore polling errors
+      }
+    };
+
+    void loadVisionStatus();
+    const timer = setInterval(() => { void loadVisionStatus(); }, 30_000);
+    return () => {
+      alive = false;
+      clearInterval(timer);
+    };
+  }, [BASE_URL, accessToken]);
+
+  // ── Camera lifecycle ──────────────────────────────────────────────────────
+
+  const stopStream = useCallback(() => {
+    if (streamRef.current) {
+      streamRef.current.getTracks().forEach((t) => t.stop());
+      streamRef.current = null;
+    }
+  }, []);
+
+  const startCamera = useCallback(
+    async (facing: "environment" | "user") => {
+      stopStream();
+      setCameraError(null);
+
+      if (!navigator.mediaDevices?.getUserMedia) {
+        setCameraAvailable(false);
+        setCameraError("Camera API is not available in this browser/context.");
+        return;
+      }
+
+      try {
+        // First try preferred constraints.
+        const preferred = await navigator.mediaDevices.getUserMedia({
+          video: {
+            facingMode: facing,
+            width: { ideal: 1920 },
+            height: { ideal: 1080 },
+          },
+        });
+        streamRef.current = preferred;
+      } catch {
+        try {
+          // Fallback for browsers/devices that reject strict facing constraints.
+          const fallback = await navigator.mediaDevices.getUserMedia({
+            video: true,
+          });
+          streamRef.current = fallback;
+        } catch (err) {
+          const e = err as DOMException | Error;
+          const name = e?.name ?? "";
+          if (name === "NotAllowedError" || name === "SecurityError") {
+            setCameraError("Camera permission denied. Please allow camera access in browser settings.");
+          } else if (name === "NotFoundError" || name === "OverconstrainedError") {
+            setCameraError("No compatible camera found on this device.");
+          } else {
+            setCameraError("Could not start camera. Try refresh or use image upload.");
+          }
+          setCameraAvailable(false);
+          return;
+        }
+      }
+
+      try {
+        if (videoRef.current) {
+          videoRef.current.srcObject = streamRef.current;
+          await videoRef.current.play();
+        }
+        setCameraAvailable(true);
+      } catch {
+        setCameraAvailable(false);
+        setCameraError("Camera stream started but video playback failed.");
+      }
+    },
+    [stopStream]
+  );
+
+  useEffect(() => {
+    if (mode === "camera") {
+      void startCamera(cameraFacing);
+    } else {
+      stopStream();
+    }
+    return () => stopStream();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mode, cameraFacing]);
+
+  // ── Capture from video ────────────────────────────────────────────────────
+
+  const captureFromCamera = useCallback(() => {
+    const video = videoRef.current;
+    const canvas = canvasRef.current;
+    if (!video || !canvas) return;
+
+    canvas.width = video.videoWidth || 1280;
+    canvas.height = video.videoHeight || 720;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+    ctx.drawImage(video, 0, 0);
+
+    canvas.toBlob(
+      (blob) => {
+        if (!blob) {
+          toast.error("Failed to capture image");
+          return;
+        }
+        const url = URL.createObjectURL(blob);
+        setCapturedImage(blob);
+        setCapturedPreview(url);
+        setMode("preview");
+      },
+      "image/jpeg",
+      0.92
+    );
+  }, []);
+
+  // ── File pick ─────────────────────────────────────────────────────────────
+
+  const handleFileSelect = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (capturedPreview) URL.revokeObjectURL(capturedPreview);
+    const url = URL.createObjectURL(file);
+    setCapturedImage(file);
+    setCapturedPreview(url);
+    setMode("preview");
+  }, [capturedPreview]);
+
+  // ── Analyze ───────────────────────────────────────────────────────────────
+
+  const runAnalysis = useCallback(async () => {
+    if (!capturedImage) return;
+    setMode("analyzing");
+    setError(null);
+    setResults(null);
+
+    try {
+      const result = await analyzeImage(capturedImage, analysisType, "");
+      setResults(result);
+      setMode("results");
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "Analysis failed";
+      setError(msg);
+      toast.error(msg);
+      setMode("preview");
+    }
+  }, [capturedImage, analysisType]);
+
+  // ── Reset ─────────────────────────────────────────────────────────────────
+
+  const resetToCamera = useCallback(() => {
+    if (capturedPreview) URL.revokeObjectURL(capturedPreview);
+    setCapturedImage(null);
+    setCapturedPreview(null);
+    setResults(null);
+    setError(null);
+    setShowRawAnalysis(false);
+    setMode("camera");
+  }, [capturedPreview]);
+
+  // ── Navigate to scan with pre-filled item ─────────────────────────────────
+
+  const addItemToInventory = useCallback(
+    (item: DetectedItem) => {
+      navigate("/scan", {
+        state: {
+          prefill: {
+            name: item.name,
+            category: item.category,
+            brand: item.brand,
+            model: item.model,
+            quantity: item.quantity,
+          },
+        },
+      });
+    },
+    [navigate]
+  );
+
+  // ── Flip camera ───────────────────────────────────────────────────────────
+
+  const flipCamera = useCallback(() => {
+    setCameraFacing((f) => (f === "environment" ? "user" : "environment"));
+  }, []);
+
+  // ─── Render ──────────────────────────────────────────────────────────────
+
+  return (
+    <div
+      className="flex flex-col min-h-dvh pb-24 lg:pb-6"
+      style={{ background: "#030712", color: "#e2e8f0" }}
+    >
+      {/* ── Header ──────────────────────────────────────────────────────── */}
+      <header
+        className="flex items-center justify-between px-4 pt-4 pb-3 shrink-0"
+        style={{ borderBottom: "1px solid rgba(34,211,238,0.1)" }}
+      >
+        <button
+          type="button"
+          onClick={() => navigate(-1)}
+          className="flex items-center gap-2 text-slate-400 hover:text-white transition-colors"
+        >
+          <ArrowLeft size={20} />
+          <span className="text-sm font-medium">Back</span>
+        </button>
+
+        <div className="flex items-center gap-2">
+          <div
+            className="w-7 h-7 rounded-xl flex items-center justify-center shrink-0"
+            style={{ background: "linear-gradient(135deg,#0891b2,#22d3ee)" }}
+          >
+            <Scan size={14} className="text-white" />
+          </div>
+          <h1 className="text-base font-bold text-white">Smart Scan</h1>
+        </div>
+
+        <div className="flex items-center gap-2">
+          {visionStatus && (
+            <div
+              className="hidden sm:flex items-center gap-1.5 px-2.5 py-1 rounded-xl text-[11px] font-medium"
+              style={{
+                background: visionStatus.quota_limited ? "rgba(248,113,113,0.1)" : "rgba(52,211,153,0.1)",
+                border: visionStatus.quota_limited ? "1px solid rgba(248,113,113,0.28)" : "1px solid rgba(52,211,153,0.28)",
+                color: visionStatus.quota_limited ? "#f87171" : "#34d399",
+              }}
+              title={`Model: ${visionStatus.last_model_used ?? visionStatus.primary_model}`}
+            >
+              <span className={clsx("w-1.5 h-1.5 rounded-full", visionStatus.quota_limited ? "bg-red-400" : "bg-emerald-400")} />
+              {visionStatus.quota_limited ? "Vision quota limited" : "Vision ready"}
+            </div>
+          )}
+          <button
+            type="button"
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-medium text-slate-400 hover:text-white transition-colors"
+            style={{
+              border: "1px solid rgba(255,255,255,0.07)",
+              background: "rgba(255,255,255,0.03)",
+            }}
+            onClick={() =>
+              toast("Point your camera at any item, shelf, or label to analyze it with AI.", {
+                duration: 4500,
+                icon: "💡",
+              })
+            }
+          >
+            <Info size={13} />
+            Help
+          </button>
+        </div>
+      </header>
+
+      {/* ── Analysis Type Selector ───────────────────────────────────────── */}
+      <div className="px-4 pt-3 pb-2 shrink-0">
+        <div className="flex gap-2 overflow-x-auto pb-1" style={{ scrollbarWidth: "none" }}>
+          {ANALYSIS_TYPES.map(({ id, label, icon: Icon }) => {
+            const active = analysisType === id;
+            return (
+              <button
+                key={id}
+                type="button"
+                onClick={() => setAnalysisType(id)}
+                className={clsx(
+                  "flex items-center gap-1.5 px-3 py-2 rounded-2xl text-xs font-semibold whitespace-nowrap shrink-0 transition-all duration-150",
+                  active ? "text-[#030712]" : "text-slate-400 hover:text-slate-200"
+                )}
+                style={
+                  active
+                    ? {
+                        background: "linear-gradient(135deg,#0891b2,#22d3ee)",
+                        boxShadow: "0 0 12px rgba(34,211,238,0.35)",
+                      }
+                    : {
+                        background: "rgba(255,255,255,0.04)",
+                        border: "1px solid rgba(255,255,255,0.08)",
+                      }
+                }
+              >
+                <Icon size={13} />
+                {label}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* ── Main content area ────────────────────────────────────────────── */}
+      <div className="flex-1 flex flex-col min-h-0 px-4 gap-4">
+
+        {/* Camera view */}
+        {mode === "camera" && (
+          <div className="flex flex-col gap-3 flex-1">
+            <div
+              className="relative flex-1 rounded-3xl overflow-hidden"
+              style={{
+                border: "1px solid rgba(34,211,238,0.2)",
+                minHeight: 260,
+                background: "#0a0f1a",
+                boxShadow: "0 0 40px rgba(34,211,238,0.07)",
+              }}
+            >
+              {cameraAvailable ? (
+                <>
+                  <video
+                    ref={videoRef}
+                    playsInline
+                    muted
+                    autoPlay
+                    className="absolute inset-0 w-full h-full object-cover"
+                  />
+
+                  {/* Viewfinder overlay */}
+                  <div className="absolute inset-0 pointer-events-none">
+                    <div
+                      className="absolute inset-8 rounded-2xl"
+                      style={{ border: "1px solid rgba(34,211,238,0.3)" }}
+                    />
+                    {/* Corner accents */}
+                    {[
+                      { cls: "top-8 left-8", bt: true, bl: true, r: "tl" },
+                      { cls: "top-8 right-8", bt: true, br: true, r: "tr" },
+                      { cls: "bottom-8 left-8", bb: true, bl: true, r: "bl" },
+                      { cls: "bottom-8 right-8", bb: true, br: true, r: "br" },
+                    ].map(({ cls, bt, bb, bl, br, r }, i) => (
+                      <div
+                        key={i}
+                        className={`absolute w-5 h-5 ${cls}`}
+                        style={{
+                          borderTop: bt ? "2px solid #22d3ee" : undefined,
+                          borderBottom: bb ? "2px solid #22d3ee" : undefined,
+                          borderLeft: bl ? "2px solid #22d3ee" : undefined,
+                          borderRight: br ? "2px solid #22d3ee" : undefined,
+                          borderTopLeftRadius: r === "tl" ? 6 : undefined,
+                          borderTopRightRadius: r === "tr" ? 6 : undefined,
+                          borderBottomLeftRadius: r === "bl" ? 6 : undefined,
+                          borderBottomRightRadius: r === "br" ? 6 : undefined,
+                        }}
+                      />
+                    ))}
+                  </div>
+
+                  {/* Flip camera */}
+                  <button
+                    type="button"
+                    onClick={flipCamera}
+                    className="absolute top-3 right-3 w-9 h-9 rounded-2xl flex items-center justify-center transition-all hover:scale-110 active:scale-95"
+                    style={{
+                      background: "rgba(0,0,0,0.5)",
+                      backdropFilter: "blur(8px)",
+                      border: "1px solid rgba(255,255,255,0.12)",
+                    }}
+                  >
+                    <FlipHorizontal size={16} className="text-white" />
+                  </button>
+
+                  {/* Current analysis type badge */}
+                  <div
+                    className="absolute top-3 left-3 flex items-center gap-1.5 px-2.5 py-1 rounded-xl text-xs font-semibold"
+                    style={{
+                      background: "rgba(0,0,0,0.6)",
+                      backdropFilter: "blur(8px)",
+                      color: "#22d3ee",
+                      border: "1px solid rgba(34,211,238,0.25)",
+                    }}
+                  >
+                    {(() => {
+                      const t = ANALYSIS_TYPES.find((a) => a.id === analysisType)!;
+                      const Icon = t.icon;
+                      return (
+                        <>
+                          <Icon size={11} />
+                          {t.label}
+                        </>
+                      );
+                    })()}
+                  </div>
+                </>
+              ) : (
+                <div className="absolute inset-0 flex flex-col items-center justify-center gap-4">
+                  <div
+                    className="w-16 h-16 rounded-3xl flex items-center justify-center"
+                    style={{
+                      background: "rgba(248,113,113,0.1)",
+                      border: "1px solid rgba(248,113,113,0.2)",
+                    }}
+                  >
+                    <CameraOff size={28} className="text-red-400" />
+                  </div>
+                  <div className="text-center">
+                    <p className="text-sm font-semibold text-white mb-1">Camera unavailable</p>
+                    <p className="text-xs text-slate-500">
+                      {cameraError ?? "Use the upload button below to select an image"}
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => void startCamera(cameraFacing)}
+                    className="px-3.5 py-2 rounded-xl text-xs font-semibold transition-all hover:scale-105 active:scale-95"
+                    style={{
+                      background: "rgba(34,211,238,0.12)",
+                      border: "1px solid rgba(34,211,238,0.28)",
+                      color: "#22d3ee",
+                    }}
+                  >
+                    Retry Camera
+                  </button>
+                </div>
+              )}
+            </div>
+
+            {/* Capture / Upload buttons */}
+            <div className="flex gap-3 pb-2">
+              {cameraAvailable && (
+                <button
+                  type="button"
+                  onClick={captureFromCamera}
+                  className="flex-1 flex items-center justify-center gap-2 py-4 rounded-2xl font-semibold text-sm transition-all hover:scale-[1.02] active:scale-[0.98]"
+                  style={{
+                    background: "linear-gradient(135deg,#0891b2,#22d3ee)",
+                    boxShadow: "0 4px 24px rgba(34,211,238,0.4)",
+                    color: "#030712",
+                  }}
+                >
+                  <Camera size={18} />
+                  Capture
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={() => fileInputRef.current?.click()}
+                className={clsx(
+                  "flex items-center justify-center gap-2 py-4 rounded-2xl font-semibold text-sm transition-all hover:scale-[1.02] active:scale-[0.98]",
+                  cameraAvailable ? "px-4" : "flex-1"
+                )}
+                style={{
+                  background: "rgba(255,255,255,0.05)",
+                  border: "1px solid rgba(255,255,255,0.1)",
+                  color: "#94a3b8",
+                }}
+              >
+                <Upload size={18} />
+                {cameraAvailable ? "Upload" : "Choose Image"}
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* Preview mode */}
+        {mode === "preview" && capturedPreview && (
+          <div className="flex flex-col gap-3 flex-1">
+            {error && (
+              <div
+                className="flex items-start gap-3 px-4 py-3 rounded-2xl"
+                style={{
+                  background: "rgba(239,68,68,0.08)",
+                  border: "1px solid rgba(239,68,68,0.2)",
+                }}
+              >
+                <AlertTriangle size={16} className="text-red-400 shrink-0 mt-0.5" />
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-semibold text-red-400">Analysis failed</p>
+                  <p className="text-xs text-red-300/70 mt-0.5 break-words">{error}</p>
+                </div>
+                <button type="button" onClick={() => setError(null)}>
+                  <X size={14} className="text-red-400 hover:text-red-200 transition-colors" />
+                </button>
+              </div>
+            )}
+
+            <div
+              className="relative flex-1 rounded-3xl overflow-hidden"
+              style={{
+                border: "1px solid rgba(34,211,238,0.15)",
+                minHeight: 240,
+              }}
+            >
+              <img
+                src={capturedPreview}
+                alt="Captured preview"
+                className="w-full h-full object-contain"
+                style={{ background: "#080e1c" }}
+              />
+              <button
+                type="button"
+                onClick={resetToCamera}
+                className="absolute top-3 right-3 w-8 h-8 rounded-xl flex items-center justify-center transition-all hover:scale-110 active:scale-95"
+                style={{
+                  background: "rgba(0,0,0,0.6)",
+                  backdropFilter: "blur(8px)",
+                  border: "1px solid rgba(255,255,255,0.1)",
+                }}
+              >
+                <X size={14} className="text-white" />
+              </button>
+            </div>
+
+            <div className="flex gap-3 pb-2">
+              <button
+                type="button"
+                onClick={runAnalysis}
+                className="flex-1 flex items-center justify-center gap-2 py-4 rounded-2xl font-semibold text-sm transition-all hover:scale-[1.02] active:scale-[0.98]"
+                style={{
+                  background: "linear-gradient(135deg,#0891b2,#22d3ee)",
+                  boxShadow: "0 4px 24px rgba(34,211,238,0.4)",
+                  color: "#030712",
+                }}
+              >
+                <Sparkles size={18} />
+                Analyze with AI
+              </button>
+              <button
+                type="button"
+                onClick={resetToCamera}
+                className="px-4 py-4 rounded-2xl font-semibold text-sm text-slate-400 hover:text-white transition-all"
+                style={{
+                  background: "rgba(255,255,255,0.04)",
+                  border: "1px solid rgba(255,255,255,0.08)",
+                }}
+              >
+                <RefreshCw size={18} />
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* Analyzing state */}
+        {mode === "analyzing" && (
+          <div className="flex-1 flex flex-col items-center justify-center gap-6">
+            {capturedPreview && (
+              <div
+                className="relative w-48 h-36 rounded-2xl overflow-hidden"
+                style={{ border: "1px solid rgba(34,211,238,0.25)" }}
+              >
+                <img
+                  src={capturedPreview}
+                  alt="Analyzing"
+                  className="w-full h-full object-cover"
+                />
+                <div
+                  className="absolute inset-0 flex items-center justify-center"
+                  style={{ background: "rgba(3,7,18,0.55)", backdropFilter: "blur(2px)" }}
+                >
+                  <Loader2 size={32} className="text-cyan-400 animate-spin" />
+                </div>
+              </div>
+            )}
+            <div className="text-center">
+              <p className="text-base font-bold text-white mb-1">Analyzing image…</p>
+              <p className="text-sm text-slate-500">
+                {ANALYSIS_TYPES.find((a) => a.id === analysisType)?.desc ?? "Running AI analysis"}
+              </p>
+            </div>
+            <div className="flex gap-1.5">
+              {[0, 1, 2].map((i) => (
+                <div
+                  key={i}
+                  className="w-2 h-2 rounded-full animate-bounce"
+                  style={{
+                    background: "#22d3ee",
+                    animationDelay: `${i * 0.15}s`,
+                    opacity: 0.7,
+                  }}
+                />
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Results */}
+        {mode === "results" && results && (
+          <div className="flex flex-col gap-4 pb-2">
+
+            {/* Summary row */}
+            <div className="flex gap-3">
+              {capturedPreview && (
+                <div
+                  className="w-20 h-16 rounded-2xl overflow-hidden shrink-0"
+                  style={{ border: "1px solid rgba(34,211,238,0.15)" }}
+                >
+                  <img
+                    src={capturedPreview}
+                    alt="Scanned"
+                    className="w-full h-full object-cover"
+                  />
+                </div>
+              )}
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span
+                    className="px-2.5 py-1 rounded-xl text-xs font-bold"
+                    style={{
+                      background: "linear-gradient(135deg,#0891b2,#22d3ee)",
+                      color: "#030712",
+                    }}
+                  >
+                    {results.item_count} item{results.item_count !== 1 ? "s" : ""} found
+                  </span>
+                  {results.damage_detected && (
+                    <span
+                      className="flex items-center gap-1 px-2.5 py-1 rounded-xl text-xs font-semibold text-red-300"
+                      style={{
+                        background: "rgba(239,68,68,0.12)",
+                        border: "1px solid rgba(239,68,68,0.25)",
+                      }}
+                    >
+                      <AlertTriangle size={11} />
+                      Damage
+                    </span>
+                  )}
+                  {results.shelf_audit.organized && (
+                    <span
+                      className="flex items-center gap-1 px-2.5 py-1 rounded-xl text-xs font-semibold text-emerald-300"
+                      style={{
+                        background: "rgba(52,211,153,0.1)",
+                        border: "1px solid rgba(52,211,153,0.2)",
+                      }}
+                    >
+                      <CheckCircle2 size={11} />
+                      Organized
+                    </span>
+                  )}
+                </div>
+                <p className="text-[11px] text-slate-500 mt-1 capitalize">
+                  {ANALYSIS_TYPES.find((a) => a.id === results.analysis_type)?.label ??
+                    results.analysis_type}{" "}
+                  analysis
+                </p>
+              </div>
+            </div>
+
+            {/* Damage alert */}
+            {results.damage_detected && results.damage_notes && (
+              <div
+                className="flex items-start gap-3 px-4 py-3 rounded-2xl"
+                style={{
+                  background: "rgba(239,68,68,0.07)",
+                  border: "1px solid rgba(239,68,68,0.2)",
+                }}
+              >
+                <AlertTriangle size={16} className="text-red-400 shrink-0 mt-0.5" />
+                <div>
+                  <p className="text-sm font-semibold text-red-400 mb-0.5">Damage detected</p>
+                  <p className="text-xs text-red-300/80">{results.damage_notes}</p>
+                </div>
+              </div>
+            )}
+
+            {/* Detected items */}
+            {results.detected_items.length > 0 && (
+              <section>
+                <h2 className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2 flex items-center gap-2">
+                  <Package size={12} />
+                  Detected Items
+                </h2>
+                <div className="space-y-2">
+                  {results.detected_items.map((item, idx) => (
+                    <div
+                      key={idx}
+                      className="px-4 py-3 rounded-2xl"
+                      style={{
+                        background: "rgba(255,255,255,0.03)",
+                        border: "1px solid rgba(255,255,255,0.07)",
+                      }}
+                    >
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-semibold text-white truncate">
+                            {item.name || "Unknown item"}
+                          </p>
+                          <div className="flex flex-wrap items-center gap-1.5 mt-1">
+                            {item.category && (
+                              <span
+                                className="px-1.5 py-0.5 rounded-lg text-[10px] font-medium text-cyan-300"
+                                style={{ background: "rgba(34,211,238,0.08)" }}
+                              >
+                                {item.category}
+                              </span>
+                            )}
+                            {item.brand && (
+                              <span className="text-[10px] text-slate-500">{item.brand}</span>
+                            )}
+                            {item.model && (
+                              <span className="text-[10px] text-slate-500">· {item.model}</span>
+                            )}
+                            {item.quantity > 1 && (
+                              <span className="text-[10px] font-semibold text-amber-400">
+                                ×{item.quantity}
+                              </span>
+                            )}
+                          </div>
+                          {item.notes && (
+                            <p className="text-[11px] text-slate-500 mt-1 line-clamp-2">
+                              {item.notes}
+                            </p>
+                          )}
+                          <div className="mt-2">
+                            <ConfidenceBar value={item.confidence} />
+                          </div>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => addItemToInventory(item)}
+                          className="flex items-center gap-1 px-2.5 py-1.5 rounded-xl text-xs font-semibold shrink-0 transition-all hover:scale-105 active:scale-95"
+                          style={{
+                            background: "linear-gradient(135deg,#0891b2,#22d3ee)",
+                            color: "#030712",
+                          }}
+                        >
+                          <Plus size={12} />
+                          Add
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </section>
+            )}
+
+            {/* Metadata suggestions */}
+            {results.metadata_suggestions &&
+              Object.values(results.metadata_suggestions).some((v) =>
+                Array.isArray(v) ? v.length > 0 : Boolean(v)
+              ) && (
+                <section>
+                  <h2 className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2 flex items-center gap-2">
+                    <Tag size={12} />
+                    Metadata Suggestions
+                  </h2>
+                  <div
+                    className="px-4 py-3 rounded-2xl space-y-2"
+                    style={{
+                      background: "rgba(34,211,238,0.04)",
+                      border: "1px solid rgba(34,211,238,0.12)",
+                    }}
+                  >
+                    {results.metadata_suggestions.category && (
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs text-slate-500">Category</span>
+                        <span className="text-xs font-semibold text-cyan-300">
+                          {results.metadata_suggestions.category}
+                        </span>
+                      </div>
+                    )}
+                    {results.metadata_suggestions.brand && (
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs text-slate-500">Brand</span>
+                        <span className="text-xs font-semibold text-white">
+                          {results.metadata_suggestions.brand}
+                        </span>
+                      </div>
+                    )}
+                    {results.metadata_suggestions.model && (
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs text-slate-500">Model</span>
+                        <span className="text-xs font-semibold text-white">
+                          {results.metadata_suggestions.model}
+                        </span>
+                      </div>
+                    )}
+                    {results.metadata_suggestions.usage_type && (
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs text-slate-500">Usage Type</span>
+                        <span
+                          className="text-xs font-semibold px-2 py-0.5 rounded-lg"
+                          style={{ background: "rgba(139,92,246,0.15)", color: "#a78bfa" }}
+                        >
+                          {results.metadata_suggestions.usage_type}
+                        </span>
+                      </div>
+                    )}
+                    {results.metadata_suggestions.tags?.length > 0 && (
+                      <div className="flex items-start gap-2">
+                        <span className="text-xs text-slate-500 shrink-0">Tags</span>
+                        <div className="flex flex-wrap gap-1">
+                          {results.metadata_suggestions.tags.map((tag, i) => (
+                            <span
+                              key={i}
+                              className="px-1.5 py-0.5 rounded-lg text-[10px] font-medium text-slate-300"
+                              style={{ background: "rgba(255,255,255,0.06)" }}
+                            >
+                              {tag}
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </section>
+              )}
+
+            {/* OCR text */}
+            {results.ocr_text && (
+              <section>
+                <h2 className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2 flex items-center gap-2">
+                  <FileText size={12} />
+                  Extracted Text
+                </h2>
+                <div
+                  className="relative px-4 py-3 rounded-2xl"
+                  style={{
+                    background: "rgba(255,255,255,0.03)",
+                    border: "1px solid rgba(255,255,255,0.07)",
+                  }}
+                >
+                  <pre className="text-xs text-slate-300 whitespace-pre-wrap break-words font-mono leading-relaxed pr-8">
+                    {results.ocr_text}
+                  </pre>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      void navigator.clipboard.writeText(results.ocr_text);
+                      toast.success("OCR text copied");
+                    }}
+                    className="absolute top-3 right-3 w-7 h-7 rounded-xl flex items-center justify-center transition-all hover:scale-110 active:scale-95"
+                    style={{
+                      background: "rgba(34,211,238,0.1)",
+                      border: "1px solid rgba(34,211,238,0.2)",
+                    }}
+                  >
+                    <Copy size={12} className="text-cyan-400" />
+                  </button>
+                </div>
+              </section>
+            )}
+
+            {/* Shelf audit */}
+            {results.shelf_audit?.total_visible > 0 && (
+              <section>
+                <h2 className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2 flex items-center gap-2">
+                  <BarChart3 size={12} />
+                  Shelf Audit
+                </h2>
+                <div
+                  className="px-4 py-3 rounded-2xl space-y-2"
+                  style={{
+                    background: "rgba(255,255,255,0.03)",
+                    border: "1px solid rgba(255,255,255,0.07)",
+                  }}
+                >
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs text-slate-500">Total Visible</span>
+                    <span className="text-xs font-bold text-white">
+                      {results.shelf_audit.total_visible}
+                    </span>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs text-slate-500">Organization</span>
+                    {results.shelf_audit.organized ? (
+                      <span className="flex items-center gap-1 text-xs font-semibold text-emerald-400">
+                        <CheckCircle2 size={11} />
+                        Organized
+                      </span>
+                    ) : (
+                      <span className="flex items-center gap-1 text-xs font-semibold text-amber-400">
+                        <AlertTriangle size={11} />
+                        Needs attention
+                      </span>
+                    )}
+                  </div>
+                  {results.shelf_audit.issues?.length > 0 && (
+                    <div className="pt-1 space-y-1">
+                      {results.shelf_audit.issues.map((issue, i) => (
+                        <div key={i} className="flex items-start gap-2">
+                          <AlertTriangle size={11} className="text-amber-400 shrink-0 mt-0.5" />
+                          <span className="text-xs text-amber-300/80">{issue}</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </section>
+            )}
+
+            {/* Raw analysis toggle */}
+            {results.raw_analysis && (
+              <section>
+                <button
+                  type="button"
+                  onClick={() => setShowRawAnalysis((v) => !v)}
+                  className="flex items-center gap-2 text-xs text-slate-500 hover:text-slate-300 transition-colors"
+                >
+                  <Eye size={12} />
+                  {showRawAnalysis ? "Hide" : "Show"} raw AI response
+                </button>
+                {showRawAnalysis && (
+                  <div
+                    className="mt-2 px-4 py-3 rounded-2xl"
+                    style={{
+                      background: "rgba(255,255,255,0.02)",
+                      border: "1px solid rgba(255,255,255,0.05)",
+                    }}
+                  >
+                    <pre className="text-[10px] text-slate-500 whitespace-pre-wrap break-words font-mono leading-relaxed max-h-48 overflow-y-auto">
+                      {results.raw_analysis}
+                    </pre>
+                  </div>
+                )}
+              </section>
+            )}
+
+            {/* Action buttons */}
+            <div className="flex gap-3 pt-2">
+              <button
+                type="button"
+                onClick={runAnalysis}
+                className="flex-1 flex items-center justify-center gap-2 py-3 rounded-2xl font-semibold text-sm transition-all hover:scale-[1.02] active:scale-[0.98]"
+                style={{
+                  background: "rgba(34,211,238,0.08)",
+                  border: "1px solid rgba(34,211,238,0.2)",
+                  color: "#22d3ee",
+                }}
+              >
+                <RefreshCw size={15} />
+                Analyze Again
+              </button>
+              <button
+                type="button"
+                onClick={resetToCamera}
+                className="flex-1 flex items-center justify-center gap-2 py-3 rounded-2xl font-semibold text-sm transition-all hover:scale-[1.02] active:scale-[0.98]"
+                style={{
+                  background: "linear-gradient(135deg,#0891b2,#22d3ee)",
+                  boxShadow: "0 4px 20px rgba(34,211,238,0.35)",
+                  color: "#030712",
+                }}
+              >
+                <Camera size={15} />
+                New Scan
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Hidden canvas for frame capture */}
+      <canvas ref={canvasRef} className="hidden" />
+
+      {/* Hidden file input */}
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept="image/*"
+        capture="environment"
+        className="hidden"
+        onChange={handleFileSelect}
+      />
+    </div>
+  );
+}

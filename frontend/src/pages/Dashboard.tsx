@@ -60,6 +60,13 @@ const KPI_CONFIGS = [
     bgClass: "stat-card-emerald",
     subLabel: "transactions",
   },
+  {
+    key: "total_inventory_value",
+    title: "Inventory Value",
+    icon: Activity,
+    accent: "#a78bfa",
+    bgClass: "stat-card-violet",
+  },
 ];
 
 function KpiCard({
@@ -193,8 +200,8 @@ export function Dashboard() {
   if (isLoading) {
     return (
       <div className="p-4 lg:p-6 pb-24 lg:pb-8 space-y-5">
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-          {Array.from({ length: 4 }).map((_, i) => <SkeletonKpiCard key={i} />)}
+        <div className="grid grid-cols-2 lg:grid-cols-5 gap-3">
+          {Array.from({ length: 5 }).map((_, i) => <SkeletonKpiCard key={i} />)}
         </div>
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
           <SkeletonCard rows={6} />
@@ -286,7 +293,7 @@ export function Dashboard() {
 
       {/* KPI row */}
       <motion.div 
-        className="grid grid-cols-2 lg:grid-cols-4 gap-3"
+        className="grid grid-cols-2 lg:grid-cols-5 gap-3"
         variants={animationVariants.staggerContainer}
         initial="hidden"
         animate="visible"
@@ -300,12 +307,15 @@ export function Dashboard() {
               : subLabel
               ? `${value} ${subLabel}`
               : undefined;
+          const formattedValue = key === "total_inventory_value"
+            ? `$${Math.round(value ?? 0).toLocaleString()}`
+            : value?.toLocaleString() ?? "0";
 
           return (
             <motion.div key={key} variants={animationVariants.listItem}>
               <KpiCard
                 title={title}
-                value={value?.toLocaleString() ?? "0"}
+                value={formattedValue}
                 subtitle={subKey ? subtitle : undefined}
                 icon={icon}
                 accent={accent}
@@ -412,10 +422,19 @@ export function Dashboard() {
             backdropFilter: "blur(12px)",
           }}
         >
-          <div className="px-5 py-4" style={{ borderBottom: "1px solid rgba(255,255,255,0.05)" }}>
-            <h3 className="text-sm font-semibold text-slate-200">Top Consumed — Last 30 Days</h3>
+          <div className="px-5 py-4 flex items-center justify-between gap-3" style={{ borderBottom: "1px solid rgba(255,255,255,0.05)" }}>
+            <div>
+              <h3 className="text-sm font-semibold text-slate-200">Top Consumed — Last 30 Days</h3>
+              <p className="text-xs text-slate-500 mt-0.5">Highest outbound movement by item quantity</p>
+            </div>
+            <span
+              className="text-[10px] font-semibold uppercase tracking-wider px-2 py-1 rounded-full"
+              style={{ background: "rgba(34,211,238,0.1)", color: "#22d3ee", border: "1px solid rgba(34,211,238,0.22)" }}
+            >
+              rolling window
+            </span>
           </div>
-          <div className="px-5 py-3">
+          <div className="px-5 pt-3 pb-4">
             <ResponsiveContainer width="100%" height={220}>
               <BarChart data={stats.top_consumed} layout="vertical" margin={{ left: 10 }}>
                 <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.04)" horizontal={false} />
@@ -461,6 +480,24 @@ export function Dashboard() {
                 </defs>
               </BarChart>
             </ResponsiveContainer>
+            <div className="mt-2 flex flex-wrap gap-2">
+              {stats.top_consumed.slice(0, 3).map((item, idx) => (
+                <div
+                  key={item.id}
+                  className="flex items-center gap-2 px-2.5 py-1.5 rounded-xl"
+                  style={{ background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.08)" }}
+                >
+                  <span
+                    className="text-[10px] font-bold w-5 h-5 rounded-full flex items-center justify-center"
+                    style={{ background: "rgba(34,211,238,0.15)", color: "#22d3ee" }}
+                  >
+                    {idx + 1}
+                  </span>
+                  <span className="text-xs text-slate-300 max-w-[140px] truncate">{item.name}</span>
+                  <span className="text-xs font-semibold text-cyan-300">{item.total_consumed}</span>
+                </div>
+              ))}
+            </div>
           </div>
         </div>
       </div>

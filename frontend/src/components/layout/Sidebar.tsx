@@ -2,7 +2,7 @@ import { NavLink } from "react-router-dom";
 import {
   LayoutDashboard, Package, MapPin, QrCode,
   ClipboardList, Upload, Users,
-  Beaker, BrainCircuit, Bell, LogOut, Bot, Settings,
+  Beaker, BrainCircuit, Bell, LogOut, Bot, Settings, Camera,
 } from "lucide-react";
 import { clsx } from "clsx";
 import { useAuthStore } from "@/store/auth";
@@ -18,6 +18,7 @@ const navItems = [
   { to: "/alerts",       label: "Alerts",       icon: Bell },
   { to: "/import",       label: "Import",       icon: Upload, roles: ["admin", "manager"] },
   { to: "/copilot",      label: "AI Copilot",   icon: Bot, highlight2: true },
+  { to: "/smart-scan",   label: "Smart Scan",   icon: Camera, highlight: true },
   { to: "/ai",           label: "AI Insights",  icon: BrainCircuit },
   { to: "/users",        label: "Users",        icon: Users, roles: ["admin"] },
   { to: "/settings",    label: "Settings",     icon: Settings },

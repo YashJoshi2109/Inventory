@@ -13,6 +13,7 @@ import { Import } from "@/pages/Import";
 import { Alerts } from "@/pages/Alerts";
 import { AiInsights } from "@/pages/AiInsights";
 import { AiCopilot } from "@/pages/AiCopilot";
+import { SmartScan } from "@/pages/SmartScan";
 import { Settings } from "@/pages/Settings";
 import { Login } from "@/pages/Login";
 import { Register } from "@/pages/Register";
@@ -131,6 +132,7 @@ export default function App() {
               <Route path="alerts" element={<Alerts />} />
               <Route path="ai" element={<AiInsights />} />
               <Route path="copilot" element={<AiCopilot />} />
+              <Route path="smart-scan" element={<SmartScan />} />
               <Route path="settings" element={<Settings />} />
             </Route>
             <Route path="*" element={<Navigate to="/dashboard" replace />} />

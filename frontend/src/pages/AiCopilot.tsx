@@ -46,12 +46,16 @@ import {
   Image,
   Mic,
   MicOff,
+  Volume2,
   PackagePlus,
   PackageCheck,
   PackageMinus,
+  WifiOff,
+  RotateCcw,
 } from "lucide-react";
 import { clsx } from "clsx";
 import ReactMarkdown from "react-markdown";
+import toast from "react-hot-toast";
 import { useAuthStore } from "@/store/auth";
 import { rateLimitApi } from "@/api/rateLimit";
 
@@ -198,9 +202,10 @@ function MessageBubble({ msg }: { msg: Msg }) {
         )}
 
         {msg.error && (
-          <div className="px-4 py-3 rounded-2xl text-sm"
+          <div className="flex items-start gap-2.5 px-4 py-3 rounded-2xl text-sm"
             style={{ background: "rgba(248,113,113,0.07)", border: "1px solid rgba(248,113,113,0.2)", color: "#f87171" }}>
-            {msg.error}
+            <AlertCircle size={14} className="mt-0.5 shrink-0" />
+            <span className="flex-1 leading-snug">{msg.error}</span>
           </div>
         )}
       </div>
@@ -335,6 +340,7 @@ export function AiCopilot() {
   // TTS
   const [ttsEnabled, setTtsEnabled] = useState(false);
   const ttsEnabledRef = useRef(false);
+  const [ttsActive, setTtsActive] = useState(false); // true while AI is speaking
 
   // Refs — avoid stale closures
   const activeSessionIdRef = useRef<number | null>(null);
@@ -427,16 +433,16 @@ export function AiCopilot() {
     const utt = new SpeechSynthesisUtterance(clean);
     utt.rate = 1.08;
     utt.pitch = 1;
-    // Voices load async — pick on demand
     const voice = pickVoice();
     if (voice) utt.voice = voice;
-    if (onEnd) utt.onend = onEnd;
     // Workaround: Chrome stops speaking after ~15s without this
     const keepAlive = setInterval(() => {
       if (!window.speechSynthesis.speaking) clearInterval(keepAlive);
       else { window.speechSynthesis.pause(); window.speechSynthesis.resume(); }
     }, 10_000);
-    utt.onend = () => { clearInterval(keepAlive); onEnd?.(); };
+    setTtsActive(true);
+    utt.onend = () => { clearInterval(keepAlive); setTtsActive(false); onEnd?.(); };
+    utt.onerror = () => { clearInterval(keepAlive); setTtsActive(false); onEnd?.(); };
     window.speechSynthesis.speak(utt);
   };
 
@@ -587,8 +593,13 @@ export function AiCopilot() {
     setVoiceMode(next);
     ttsEnabledRef.current = next;
     setTtsEnabled(next);
-    if (next) { startListening(); }
-    else       { stopListening(); window.speechSynthesis?.cancel(); }
+    if (next) {
+      startListening();
+    } else {
+      stopListening();
+      window.speechSynthesis?.cancel();
+      setTtsActive(false);
+    }
   };
 
   const toggleTts = () => {
@@ -839,6 +850,7 @@ export function AiCopilot() {
                 m.id === aId ? { ...m, streaming: false, error: event.message } : m
               ));
               setStreaming(false);
+              toast.error(event.message, { duration: 5000, id: "chat-error" });
               break;
           }
         },
@@ -847,9 +859,12 @@ export function AiCopilot() {
       );
     } catch (err) {
       if ((err as Error).name !== "AbortError") {
+        const msg = "Connection lost. Please check your network and try again.";
         setMessages(prev => prev.map(m =>
-          m.id === aId ? { ...m, streaming: false, error: "Connection error. Please try again." } : m
+          m.id === aId ? { ...m, streaming: false, error: msg } : m
         ));
+        toast.error(msg, { duration: 5000, id: "chat-conn-error",
+          icon: <WifiOff size={14} className="text-red-400" /> });
       }
       setStreaming(false);
     }
@@ -865,7 +880,7 @@ export function AiCopilot() {
 
   // ── Render ─────────────────────────────────────────────────────────────────
   return (
-    <div className="flex overflow-hidden" style={{ height: "calc(100dvh - 56px)" }}>
+    <div className="relative flex overflow-hidden" style={{ height: "calc(100dvh - 56px)" }}>
 
       {/* ── Mobile sidebar overlay backdrop ───────────────────────────────── */}
       {showSidebar && (
@@ -1357,6 +1372,150 @@ export function AiCopilot() {
         <div className="lg:hidden fixed inset-0 z-50 flex">
           <button className="flex-1 bg-black/50" onClick={() => setShowKB(false)} />
           <div className="w-80 h-full"><KBPanel onClose={() => setShowKB(false)} /></div>
+        </div>
+      )}
+
+      {/* ── Voice Conversation Overlay (ChatGPT-style) ────────────────────── */}
+      {voiceMode && (
+        <div className="absolute inset-0 z-50 flex flex-col items-center justify-between py-10 px-6 select-none"
+          style={{ background: "rgba(2,6,18,0.97)", backdropFilter: "blur(28px)" }}>
+
+          {/* Mini conversation history */}
+          <div className="w-full max-w-md space-y-1.5 overflow-hidden" style={{ maxHeight: 140 }}>
+            {messages.slice(-3).filter(m => m.content).map(m => (
+              <div key={m.id}
+                className={clsx("text-xs leading-relaxed px-3 py-1.5 rounded-xl truncate",
+                  m.role === "user"
+                    ? "text-slate-500 text-right ml-10 bg-white/[0.03]"
+                    : "text-slate-400 mr-10 bg-white/[0.03]"
+                )}>
+                {m.role === "user" ? "You: " : "AI: "}
+                {m.content.slice(0, 90)}{m.content.length > 90 ? "…" : ""}
+              </div>
+            ))}
+          </div>
+
+          {/* Central orb + status */}
+          <div className="flex flex-col items-center gap-7">
+            {/* Animated orb */}
+            <div className="relative flex items-center justify-center">
+              {/* Outer rings */}
+              {[0, 1, 2].map(i => (
+                <span key={i} className="absolute rounded-full animate-ping"
+                  style={{
+                    width: 138 + i * 52, height: 138 + i * 52,
+                    border: `1px solid ${
+                      isListening ? `rgba(248,113,113,${0.22 - i * 0.06})`
+                      : ttsActive  ? `rgba(168,85,247,${0.22 - i * 0.06})`
+                      : streaming  ? `rgba(34,211,238,${0.18 - i * 0.05})`
+                      : `rgba(100,116,139,${0.1 - i * 0.03})`
+                    }`,
+                    animationDuration: `${1.7 + i * 0.55}s`,
+                    animationDelay: `${i * 0.38}s`,
+                  }} />
+              ))}
+
+              {/* Core orb */}
+              <div className="relative w-36 h-36 rounded-full flex items-center justify-center transition-all duration-700"
+                style={{
+                  background: isListening
+                    ? "radial-gradient(circle at 38% 32%, rgba(248,113,113,0.5), rgba(239,68,68,0.12) 70%)"
+                    : ttsActive
+                    ? "radial-gradient(circle at 38% 32%, rgba(168,85,247,0.5), rgba(147,51,234,0.12) 70%)"
+                    : streaming
+                    ? "radial-gradient(circle at 38% 32%, rgba(34,211,238,0.45), rgba(8,145,178,0.12) 70%)"
+                    : "radial-gradient(circle at 38% 32%, rgba(100,116,139,0.2), rgba(51,65,85,0.08) 70%)",
+                  boxShadow: isListening
+                    ? "0 0 90px rgba(248,113,113,0.28), 0 0 35px rgba(248,113,113,0.14)"
+                    : ttsActive
+                    ? "0 0 90px rgba(168,85,247,0.28), 0 0 35px rgba(168,85,247,0.14)"
+                    : streaming
+                    ? "0 0 90px rgba(34,211,238,0.25), 0 0 35px rgba(34,211,238,0.12)"
+                    : "none",
+                  border: isListening
+                    ? "1.5px solid rgba(248,113,113,0.4)"
+                    : ttsActive
+                    ? "1.5px solid rgba(168,85,247,0.4)"
+                    : streaming
+                    ? "1.5px solid rgba(34,211,238,0.4)"
+                    : "1.5px solid rgba(255,255,255,0.07)",
+                }}>
+                <div className="transition-all duration-300">
+                  {streaming
+                    ? <Loader2 size={50} className="text-brand-300 animate-spin" />
+                    : ttsActive
+                    ? <Volume2 size={50} className="text-purple-300"
+                        style={{ filter: "drop-shadow(0 0 16px rgba(168,85,247,0.75))" }} />
+                    : isListening
+                    ? <Mic size={50} className="text-red-300"
+                        style={{ filter: "drop-shadow(0 0 16px rgba(248,113,113,0.75))" }} />
+                    : <Mic size={50} className="text-slate-600" />
+                  }
+                </div>
+              </div>
+            </div>
+
+            {/* Status label */}
+            <div className="text-center">
+              <p className="text-2xl font-semibold tracking-tight"
+                style={{ color: isListening ? "#fca5a5" : ttsActive ? "#d8b4fe" : streaming ? "#67e8f9" : "#64748b" }}>
+                {streaming ? "Thinking…" : ttsActive ? "Speaking…" : isListening ? "Listening…" : "Ready"}
+              </p>
+              <p className="text-xs text-slate-600 mt-1.5">
+                {streaming ? "Generating AI response"
+                  : ttsActive ? "Tap skip to stop speaking"
+                  : isListening ? "Speak naturally · auto-sends on 2s pause"
+                  : "Waiting…"}
+              </p>
+            </div>
+
+            {/* Waveform bars while listening */}
+            {isListening && !streaming && (
+              <div className="flex items-end gap-1.5 h-12">
+                {[0,1,2,3,4,5,6,7,8].map(i => (
+                  <span key={i} className="w-1.5 rounded-full bg-red-400 animate-bounce"
+                    style={{
+                      height: Math.max(8, Math.abs(Math.sin(i * 0.9 + 0.5) * 28) + 6),
+                      animationDelay: `${i * 0.08}s`,
+                      animationDuration: "0.6s",
+                      opacity: 0.7 + 0.3 * Math.sin(i),
+                    }} />
+                ))}
+              </div>
+            )}
+
+            {/* Live transcript / pending text */}
+            {(interimTranscript || input) && (
+              <div className="max-w-xs w-full text-center px-5 py-3 rounded-2xl"
+                style={{ background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.08)" }}>
+                <p className="text-sm text-slate-300 leading-relaxed">
+                  {input || interimTranscript}
+                </p>
+                {interimTranscript && input !== interimTranscript && (
+                  <p className="text-xs text-slate-600 mt-1 italic">"{interimTranscript}"</p>
+                )}
+              </div>
+            )}
+          </div>
+
+          {/* Bottom controls */}
+          <div className="flex items-center gap-3">
+            {ttsActive && (
+              <button
+                onClick={() => { window.speechSynthesis?.cancel(); setTtsActive(false); }}
+                className="px-5 py-2.5 rounded-2xl text-sm font-medium text-slate-400 hover:text-white transition-all"
+                style={{ background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.1)" }}>
+                Skip
+              </button>
+            )}
+            <button
+              onClick={toggleVoiceMode}
+              className="flex items-center gap-2.5 px-8 py-3.5 rounded-2xl text-sm font-semibold text-white transition-all hover:scale-[1.03] active:scale-95"
+              style={{ background: "rgba(248,113,113,0.1)", border: "1px solid rgba(248,113,113,0.3)" }}>
+              <X size={14} />
+              End conversation
+            </button>
+          </div>
         </div>
       )}
     </div>
