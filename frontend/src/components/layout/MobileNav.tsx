@@ -1,5 +1,5 @@
 import { NavLink, useLocation, useNavigate } from "react-router-dom";
-import { LayoutDashboard, Package, QrCode, Bell, BrainCircuit, MapPin, MoreHorizontal, LogOut, Bot, Settings, Camera } from "lucide-react";
+import { LayoutDashboard, Package, QrCode, Bell, BrainCircuit, MapPin, MoreHorizontal, LogOut, Settings, Camera, Shield } from "lucide-react";
 import { clsx } from "clsx";
 import { useQuery } from "@tanstack/react-query";
 import { transactionsApi } from "@/api/transactions";
@@ -17,7 +17,8 @@ const primaryNav = [
 export function MobileNav() {
   const location = useLocation();
   const navigate = useNavigate();
-  const { logout } = useAuthStore();
+  const { logout, hasRole } = useAuthStore();
+  const canManageUsers = hasRole("admin", "manager");
   const accessToken = useAuthStore((s) => s.accessToken);
   const [moreOpen, setMoreOpen] = useState(false);
 
@@ -39,7 +40,7 @@ export function MobileNav() {
   });
 
   const isMoreRouteActive = useMemo(() => {
-    return location.pathname.startsWith("/ai") || location.pathname.startsWith("/alerts") || location.pathname.startsWith("/copilot") || location.pathname.startsWith("/settings") || location.pathname.startsWith("/smart-scan");
+    return location.pathname.startsWith("/ai") || location.pathname.startsWith("/alerts") || location.pathname.startsWith("/copilot") || location.pathname.startsWith("/settings") || location.pathname.startsWith("/smart-scan") || location.pathname.startsWith("/users");
   }, [location.pathname]);
 
   const isMoreActive = isMoreRouteActive || moreOpen;
@@ -292,6 +293,23 @@ export function MobileNav() {
                   )}
                 </button>
 
+                {canManageUsers && (
+                  <button
+                    type="button"
+                    onClick={() => navigate("/users")}
+                    className="w-full flex items-center gap-3 px-3 py-3 rounded-2xl text-left transition-colors"
+                    style={{ background: "rgba(245,158,11,0.05)", border: "1px solid rgba(245,158,11,0.15)" }}
+                  >
+                    <div className="w-10 h-10 rounded-2xl flex items-center justify-center" style={{ background: "rgba(245,158,11,0.1)", border: "1px solid rgba(245,158,11,0.2)" }}>
+                      <Shield size={18} className="text-amber-400" />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-semibold text-white truncate">Admin Panel</p>
+                      <p className="text-xs text-slate-500 truncate">User management</p>
+                    </div>
+                  </button>
+                )}
+
                 <button
                   type="button"
                   onClick={() => navigate("/settings")}
@@ -341,21 +359,6 @@ export function MobileNav() {
         </>
       )}
 
-      {/* Quick AI Copilot button (mobile only) */}
-      <button
-        type="button"
-        onClick={() => navigate("/copilot")}
-        className="lg:hidden fixed right-4 bottom-[78px] z-50 w-12 h-12 rounded-2xl flex items-center justify-center transition-all hover:scale-105 active:scale-95"
-        style={{
-          background: "linear-gradient(135deg,#8b5cf6,#22d3ee)",
-          border: "1px solid rgba(255,255,255,0.28)",
-          boxShadow: "0 10px 30px rgba(34,211,238,0.35), 0 8px 20px rgba(139,92,246,0.25)",
-        }}
-        title="AI Copilot"
-        aria-label="Open AI Copilot"
-      >
-        <Bot size={19} className="text-white" />
-      </button>
     </nav>
   );
 }

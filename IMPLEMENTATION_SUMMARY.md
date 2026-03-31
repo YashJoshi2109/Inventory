@@ -1,3 +1,4 @@
+
 # Implementation Summary - UTA SEAR Lab Inventory System Enhancements
 
 ## Overview

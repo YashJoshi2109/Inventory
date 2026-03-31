@@ -11,24 +11,48 @@ from app.schemas.user import AdminPasswordResetRequest, PasswordChangeRequest, U
 router = APIRouter(prefix="/users", tags=["users"])
 
 
-@router.get(
-    "",
-    response_model=list[UserRead],
-    dependencies=[Depends(require_roles(RoleName.ADMIN))],
-)
+def _is_admin_or_manager(user) -> bool:
+    if user.is_superuser:
+        return True
+    return any(
+        ur.role and ur.role.name in (RoleName.ADMIN, RoleName.MANAGER)
+        for ur in (user.roles or [])
+    )
+
+
+def _is_admin(user) -> bool:
+    if user.is_superuser:
+        return True
+    return any(
+        ur.role and ur.role.name == RoleName.ADMIN
+        for ur in (user.roles or [])
+    )
+
+
+@router.get("", response_model=list[UserRead])
 async def list_users(session: DbSession, current_user: CurrentUser) -> list[UserRead]:
+    if not _is_admin_or_manager(current_user):
+        raise HTTPException(status_code=403, detail="Admin or manager role required")
     repo = UserRepository(session)
     users = await repo.list_users()
     return [UserRead.model_validate(u) for u in users]
 
 
-@router.post(
-    "",
-    response_model=UserRead,
-    status_code=status.HTTP_201_CREATED,
-    dependencies=[Depends(require_roles(RoleName.ADMIN))],
-)
+@router.get("/roles", response_model=list[dict])
+async def list_roles(session: DbSession, current_user: CurrentUser) -> list[dict]:
+    """Return all available roles for assignment."""
+    if not _is_admin_or_manager(current_user):
+        raise HTTPException(status_code=403, detail="Admin or manager role required")
+    repo = RoleRepository(session)
+    roles = await repo.get_all()
+    return [{"id": r.id, "name": r.name, "description": r.description} for r in roles]
+
+
+@router.post("", response_model=UserRead, status_code=status.HTTP_201_CREATED)
 async def create_user(body: UserCreate, session: DbSession, current_user: CurrentUser) -> UserRead:
+    if not _is_admin_or_manager(current_user):
+        raise HTTPException(status_code=403, detail="Admin or manager role required")
+
     repo = UserRepository(session)
     role_repo = RoleRepository(session)
 
@@ -42,11 +66,19 @@ async def create_user(body: UserCreate, session: DbSession, current_user: Curren
         username=body.username,
         full_name=body.full_name,
         hashed_password=hash_password(body.password),
+        email_verified=True,  # Admin-created users are pre-verified
     )
     session.add(user)
     await session.flush()
 
-    roles = await role_repo.get_by_ids(body.role_ids)
+    # Managers cannot assign admin role
+    allowed_role_ids = body.role_ids
+    if not _is_admin(current_user) and allowed_role_ids:
+        admin_role = await role_repo.get_by_name(RoleName.ADMIN)
+        if admin_role:
+            allowed_role_ids = [rid for rid in allowed_role_ids if rid != admin_role.id]
+
+    roles = await role_repo.get_by_ids(allowed_role_ids)
     for role in roles:
         session.add(UserRole(user_id=user.id, role_id=role.id))
     await session.flush()
@@ -61,33 +93,63 @@ async def update_user(
     repo = UserRepository(session)
     role_repo = RoleRepository(session)
 
-    # Operators can only update themselves
-    is_admin = current_user.is_superuser or any(
-        ur.role.name == RoleName.ADMIN for ur in current_user.roles if ur.role
-    )
-    if not is_admin and current_user.id != user_id:
+    is_admin = _is_admin(current_user)
+    is_admin_or_manager = _is_admin_or_manager(current_user)
+
+    if not is_admin_or_manager and current_user.id != user_id:
         raise HTTPException(status_code=403, detail="Cannot modify other users")
 
     user = await repo.get_with_roles(user_id)
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
 
+    # Managers cannot activate/deactivate admins
+    if not is_admin and user.is_superuser:
+        raise HTTPException(status_code=403, detail="Cannot modify a superuser account")
+
     updates = body.model_dump(exclude_unset=True, exclude={"role_ids"})
     for field, value in updates.items():
         setattr(user, field, value)
 
-    if body.role_ids is not None and is_admin:
-        # Replace roles
-        for ur in user.roles:
+    if body.role_ids is not None and is_admin_or_manager:
+        for ur in list(user.roles):
             await session.delete(ur)
         await session.flush()
-        roles = await role_repo.get_by_ids(body.role_ids)
+
+        allowed_role_ids = body.role_ids
+        if not is_admin:
+            admin_role = await role_repo.get_by_name(RoleName.ADMIN)
+            if admin_role:
+                allowed_role_ids = [rid for rid in allowed_role_ids if rid != admin_role.id]
+
+        roles = await role_repo.get_by_ids(allowed_role_ids)
         for role in roles:
             session.add(UserRole(user_id=user.id, role_id=role.id))
 
     await session.flush()
     await session.refresh(user)
     return UserRead.model_validate(user)
+
+
+@router.delete("/{user_id}", response_model=MessageResponse)
+async def deactivate_user(
+    user_id: int, session: DbSession, current_user: CurrentUser
+) -> MessageResponse:
+    if not _is_admin_or_manager(current_user):
+        raise HTTPException(status_code=403, detail="Admin or manager role required")
+    if current_user.id == user_id:
+        raise HTTPException(status_code=400, detail="Cannot deactivate your own account")
+
+    repo = UserRepository(session)
+    user = await repo.get_by_id(user_id)
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    if user.is_superuser and not _is_admin(current_user):
+        raise HTTPException(status_code=403, detail="Cannot deactivate a superuser account")
+
+    user.is_active = False
+    await session.flush()
+    return MessageResponse(message=f"User '{user.username}' deactivated successfully")
 
 
 @router.post("/{user_id}/change-password", response_model=MessageResponse)
@@ -112,15 +174,20 @@ async def change_password(
 @router.post(
     "/{user_id}/reset-password",
     response_model=MessageResponse,
-    dependencies=[Depends(require_roles(RoleName.ADMIN))],
 )
 async def admin_reset_password(
     user_id: int, body: AdminPasswordResetRequest, session: DbSession, current_user: CurrentUser
 ) -> MessageResponse:
+    if not _is_admin_or_manager(current_user):
+        raise HTTPException(status_code=403, detail="Admin or manager role required")
+
     repo = UserRepository(session)
     user = await repo.get_by_id(user_id)
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
+    if user.is_superuser and not _is_admin(current_user):
+        raise HTTPException(status_code=403, detail="Cannot reset a superuser's password")
+
     user.hashed_password = hash_password(body.new_password)
     await session.flush()
     return MessageResponse(message="Password reset successfully")

@@ -62,3 +62,18 @@ services:
         value: "1"
       - key: ALERT_EMAIL_ENABLED
         value: "false"
+      # ── AI / Gemini (required for copilot + smart scan) ──
+      - key: GEMINI_API_KEY
+        sync: false          # set manually in Render dashboard
+      - key: GEMINI_CHAT_MODEL
+        value: gemini-2.0-flash
+      - key: GEMINI_VISION_MODEL
+        value: gemini-2.0-flash
+      - key: GEMINI_VISION_FALLBACK_MODELS_RAW
+        value: "gemini-1.5-flash,gemini-1.5-pro"
+      # ── WebAuthn / Passkeys ──
+      # Set RP_ID to your Vercel domain, e.g. inventory-brown-beta.vercel.app
+      - key: WEBAUTHN_RP_ID
+        sync: false          # e.g. inventory-brown-beta.vercel.app
+      - key: WEBAUTHN_ORIGINS
+        sync: false          # e.g. https://inventory-brown-beta.vercel.app

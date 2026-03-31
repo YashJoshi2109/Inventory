@@ -58,6 +58,11 @@ export const itemsApi = {
     return data;
   },
 
+  createCategory: async (payload: { name: string; item_type?: string; color?: string; icon?: string; description?: string }): Promise<Category> => {
+    const { data } = await apiClient.post<Category>("/items/categories", payload);
+    return data;
+  },
+
   printLabelSheet: async (itemIds: number[]): Promise<Blob> => {
     const { data } = await apiClient.post("/barcodes/labels/print", itemIds, {
       responseType: "blob",

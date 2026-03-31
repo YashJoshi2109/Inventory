@@ -1,27 +1,32 @@
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { useEffect, useState } from "react";
+import { useEffect, useState, lazy, Suspense } from "react";
 import { authApi } from "@/api/auth";
 import { Layout } from "@/components/layout/Layout";
-import { Dashboard } from "@/pages/Dashboard";
-import { Inventory } from "@/pages/Inventory";
-import { ItemDetail } from "@/pages/ItemDetail";
-import { Scan } from "@/pages/Scan";
-import { Transactions } from "@/pages/Transactions";
-import { Locations } from "@/pages/Locations";
-import { Import } from "@/pages/Import";
-import { Alerts } from "@/pages/Alerts";
-import { AiInsights } from "@/pages/AiInsights";
-import { AiCopilot } from "@/pages/AiCopilot";
-import { SmartScan } from "@/pages/SmartScan";
-import { Settings } from "@/pages/Settings";
-import { Login } from "@/pages/Login";
-import { Register } from "@/pages/Register";
-import { VerifyEmail } from "@/pages/VerifyEmail";
-import { ForgotPassword } from "@/pages/ForgotPassword";
 import { useAuthStore } from "@/store/auth";
 import { useThemeStore } from "@/store/theme";
 import { SkeletonApp } from "@/components/ui/Skeleton";
+
+// ── Lazy-loaded pages (code-splitting for fast initial load) ──────────────────
+const Dashboard     = lazy(() => import("@/pages/Dashboard").then((m) => ({ default: m.Dashboard })));
+const Inventory     = lazy(() => import("@/pages/Inventory").then((m) => ({ default: m.Inventory })));
+const ItemDetail    = lazy(() => import("@/pages/ItemDetail").then((m) => ({ default: m.ItemDetail })));
+const Scan          = lazy(() => import("@/pages/Scan").then((m) => ({ default: m.Scan })));
+const Transactions  = lazy(() => import("@/pages/Transactions").then((m) => ({ default: m.Transactions })));
+const Locations     = lazy(() => import("@/pages/Locations").then((m) => ({ default: m.Locations })));
+const Import        = lazy(() => import("@/pages/Import").then((m) => ({ default: m.Import })));
+const Alerts        = lazy(() => import("@/pages/Alerts").then((m) => ({ default: m.Alerts })));
+const AiInsights    = lazy(() => import("@/pages/AiInsights").then((m) => ({ default: m.AiInsights })));
+const AiCopilot     = lazy(() => import("@/pages/AiCopilot").then((m) => ({ default: m.AiCopilot })));
+const SmartScan     = lazy(() => import("@/pages/SmartScan").then((m) => ({ default: m.SmartScan })));
+const Settings      = lazy(() => import("@/pages/Settings").then((m) => ({ default: m.Settings })));
+const Admin         = lazy(() => import("@/pages/Admin").then((m) => ({ default: m.Admin })));
+const Login         = lazy(() => import("@/pages/Login").then((m) => ({ default: m.Login })));
+const Register      = lazy(() => import("@/pages/Register").then((m) => ({ default: m.Register })));
+const VerifyEmail   = lazy(() => import("@/pages/VerifyEmail").then((m) => ({ default: m.VerifyEmail })));
+const ForgotPassword = lazy(() => import("@/pages/ForgotPassword").then((m) => ({ default: m.ForgotPassword })));
+
+// ── Query client ──────────────────────────────────────────────────────────────
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -35,6 +40,16 @@ const queryClient = new QueryClient({
     },
   },
 });
+
+// ── Page-level loading fallback ───────────────────────────────────────────────
+
+function PageSpinner() {
+  return (
+    <div className="flex items-center justify-center min-h-[40vh]">
+      <div className="w-8 h-8 rounded-full border-2 border-brand-400 border-t-transparent animate-spin" />
+    </div>
+  );
+}
 
 /**
  * Waits for Zustand persist rehydration, then validates stored JWT against the API.
@@ -108,35 +123,38 @@ export default function App() {
       <BrowserRouter>
         <ThemeInit />
         <AuthBootstrap>
-          <Routes>
-            <Route path="/login" element={<Login />} />
-            <Route path="/register" element={<Register />} />
-            <Route path="/verify-email" element={<VerifyEmail />} />
-            <Route path="/forgot-password" element={<ForgotPassword />} />
-            <Route
-              path="/"
-              element={(
-                <ProtectedRoute>
-                  <Layout />
-                </ProtectedRoute>
-              )}
-            >
-              <Route index element={<Navigate to="/dashboard" replace />} />
-              <Route path="dashboard" element={<Dashboard />} />
-              <Route path="inventory" element={<Inventory />} />
-              <Route path="inventory/:id" element={<ItemDetail />} />
-              <Route path="scan" element={<Scan />} />
-              <Route path="transactions" element={<Transactions />} />
-              <Route path="locations" element={<Locations />} />
-              <Route path="import" element={<Import />} />
-              <Route path="alerts" element={<Alerts />} />
-              <Route path="ai" element={<AiInsights />} />
-              <Route path="copilot" element={<AiCopilot />} />
-              <Route path="smart-scan" element={<SmartScan />} />
-              <Route path="settings" element={<Settings />} />
-            </Route>
-            <Route path="*" element={<Navigate to="/dashboard" replace />} />
-          </Routes>
+          <Suspense fallback={<SkeletonApp />}>
+            <Routes>
+              <Route path="/login" element={<Login />} />
+              <Route path="/register" element={<Register />} />
+              <Route path="/verify-email" element={<VerifyEmail />} />
+              <Route path="/forgot-password" element={<ForgotPassword />} />
+              <Route
+                path="/"
+                element={(
+                  <ProtectedRoute>
+                    <Layout />
+                  </ProtectedRoute>
+                )}
+              >
+                <Route index element={<Navigate to="/dashboard" replace />} />
+                <Route path="dashboard" element={<Suspense fallback={<PageSpinner />}><Dashboard /></Suspense>} />
+                <Route path="inventory" element={<Suspense fallback={<PageSpinner />}><Inventory /></Suspense>} />
+                <Route path="inventory/:id" element={<Suspense fallback={<PageSpinner />}><ItemDetail /></Suspense>} />
+                <Route path="scan" element={<Suspense fallback={<PageSpinner />}><Scan /></Suspense>} />
+                <Route path="transactions" element={<Suspense fallback={<PageSpinner />}><Transactions /></Suspense>} />
+                <Route path="locations" element={<Suspense fallback={<PageSpinner />}><Locations /></Suspense>} />
+                <Route path="import" element={<Suspense fallback={<PageSpinner />}><Import /></Suspense>} />
+                <Route path="alerts" element={<Suspense fallback={<PageSpinner />}><Alerts /></Suspense>} />
+                <Route path="ai" element={<Suspense fallback={<PageSpinner />}><AiInsights /></Suspense>} />
+                <Route path="copilot" element={<Suspense fallback={<PageSpinner />}><AiCopilot /></Suspense>} />
+                <Route path="smart-scan" element={<Suspense fallback={<PageSpinner />}><SmartScan /></Suspense>} />
+                <Route path="settings" element={<Suspense fallback={<PageSpinner />}><Settings /></Suspense>} />
+                <Route path="users" element={<Suspense fallback={<PageSpinner />}><Admin /></Suspense>} />
+              </Route>
+              <Route path="*" element={<Navigate to="/dashboard" replace />} />
+            </Routes>
+          </Suspense>
         </AuthBootstrap>
       </BrowserRouter>
     </QueryClientProvider>

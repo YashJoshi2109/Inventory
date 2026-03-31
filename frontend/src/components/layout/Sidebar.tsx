@@ -20,7 +20,7 @@ const navItems = [
   { to: "/copilot",      label: "AI Copilot",   icon: Bot, highlight2: true },
   { to: "/smart-scan",   label: "Smart Scan",   icon: Camera, highlight: true },
   { to: "/ai",           label: "AI Insights",  icon: BrainCircuit },
-  { to: "/users",        label: "Users",        icon: Users, roles: ["admin"] },
+  { to: "/users",        label: "Users",        icon: Users, roles: ["admin", "manager"] },
   { to: "/settings",    label: "Settings",     icon: Settings },
 ];
 

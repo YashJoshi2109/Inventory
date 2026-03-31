@@ -32,3 +32,4 @@ Thumbs.db
 .cursor/
 *.swp
 *.swo
+.env*.local

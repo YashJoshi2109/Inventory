@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 from typing import AsyncIterator, Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -206,21 +207,60 @@ async def run_copilot(
                 )
             )
 
+        gemini_config = types.GenerateContentConfig(
+            system_instruction=SYSTEM_PROMPT,
+            tools=gemini_tools,
+            tool_config=tool_config,
+            automatic_function_calling=types.AutomaticFunctionCallingConfig(disable=True),
+        )
+
         for _round in range(8):
+            # ── Use streaming for text responses; accumulate for tool-call detection ──
+            text_parts: list[str] = []
+            seen_fc_keys: set[str] = set()
+            collected_tool_calls: list[Any] = []
+            last_candidate_content: Any = None
+            stream_error: Exception | None = None
+
             try:
-                resp = await client.aio.models.generate_content(
+                _stream = await client.aio.models.generate_content_stream(
                     model=settings.GEMINI_CHAT_MODEL,
                     contents=contents,
-                    config=types.GenerateContentConfig(
-                        system_instruction=SYSTEM_PROMPT,
-                        tools=gemini_tools,
-                        tool_config=tool_config,
-                        # Disable SDK automatic function calling; we need to execute tools ourselves.
-                        automatic_function_calling=types.AutomaticFunctionCallingConfig(disable=True),
-                    ),
+                    config=gemini_config,
                 )
+                async for chunk in _stream:
+                    # Stream text tokens immediately to the client
+                    try:
+                        t = chunk.text
+                    except Exception:
+                        t = None
+                    if t:
+                        text_parts.append(t)
+                        yield _sse({"type": "token", "content": t})
+
+                    # Collect candidate content for tool-call detection and history
+                    if getattr(chunk, "candidates", None):
+                        for cand in chunk.candidates:
+                            cand_content = getattr(cand, "content", None)
+                            if cand_content:
+                                last_candidate_content = cand_content
+                                for part in (getattr(cand_content, "parts", None) or []):
+                                    fc = getattr(part, "function_call", None)
+                                    if fc and getattr(fc, "name", None):
+                                        # Deduplicate by (name, serialized args)
+                                        try:
+                                            fc_key = f"{fc.name}:{json.dumps(dict(fc.args or {}), sort_keys=True)}"
+                                        except Exception:
+                                            fc_key = fc.name
+                                        if fc_key not in seen_fc_keys:
+                                            seen_fc_keys.add(fc_key)
+                                            collected_tool_calls.append(fc)
+
             except Exception as exc:
-                log.warning("Gemini API error (%s): falling back to rule-based responder", type(exc).__name__)
+                stream_error = exc
+
+            if stream_error is not None:
+                log.warning("Gemini streaming error (%s): falling back to rule-based responder", type(stream_error).__name__)
                 session_for_fallback, close_fallback = await _get_db()
                 try:
                     async for chunk in _fallback_responder(messages, session_for_fallback, actor_id, actor_roles):
@@ -231,39 +271,22 @@ async def run_copilot(
                         await session_for_fallback.close()
                 return
 
-            # Extract tool calls from the candidate parts
-            candidate = resp.candidates[0] if getattr(resp, "candidates", None) else None
-            parts = []
-            if candidate and getattr(candidate, "content", None):
-                parts = getattr(candidate.content, "parts", []) or []
-
-            tool_calls = []
-            for part in parts:
-                fc = getattr(part, "function_call", None)
-                if fc and getattr(fc, "name", None):
-                    tool_calls.append(fc)
-
             # Preserve model's turn for function-calling conversation continuity
-            if candidate and getattr(candidate, "content", None):
-                contents.append(candidate.content)
+            if last_candidate_content:
+                contents.append(last_candidate_content)
+            elif text_parts:
+                contents.append(types.Content(
+                    role="model",
+                    parts=[types.Part.from_text(text="".join(text_parts))],
+                ))
 
-            # If no tool calls, finish with model text
-            if not tool_calls:
-                try:
-                    final_text = getattr(resp, "text", "") or ""
-                except Exception:
-                    final_text = ""
-                if not final_text.strip():
-                    # Try extracting text from parts directly
-                    for part in parts:
-                        t = getattr(part, "text", None)
-                        if t:
-                            final_text += t
-                if not final_text.strip():
-                    final_text = "I couldn't find any relevant information for that query. Try rephrasing or ask about specific items, stock levels, or locations."
-                for chunk in _chunk_text(final_text, size=6):
-                    yield _sse({"type": "token", "content": chunk})
+            # If no tool calls, text was already streamed — done
+            if not collected_tool_calls:
+                if not text_parts:
+                    yield _sse({"type": "token", "content": "I couldn't find any relevant information for that query. Try rephrasing or ask about specific items, stock levels, or locations."})
                 break
+
+            tool_calls = collected_tool_calls
 
             # Execute each requested tool call
             for fc in tool_calls:

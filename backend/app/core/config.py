@@ -122,9 +122,9 @@ class Settings(BaseSettings):
 
     # Gemini (primary)
     GEMINI_API_KEY: str = ""          # Required to enable Gemini copilot
-    GEMINI_CHAT_MODEL: str = "gemini-flash-latest"
+    GEMINI_CHAT_MODEL: str = "gemini-2.0-flash"
     # Vision model used by Smart Scan (/ai/vision/analyze)
-    GEMINI_VISION_MODEL: str = "gemini-2.0-flash-lite"
+    GEMINI_VISION_MODEL: str = "gemini-2.0-flash"
     # Comma-separated or JSON list fallback models to try when quota/rate-limit hits.
     GEMINI_VISION_FALLBACK_MODELS_RAW: str = "gemini-1.5-flash,gemini-1.5-pro"
 

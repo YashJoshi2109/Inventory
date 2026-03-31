@@ -13,11 +13,12 @@ import { Input } from "@/components/ui/Input";
 import { Modal } from "@/components/ui/Modal";
 import {
   Search, Plus, QrCode,
-  ChevronLeft, ChevronRight, Package,
+  ChevronLeft, ChevronRight, Package, FolderPlus,
 } from "lucide-react";
 import { clsx } from "clsx";
 import type { ItemSummary } from "@/types";
 import { useHaptic } from "@/hooks/useHaptic";
+import { useAuthStore } from "@/store/auth";
 
 const STATUS_FILTERS = [
   { label: "All", value: "" },
@@ -28,9 +29,12 @@ const STATUS_FILTERS = [
 
 export function Inventory() {
   const { triggerHaptic } = useHaptic();
+  const { hasRole } = useAuthStore();
+  const canManage = hasRole("admin", "manager");
   const [searchParams, setSearchParams] = useSearchParams();
   const [page, setPage] = useState(1);
   const [showAddModal, setShowAddModal] = useState(false);
+  const [showAddCategoryModal, setShowAddCategoryModal] = useState(false);
   const [newItem, setNewItem] = useState({
     sku: "",
     name: "",
@@ -39,6 +43,7 @@ export function Inventory() {
     unit_cost: "0",
     reorder_level: "0",
   });
+  const [newCategory, setNewCategory] = useState({ name: "", description: "" });
   const queryClient = useQueryClient();
   const PAGE_SIZE = 30;
 
@@ -108,6 +113,23 @@ export function Inventory() {
     },
   });
 
+  const createCategoryMutation = useMutation({
+    mutationFn: () => itemsApi.createCategory({
+      name: newCategory.name.trim(),
+      description: newCategory.description.trim() || undefined,
+    }),
+    onSuccess: () => {
+      toast.success("Category created");
+      setShowAddCategoryModal(false);
+      setNewCategory({ name: "", description: "" });
+      queryClient.invalidateQueries({ queryKey: ["categories"] });
+    },
+    onError: (err: unknown) => {
+      const msg = (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail;
+      toast.error(typeof msg === "string" ? msg : "Failed to create category");
+    },
+  });
+
   return (
     <div className="p-4 lg:p-6 pb-24 lg:pb-6 space-y-4 animate-fade-in">
       {/* Search + filters */}
@@ -121,9 +143,16 @@ export function Inventory() {
             className="w-full pl-9 pr-4 py-2.5 text-sm bg-surface-card border border-surface-border rounded-lg text-slate-200 placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-brand-500"
           />
         </div>
-        <Button variant="primary" leftIcon={<Plus size={15} />} size="md" onClick={() => setShowAddModal(true)}>
-          Add Item
-        </Button>
+        <div className="flex gap-2 shrink-0">
+          {canManage && (
+            <Button variant="secondary" leftIcon={<FolderPlus size={15} />} size="md" onClick={() => setShowAddCategoryModal(true)}>
+              Category
+            </Button>
+          )}
+          <Button variant="primary" leftIcon={<Plus size={15} />} size="md" onClick={() => setShowAddModal(true)}>
+            Add Item
+          </Button>
+        </div>
       </div>
 
       {/* Status tabs */}
@@ -276,12 +305,19 @@ export function Inventory() {
               value={newItem.unit}
               onChange={(e) => setNewItem((p) => ({ ...p, unit: e.target.value }))}
             />
-            <Input
-              label="Category ID (optional)"
-              type="number"
-              value={newItem.category_id}
-              onChange={(e) => setNewItem((p) => ({ ...p, category_id: e.target.value }))}
-            />
+            <div>
+              <label className="block text-xs font-medium text-slate-400 mb-1.5">Category</label>
+              <select
+                value={newItem.category_id}
+                onChange={(e) => setNewItem((p) => ({ ...p, category_id: e.target.value }))}
+                className="w-full px-3 py-2.5 rounded-lg text-sm bg-surface-card border border-surface-border text-slate-200 focus:outline-none focus:ring-2 focus:ring-brand-500"
+              >
+                <option value="">— No category —</option>
+                {(categories ?? []).map((c) => (
+                  <option key={c.id} value={c.id}>{c.name}</option>
+                ))}
+              </select>
+            </div>
           </div>
           <div className="grid grid-cols-2 gap-3">
             <Input
@@ -304,6 +340,41 @@ export function Inventory() {
           <p className="text-xs text-slate-500">
             A primary barcode is automatically generated from SKU after creation.
           </p>
+        </div>
+      </Modal>
+
+      {/* Create Category Modal */}
+      <Modal
+        open={showAddCategoryModal}
+        onClose={() => setShowAddCategoryModal(false)}
+        title="Create Category"
+        footer={(
+          <div className="flex justify-end gap-2">
+            <Button variant="secondary" onClick={() => setShowAddCategoryModal(false)}>Cancel</Button>
+            <Button
+              variant="primary"
+              loading={createCategoryMutation.isPending}
+              disabled={!newCategory.name.trim()}
+              onClick={() => createCategoryMutation.mutate()}
+            >
+              Create Category
+            </Button>
+          </div>
+        )}
+      >
+        <div className="p-5 space-y-3">
+          <Input
+            label="Category Name"
+            placeholder="e.g. Chemicals, Electronics, Tools"
+            value={newCategory.name}
+            onChange={(e) => setNewCategory((p) => ({ ...p, name: e.target.value }))}
+          />
+          <Input
+            label="Description (optional)"
+            placeholder="Brief description of this category"
+            value={newCategory.description}
+            onChange={(e) => setNewCategory((p) => ({ ...p, description: e.target.value }))}
+          />
         </div>
       </Modal>
     </div>
