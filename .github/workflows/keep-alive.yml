@@ -1,0 +1,39 @@
+name: Keep Alive
+
+# Pings the Render backend every 14 minutes to prevent the free-tier service
+# from going to sleep. Render free services spin down after 15 minutes of
+# inactivity; a ping at 14-minute intervals keeps them warm for users.
+
+on:
+  schedule:
+    - cron: "*/14 * * * *"   # every 14 minutes
+  workflow_dispatch:           # allow a manual run from the GitHub UI
+
+jobs:
+  ping:
+    name: Ping backend health
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+
+    steps:
+      - name: Wake Render service
+        run: |
+          if [ -z "$BACKEND_URL" ]; then
+            echo "BACKEND_URL secret not set — skipping keep-alive ping"
+            exit 0
+          fi
+          HTTP=$(curl -s -o /dev/null -w "%{http_code}" \
+            --max-time 60 \
+            --retry 2 \
+            --retry-delay 5 \
+            "$BACKEND_URL/health" || echo "000")
+          echo "Health ping returned: $HTTP"
+          if [[ "$HTTP" == "200" ]]; then
+            echo "Backend is awake and healthy."
+          elif [[ "$HTTP" == "000" ]]; then
+            echo "Connection timeout — backend may still be starting up. (Normal on first wake.)"
+          else
+            echo "Unexpected status $HTTP — backend may be redeploying or unhealthy."
+          fi
+        env:
+          BACKEND_URL: ${{ secrets.BACKEND_URL }}

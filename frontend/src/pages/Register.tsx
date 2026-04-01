@@ -332,7 +332,26 @@ export function Register() {
                         </button>
                       ))}
                     </div>
-                    <p className="text-[11px] text-slate-600 text-center pt-1">Admin role must be assigned by an existing administrator</p>
+                    {selectedRole === "manager" ? (
+                      <motion.div
+                        initial={{ opacity: 0, y: -4 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        className="flex items-start gap-2 rounded-xl px-3 py-2.5 mt-1"
+                        style={{
+                          background: "rgba(167,139,250,0.07)",
+                          border: "1px solid rgba(167,139,250,0.2)",
+                        }}
+                      >
+                        <ShieldCheck size={13} className="text-purple-400 shrink-0 mt-0.5" />
+                        <p className="text-[11px] text-purple-300 leading-relaxed">
+                          <b>Manager access requires approval.</b> You'll be registered as a
+                          Viewer first and a notification will be sent to existing managers.
+                          You'll receive an email once your request is reviewed.
+                        </p>
+                      </motion.div>
+                    ) : (
+                      <p className="text-[11px] text-slate-600 text-center pt-1">Admin role must be assigned by an existing administrator</p>
+                    )}
                   </div>
                   <Button type="submit" fullWidth size="lg" loading={registerBusy} disabled={registerBusy} leftIcon={<UserPlus size={17} />} className="mt-2">
                     Create Account

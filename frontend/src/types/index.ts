@@ -220,6 +220,21 @@ export interface ForecastResult {
   message: string;
 }
 
+// ─── Role Requests ────────────────────────────────────────────────────────────
+export interface RoleRequest {
+  id: number;
+  user_id: number;
+  username: string | null;
+  full_name: string | null;
+  user_email: string | null;
+  requested_role: string;
+  status: "pending" | "approved" | "rejected";
+  message: string | null;
+  review_note: string | null;
+  reviewed_at: string | null;
+  created_at: string;
+}
+
 // ─── Offline sync ─────────────────────────────────────────────────────────────
 export type OfflineQueueStatus = "pending" | "syncing" | "done" | "failed";
 

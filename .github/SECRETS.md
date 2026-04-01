@@ -12,14 +12,6 @@ Configure these in **Settings → Secrets and variables → Actions** on your Gi
 | `RENDER_DEPLOY_HOOK_URL` | Yes | Render deploy hook URL (Dashboard → Service → Settings → Deploy Hooks) |
 | `BACKEND_URL` | Optional | e.g. `https://sierlab-inventory-backend.onrender.com` — used for smoke test |
 
-## Getting Vercel IDs
-
-```bash
-# In the project root:
-npx vercel link
-cat .vercel/project.json
-# → {"orgId": "...", "projectId": "..."}
-```
 
 ## Getting Render Deploy Hook
 

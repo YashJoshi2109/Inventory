@@ -45,6 +45,17 @@ async def lifespan(app: FastAPI):
     Path(settings.UPLOAD_DIR).mkdir(parents=True, exist_ok=True)
     Path(settings.BARCODE_DIR).mkdir(parents=True, exist_ok=True)
 
+    # Pre-warm the database connection pool so the first real user request
+    # doesn't pay the SSL handshake + TCP connection cost (critical on cold starts).
+    try:
+        from app.core.database import engine
+        from sqlalchemy import text as _sql_text
+        async with engine.connect() as _conn:
+            await _conn.execute(_sql_text("SELECT 1"))
+        logger.info("Database connection pool pre-warmed")
+    except Exception as _db_err:
+        logger.warning("Database pool pre-warm failed (app will retry on first request): %s", _db_err)
+
     if settings.MQTT_ENABLED:
         try:
             from app.core.mqtt_client import build_mqtt_client

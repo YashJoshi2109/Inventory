@@ -781,6 +781,110 @@ async def send_welcome_email(*, to_email: str, full_name: str, username: str) ->
     return (True, "Welcome email sent.") if ok else (False, f"Welcome email could not be sent. {detail}")
 
 
+async def send_role_request_to_managers(
+    *,
+    requester_name: str,
+    requester_username: str,
+    requester_email: str,
+    request_id: int,
+    message: str | None,
+    manager_emails: list[str],
+) -> tuple[bool, str]:
+    """Notify all managers that a user has requested the Manager role."""
+    if not manager_emails:
+        return False, "No manager emails provided."
+
+    msg_block = (
+        f'<li>Message: <i>"{message}"</i></li>'
+        if message
+        else ""
+    )
+    subject = f"[SEAR Lab] Manager role request from {requester_name}"
+    html = _build_resend_html(
+        f"""
+        <h3 style="margin:0 0 10px 0;">Manager Role Request</h3>
+        <p style="margin:0 0 12px 0;">
+          <b>{requester_name}</b> (<code>{requester_username}</code>) has requested
+          the <b>Manager</b> role on SEAR Lab Inventory.
+        </p>
+        <ul style="margin:0 0 14px 0; padding-left:18px;">
+          <li>Email: <b>{requester_email}</b></li>
+          <li>Request ID: <b>#{request_id}</b></li>
+          {msg_block}
+        </ul>
+        <p style="margin:0; color:#6b7280; font-size:13px;">
+          Log in to the Inventory System and go to the <b>Alerts</b> page
+          to approve or reject this request.
+        </p>
+        """
+    )
+    text = (
+        f"Manager role request from {requester_name} ({requester_username}). "
+        f"Email: {requester_email}. "
+        f"Log in to Alerts to approve or reject."
+    )
+    ok, detail = await _send_email_with_detail(
+        to_emails=manager_emails,
+        subject=subject,
+        html=html,
+        text=text,
+        prefer_resend=True,
+    )
+    return (True, "Manager notification sent.") if ok else (False, f"Notification email failed. {detail}")
+
+
+async def send_role_request_decision(
+    *,
+    to_email: str,
+    full_name: str,
+    approved: bool,
+    review_note: str | None,
+) -> tuple[bool, str]:
+    """Notify the requester whether their Manager role request was approved or rejected."""
+    if not to_email:
+        return False, "No recipient email."
+
+    if approved:
+        subject = "[SEAR Lab] Manager role approved"
+        status_html = '<span style="color:#10b981;font-weight:bold;">✓ Approved</span>'
+        body_html = (
+            "<p style='margin:0 0 10px 0;'>Your request for the <b>Manager</b> role "
+            "has been <b style='color:#10b981'>approved</b>. You can now access "
+            "manager-level features in SEAR Lab Inventory.</p>"
+        )
+        text = "Your Manager role request has been approved."
+    else:
+        subject = "[SEAR Lab] Manager role request declined"
+        status_html = '<span style="color:#ef4444;font-weight:bold;">✗ Declined</span>'
+        body_html = (
+            "<p style='margin:0 0 10px 0;'>Your request for the <b>Manager</b> role "
+            "has been <b style='color:#ef4444'>declined</b>.</p>"
+        )
+        text = "Your Manager role request has been declined."
+
+    note_block = (
+        f'<p style="margin:10px 0 0 0; color:#6b7280; font-size:13px;">Reviewer note: <i>"{review_note}"</i></p>'
+        if review_note
+        else ""
+    )
+    html = _build_resend_html(
+        f"""
+        <h3 style="margin:0 0 10px 0;">Role Request Update — {status_html}</h3>
+        <p style="margin:0 0 8px 0;">Hi <b>{full_name}</b>,</p>
+        {body_html}
+        {note_block}
+        """
+    )
+    ok, detail = await _send_email_with_detail(
+        to_emails=[to_email],
+        subject=subject,
+        html=html,
+        text=text,
+        prefer_resend=True,
+    )
+    return (True, "Decision email sent.") if ok else (False, f"Decision email failed. {detail}")
+
+
 async def send_login_email(*, to_email: str, full_name: str, ip: str | None) -> tuple[bool, str]:
     if not to_email:
         return False, "No recipient email configured on your account."

@@ -502,7 +502,7 @@ async def passkey_login_complete(
     except ValueError:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid credential id format")
 
-    # Primary lookup by canonical base64url string
+    # Primary lookup by canonical base64url string (indexed column)
     from sqlalchemy import select
     from app.models.user import PasskeyCredential
     cred_id_str = bytes_to_base64url(cred_id_bytes)
@@ -510,16 +510,17 @@ async def passkey_login_complete(
     result = await session.execute(stmt)
     stored = result.scalar_one_or_none()
 
-    # Fallback: compare decoded bytes for legacy/variant encodings in DB
+    # Fallback: try alternate base64 padding variant (no full-table scan)
     if not stored:
-        all_creds = (await session.execute(select(PasskeyCredential))).scalars().all()
-        for candidate in all_creds:
-            try:
-                if base64url_to_bytes(candidate.credential_id) == cred_id_bytes:
-                    stored = candidate
-                    break
-            except Exception:
-                continue
+        try:
+            # Some clients strip or add padding — try the raw string as-is
+            alt_str = raw_id if isinstance(raw_id, str) else None
+            if alt_str and alt_str != cred_id_str:
+                alt_stmt = select(PasskeyCredential).where(PasskeyCredential.credential_id == alt_str)
+                alt_result = await session.execute(alt_stmt)
+                stored = alt_result.scalar_one_or_none()
+        except Exception:
+            pass
 
     if not stored:
         raise HTTPException(

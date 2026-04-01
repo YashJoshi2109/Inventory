@@ -1,7 +1,7 @@
 from datetime import datetime, timezone
 from enum import StrEnum
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String, Text, func
+from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String, Text, func, Index
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.database import Base
@@ -12,6 +12,12 @@ class RoleName(StrEnum):
     MANAGER = "manager"
     OPERATOR = "operator"
     VIEWER = "viewer"
+
+
+class RoleRequestStatus(StrEnum):
+    PENDING = "pending"
+    APPROVED = "approved"
+    REJECTED = "rejected"
 
 
 class Role(Base):
@@ -57,6 +63,9 @@ class User(Base):
     inventory_events: Mapped[list["InventoryEvent"]] = relationship(  # type: ignore[name-defined]
         "InventoryEvent", back_populates="actor", foreign_keys="InventoryEvent.actor_id"
     )
+    role_requests: Mapped[list["RoleRequest"]] = relationship(
+        "RoleRequest", foreign_keys="RoleRequest.user_id", back_populates="user", cascade="all, delete-orphan"
+    )
 
     @property
     def role_names(self) -> list[str]:
@@ -100,6 +109,43 @@ class PasskeyCredential(Base):
     last_used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
     user: Mapped["User"] = relationship("User", back_populates="passkeys")
+
+
+class RoleRequest(Base):
+    """
+    Tracks user requests to be granted the Manager role.
+    When a user registers with role='manager' or requests an upgrade,
+    their account is assigned Viewer and a pending RoleRequest is created.
+    An existing Manager/Admin must approve before the Manager role is granted.
+    """
+
+    __tablename__ = "role_requests"
+    __table_args__ = (
+        Index("ix_role_requests_user_id", "user_id"),
+        Index("ix_role_requests_status", "status"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    user_id: Mapped[int] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+    )
+    requested_role: Mapped[str] = mapped_column(String(50), nullable=False, default="manager")
+    status: Mapped[str] = mapped_column(String(20), nullable=False, default="pending")
+    # Optional reason the user provides for needing the role
+    message: Mapped[str | None] = mapped_column(Text)
+    # Who reviewed the request
+    reviewed_by: Mapped[int | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    reviewed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    # Note from the reviewer (e.g. reason for rejection)
+    review_note: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+    user: Mapped["User"] = relationship("User", foreign_keys=[user_id], back_populates="role_requests")
+    reviewer: Mapped["User | None"] = relationship("User", foreign_keys=[reviewed_by])
 
 
 # Deferred import to avoid circular references

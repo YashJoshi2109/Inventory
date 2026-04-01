@@ -1,5 +1,5 @@
 import { apiClient } from "./client";
-import type { TokenResponse, User } from "@/types";
+import type { TokenResponse, User, RoleRequest } from "@/types";
 
 export interface MessageResponse {
   message: string;
@@ -71,6 +71,44 @@ export const authApi = {
       email,
       otp: otp.replace(/\D/g, "").slice(0, 6),
       new_password: newPassword,
+    });
+    return data;
+  },
+};
+
+export const roleRequestApi = {
+  /** List all pending role requests (managers/admins only). */
+  list: async (status?: string): Promise<RoleRequest[]> => {
+    const { data } = await apiClient.get<RoleRequest[]>("/auth/role-requests", {
+      params: status ? { status } : undefined,
+    });
+    return data;
+  },
+
+  /** Get the current user's own latest role request. */
+  getMy: async (): Promise<RoleRequest | null> => {
+    const { data } = await apiClient.get<RoleRequest | null>("/auth/role-requests/my");
+    return data;
+  },
+
+  /** Request manager role upgrade (for existing viewer users). */
+  request: async (message?: string): Promise<RoleRequest> => {
+    const { data } = await apiClient.post<RoleRequest>("/auth/role-requests", { message });
+    return data;
+  },
+
+  /** Approve a pending role request (managers/admins only). */
+  approve: async (id: number, reviewNote?: string): Promise<RoleRequest> => {
+    const { data } = await apiClient.post<RoleRequest>(`/auth/role-requests/${id}/approve`, {
+      review_note: reviewNote,
+    });
+    return data;
+  },
+
+  /** Reject a pending role request (managers/admins only). */
+  reject: async (id: number, reviewNote?: string): Promise<RoleRequest> => {
+    const { data } = await apiClient.post<RoleRequest>(`/auth/role-requests/${id}/reject`, {
+      review_note: reviewNote,
     });
     return data;
   },

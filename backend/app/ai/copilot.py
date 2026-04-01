@@ -29,6 +29,20 @@ from app.core.config import settings
 
 log = logging.getLogger(__name__)
 
+# Module-level Gemini client cache — avoids per-request client construction which
+# adds ~50-100ms latency and burns extra CPU on every copilot call.
+_gemini_client: Any = None
+
+
+def _get_gemini_client() -> Any:
+    """Return a cached Gemini client, creating it once on first call."""
+    global _gemini_client
+    if _gemini_client is None:
+        from google import genai
+        _gemini_client = genai.Client(api_key=settings.GEMINI_API_KEY)
+    return _gemini_client
+
+
 SYSTEM_PROMPT = """You are the SEAR Lab Inventory Copilot — an expert AI assistant built directly into the laboratory inventory management system. You have live access to the inventory database through tool functions.
 
 Your role:
@@ -100,7 +114,6 @@ async def run_copilot(
     # ── Primary: Gemini ────────────────────────────────────────────────────
     if settings.GEMINI_API_KEY:
         try:
-            from google import genai
             from google.genai import types
         except ImportError:
             yield _sse({"type": "error", "message": "google-genai package not installed. Run: pip install google-genai"})
@@ -146,7 +159,7 @@ async def run_copilot(
                     )
                 )
 
-        client = genai.Client(api_key=settings.GEMINI_API_KEY)
+        client = _get_gemini_client()
 
         # For SOP/manual/policy/storage-condition questions, ensure we always
         # have grounded document chunks available before Gemini generates.
@@ -283,7 +296,16 @@ async def run_copilot(
             # If no tool calls, text was already streamed — done
             if not collected_tool_calls:
                 if not text_parts:
-                    yield _sse({"type": "token", "content": "I couldn't find any relevant information for that query. Try rephrasing or ask about specific items, stock levels, or locations."})
+                    # Gemini returned nothing — route to fallback for a proper response
+                    session_for_fb, close_fb = await _get_db()
+                    try:
+                        async for chunk in _fallback_responder(messages, session_for_fb, actor_id, actor_roles):
+                            yield chunk
+                    finally:
+                        if close_fb:
+                            await session_for_fb.commit()
+                            await session_for_fb.close()
+                    return
                 break
 
             tool_calls = collected_tool_calls
@@ -474,7 +496,89 @@ async def _fallback_responder(
         (m["content"] for m in reversed(messages) if m["role"] == "user"),
         "",
     )
-    text = (last_user or "").lower()
+    text = (last_user or "").lower().strip()
+
+    # ── Conversational / greeting intent ──────────────────────────────────────
+    _greeting_starts = ("hello", "hi ", "hi,", "hey", "howdy", "greetings",
+                        "good morning", "good afternoon", "good evening", "good night")
+    _thanks_keywords = ("thank you", "thanks", "thank u", "appreciate", "great job", "well done", "nice work", "perfect")
+    _help_keywords = ("what can you do", "what do you help", "what are you", "who are you",
+                      "your capabilities", "how do you work", "what can i ask")
+
+    _is_greeting = (
+        any(text == g.strip() or text.startswith(g) for g in _greeting_starts)
+        and len(text.split()) <= 8
+    )
+    _is_thanks = any(k in text for k in _thanks_keywords) and len(text.split()) <= 10
+    _is_help = any(k in text for k in _help_keywords)
+
+    if _is_greeting:
+        response = (
+            "Hello! I'm the SEAR Lab Inventory Copilot. Here's what I can help you with:\n\n"
+            "- **Search items** — ask about any item by name or SKU\n"
+            "- **Check stock levels** — quantities, low-stock alerts, reorder status\n"
+            "- **Location queries** — what's in shelf A1, rack B, bin 3, etc.\n"
+            "- **Transaction history** — recent stock in/out movements\n"
+            "- **Dashboard summary** — overall inventory status\n"
+            "- **Inventory operations** — stock in, stock out, transfers\n"
+            "- **Lab documents** — search SOPs, manuals, calibration records, policies\n\n"
+            "What would you like to do?"
+        )
+        for chunk in _chunk_text(response):
+            yield _sse({"type": "token", "content": chunk})
+        yield _sse({"type": "done"})
+        return
+
+    if _is_thanks:
+        response = "You're welcome! Is there anything else you'd like to know about the inventory?"
+        for chunk in _chunk_text(response):
+            yield _sse({"type": "token", "content": chunk})
+        yield _sse({"type": "done"})
+        return
+
+    if _is_help:
+        response = (
+            "I'm the SEAR Lab Inventory Copilot. I can help you with:\n\n"
+            "- Searching for items by name, SKU, or category\n"
+            "- Checking current stock levels and low-stock alerts\n"
+            "- Viewing what's stored in specific locations (shelves, racks, bins)\n"
+            "- Reviewing recent transaction history\n"
+            "- Getting an inventory dashboard summary\n"
+            "- Performing stock in, stock out, and transfer operations\n"
+            "- Searching lab documents, SOPs, manuals, and policies\n\n"
+            "Just ask naturally — for example: _'Show me all low-stock items'_ or _'What's in shelf A1?'_"
+        )
+        for chunk in _chunk_text(response):
+            yield _sse({"type": "token", "content": chunk})
+        yield _sse({"type": "done"})
+        return
+
+    # ── Check for purely conversational messages with no inventory keywords ───
+    _inventory_signals = [
+        "item", "stock", "shelf", "rack", "bin", "location", "sku", "quantity",
+        "low", "reorder", "transaction", "history", "transfer", "dashboard",
+        "summary", "overdue", "idle", "sop", "manual", "calibration", "invoice",
+        "create", "update", "delete", "add", "remove", "find", "search", "show",
+        "list", "how many", "where is", "what is", "check", "report",
+    ]
+    _word_count = len(text.split())
+    _has_inventory_signal = any(sig in text for sig in _inventory_signals)
+
+    if not _has_inventory_signal and _word_count <= 10:
+        # Pure small talk — respond helpfully without searching inventory
+        response = (
+            "I'm the SEAR Lab Inventory Copilot and I'm best at answering inventory questions. "
+            "You can ask me things like:\n\n"
+            "- _\"Show me low-stock items\"_\n"
+            "- _\"What's in shelf A1?\"_\n"
+            "- _\"Show recent transactions\"_\n"
+            "- _\"Give me the dashboard summary\"_\n\n"
+            "How can I help you with the inventory today?"
+        )
+        for chunk in _chunk_text(response):
+            yield _sse({"type": "token", "content": chunk})
+        yield _sse({"type": "done"})
+        return
 
     # Location intent: "shelf A1", "rack B", "bin 3", codes like "A1" / "A-01"
     location_intent = (

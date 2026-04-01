@@ -8,6 +8,7 @@ import { clsx } from "clsx";
 import { useAuthStore } from "@/store/auth";
 import { useQuery } from "@tanstack/react-query";
 import { transactionsApi } from "@/api/transactions";
+import { roleRequestApi } from "@/api/auth";
 
 const navItems = [
   { to: "/dashboard",    label: "Dashboard",    icon: LayoutDashboard },
@@ -32,7 +33,16 @@ export function Sidebar() {
     refetchInterval: 60_000,
   });
 
-  const alertCount = alerts?.filter((a) => !a.is_resolved).length ?? 0;
+  const { data: roleRequests = [] } = useQuery({
+    queryKey: ["role-requests"],
+    queryFn: () => roleRequestApi.list("pending"),
+    enabled: hasRole("admin", "manager"),
+    refetchInterval: 60_000,
+  });
+
+  const alertCount =
+    (alerts?.filter((a) => !a.is_resolved).length ?? 0) +
+    (hasRole("admin", "manager") ? roleRequests.length : 0);
 
   return (
     <aside
