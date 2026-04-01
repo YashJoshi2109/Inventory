@@ -87,9 +87,12 @@ Location queries (IMPORTANT):
 - If `get_location_contents` returns not-found, try `list_locations` to show available locations.
 
 CRUD operations:
-- To CREATE an item: use `create_item`. Always confirm the SKU and name with the user first.
-- To UPDATE an item: use `update_item`. Confirm which fields are being changed.
+- To CREATE an item: call `list_categories` first (to know available category IDs), then `create_item`. Confirm SKU and name with the user first.
+- To UPDATE an item: use `update_item`. Call `list_categories` first if changing category. Confirm which fields are being changed.
 - To DELETE/deactivate an item: use `delete_item`. Soft-delete by default; warn before hard-delete.
+- To ADD STOCK: call `search_inventory` to get item_id, call `list_locations` to get location_id, then call `perform_stock_in`.
+- To REMOVE STOCK: call `search_inventory` to get item_id, call `get_item_details` to see which locations have stock, then `perform_stock_out`.
+- To TRANSFER: confirm item and both locations via search first, then `perform_transfer`.
 
 Formatting rules:
 - Use bullet points for lists of items or steps.
@@ -497,7 +500,9 @@ async def _openai_compat_fallback(
 
     providers = []
     if settings.OPENROUTER_API_KEY:
-        providers.append(("OpenRouter", _get_openrouter_client, settings.OPENROUTER_MODEL))
+        providers.append(("OpenRouter/primary", _get_openrouter_client, settings.OPENROUTER_MODEL))
+        if settings.OPENROUTER_SECONDARY_MODEL and settings.OPENROUTER_SECONDARY_MODEL != settings.OPENROUTER_MODEL:
+            providers.append(("OpenRouter/qwen", _get_openrouter_client, settings.OPENROUTER_SECONDARY_MODEL))
     if settings.OPENAI_API_KEY:
         providers.append(("OpenAI", _get_openai_client, settings.OPENAI_MODEL))
 

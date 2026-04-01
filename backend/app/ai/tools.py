@@ -217,7 +217,7 @@ async def get_location_contents(
         "location_id": loc.id,
         "location_code": loc.code,
         "location_name": loc.name,
-        "location_type": loc.location_type,
+        "area_id": loc.area_id,
         "item_count": len(items),
         "items": items,
     }
@@ -565,6 +565,7 @@ async def update_item(
     unit_cost: float | None = None,
     reorder_level: float | None = None,
     supplier: str | None = None,
+    category_id: int | None = None,
     notes: str | None = None,
     is_active: bool | None = None,
 ) -> dict:
@@ -598,6 +599,8 @@ async def update_item(
         item.reorder_level = Decimal(str(reorder_level)); changes.append(f"reorder_level→{reorder_level}")
     if supplier is not None:
         item.supplier = supplier; changes.append(f"supplier→{supplier}")
+    if category_id is not None:
+        item.category_id = category_id; changes.append(f"category_id→{category_id}")
     if notes is not None:
         item.notes = notes; changes.append("notes updated")
     if is_active is not None:
@@ -653,6 +656,19 @@ async def delete_item(
             "sku": item.sku,
             "message": f"Deactivated item '{item.name}' (SKU: {item.sku}). It is no longer active but its history is preserved.",
         }
+
+
+async def list_categories(db: AsyncSession) -> dict:
+    """List all available item categories with their IDs, names, and types."""
+    result = await db.execute(select(Category).order_by(Category.name))
+    cats = result.scalars().all()
+    return {
+        "total": len(cats),
+        "categories": [
+            {"id": c.id, "name": c.name, "item_type": c.item_type}
+            for c in cats
+        ],
+    }
 
 
 async def rag_search_docs(
@@ -922,8 +938,16 @@ TOOL_SCHEMAS: list[dict[str, Any]] = [
     {
         "type": "function",
         "function": {
+            "name": "list_categories",
+            "description": "List all available item categories with their IDs, names, and types. Call this before create_item or update_item when you need to set a category.",
+            "parameters": {"type": "object", "properties": {}, "required": []},
+        },
+    },
+    {
+        "type": "function",
+        "function": {
             "name": "create_item",
-            "description": "Create a brand-new inventory item. Always confirm with the user before calling. Returns the new item's ID and SKU.",
+            "description": "Create a brand-new inventory item. Always confirm with the user before calling. Call list_categories first if you need to set category_id. Returns the new item's ID and SKU.",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -945,7 +969,7 @@ TOOL_SCHEMAS: list[dict[str, Any]] = [
         "type": "function",
         "function": {
             "name": "update_item",
-            "description": "Update fields on an existing inventory item by ID, SKU, or name. Only provided fields are changed.",
+            "description": "Update fields on an existing inventory item by ID, SKU, or name. Only provided fields are changed. Call list_categories first if changing category.",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -956,6 +980,7 @@ TOOL_SCHEMAS: list[dict[str, Any]] = [
                     "unit_cost": {"type": "number", "description": "New unit cost"},
                     "reorder_level": {"type": "number", "description": "New reorder level"},
                     "supplier": {"type": "string", "description": "New supplier"},
+                    "category_id": {"type": "integer", "description": "New category ID (get from list_categories)"},
                     "notes": {"type": "string", "description": "New notes"},
                     "is_active": {"type": "boolean", "description": "Set false to deactivate, true to reactivate"},
                 },
@@ -1024,6 +1049,8 @@ async def dispatch_tool(
         return await list_locations(db, **args)
     if name == "get_transaction_history":
         return await get_transaction_history(db, **args)
+    if name == "list_categories":
+        return await list_categories(db)
     if name == "rag_search_docs":
         return await rag_search_docs(db, **args)
     if name == "create_item":

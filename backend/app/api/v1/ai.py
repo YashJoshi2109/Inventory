@@ -314,13 +314,13 @@ async def analyze_vision(
     analysis_type options: full, classify, ocr, count, damage, audit
     context: optional free-text context to include in the prompt
     """
-    if not settings.GEMINI_API_KEY:
-        raise HTTPException(status_code=503, detail="Gemini API key not configured")
+    if not settings.GEMINI_API_KEY and not settings.OPENROUTER_API_KEY:
+        raise HTTPException(status_code=503, detail="No vision AI provider configured (set GEMINI_API_KEY or OPENROUTER_API_KEY)")
 
     from google import genai
     from google.genai import types as genai_types
 
-    client = genai.Client(api_key=settings.GEMINI_API_KEY)
+    client = genai.Client(api_key=settings.GEMINI_API_KEY) if settings.GEMINI_API_KEY else None
 
     image_bytes = await image.read()
     if not image_bytes:
@@ -333,64 +333,123 @@ async def analyze_vision(
     if context.strip():
         prompt_text = f"Additional context: {context.strip()}\n\n{prompt_text}"
 
-    model_candidates = [settings.GEMINI_VISION_MODEL, *settings.GEMINI_VISION_FALLBACK_MODELS]
-    # Deduplicate while preserving order
-    seen: set[str] = set()
-    ordered_models: list[str] = []
-    for m in model_candidates:
-        if not m or m in seen:
-            continue
-        seen.add(m)
-        ordered_models.append(m)
-
     response = None
     quota_errors: list[str] = []
     last_exc: Exception | None = None
-    for model_name in ordered_models:
-        try:
-            response = await client.aio.models.generate_content(
-                model=model_name,
-                contents=[
-                    genai_types.Part.from_bytes(data=image_bytes, mime_type=mime_type),
-                    prompt_text,
-                ],
-            )
-            now = datetime.now(timezone.utc).isoformat()
-            _vision_health["last_model_used"] = model_name
-            _vision_health["quota_limited"] = False
-            _vision_health["last_error"] = None
-            _vision_health["checked_at"] = now
-            _vision_health["last_success_at"] = now
-            break
-        except Exception as exc:
-            last_exc = exc
-            msg = str(exc)
-            if "RESOURCE_EXHAUSTED" in msg or "quota" in msg.lower() or "429" in msg:
-                quota_errors.append(f"{model_name}: quota/rate limited")
-                _vision_health["last_model_used"] = model_name
-                _vision_health["quota_limited"] = True
-                _vision_health["last_error"] = "quota/rate limited"
-                _vision_health["checked_at"] = datetime.now(timezone.utc).isoformat()
+
+    # ── Try Gemini models first ────────────────────────────────────────────────
+    if client is not None:
+        model_candidates = [settings.GEMINI_VISION_MODEL, *settings.GEMINI_VISION_FALLBACK_MODELS]
+        seen: set[str] = set()
+        ordered_models: list[str] = []
+        for m in model_candidates:
+            if not m or m in seen:
                 continue
-            _vision_health["last_model_used"] = model_name
-            _vision_health["quota_limited"] = False
-            _vision_health["last_error"] = str(exc)
-            _vision_health["checked_at"] = datetime.now(timezone.utc).isoformat()
-            raise HTTPException(status_code=502, detail=f"Gemini Vision API error ({model_name}): {exc}") from exc
+            seen.add(m)
+            ordered_models.append(m)
+
+        for model_name in ordered_models:
+            try:
+                response = await client.aio.models.generate_content(
+                    model=model_name,
+                    contents=[
+                        genai_types.Part.from_bytes(data=image_bytes, mime_type=mime_type),
+                        prompt_text,
+                    ],
+                )
+                now = datetime.now(timezone.utc).isoformat()
+                _vision_health["last_model_used"] = model_name
+                _vision_health["quota_limited"] = False
+                _vision_health["last_error"] = None
+                _vision_health["checked_at"] = now
+                _vision_health["last_success_at"] = now
+                break
+            except Exception as exc:
+                last_exc = exc
+                msg = str(exc)
+                _vision_health["last_model_used"] = model_name
+                _vision_health["checked_at"] = datetime.now(timezone.utc).isoformat()
+                # Quota / rate limit → try next model
+                if "RESOURCE_EXHAUSTED" in msg or "quota" in msg.lower() or "429" in msg:
+                    quota_errors.append(f"{model_name}: quota/rate limited")
+                    _vision_health["quota_limited"] = True
+                    _vision_health["last_error"] = "quota/rate limited"
+                    continue
+                # Model not found (bad name / region) → skip silently, try next
+                if "NOT_FOUND" in msg or "404" in msg or "not found" in msg.lower() or "not supported" in msg.lower():
+                    quota_errors.append(f"{model_name}: model not available")
+                    _vision_health["last_error"] = "model not available"
+                    continue
+                # Any other error is fatal for this request
+                _vision_health["quota_limited"] = False
+                _vision_health["last_error"] = str(exc)
+                raise HTTPException(status_code=502, detail=f"Gemini Vision API error ({model_name}): {exc}") from exc
+
+    # ── Fallback: OpenRouter vision models (tried in sequence) ────────────────
+    if response is None and settings.OPENROUTER_API_KEY:
+        import base64 as _b64
+        from openai import AsyncOpenAI as _AsyncOpenAI
+        b64_image = _b64.b64encode(image_bytes).decode()
+        _or_client = _AsyncOpenAI(
+            api_key=settings.OPENROUTER_API_KEY,
+            base_url="https://openrouter.ai/api/v1",
+            default_headers={
+                "HTTP-Referer": "https://sear-lab-inventory.app",
+                "X-Title": "SEAR Lab Smart Scan",
+            },
+        )
+        # Build deduplicated ordered list: primary + fallbacks
+        _or_vision_models: list[str] = []
+        _seen_or: set[str] = set()
+        for _m in [settings.OPENROUTER_VISION_MODEL, *settings.OPENROUTER_VISION_FALLBACK_MODELS]:
+            if _m and _m not in _seen_or:
+                _seen_or.add(_m)
+                _or_vision_models.append(_m)
+
+        for _or_model in _or_vision_models:
+            try:
+                or_resp = await _or_client.chat.completions.create(
+                    model=_or_model,
+                    messages=[{
+                        "role": "user",
+                        "content": [
+                            {"type": "text", "text": prompt_text},
+                            {"type": "image_url", "image_url": {"url": f"data:{mime_type};base64,{b64_image}"}},
+                        ],
+                    }],
+                    temperature=0.1,
+                    max_tokens=1500,
+                )
+                # Wrap as a simple object so the parse block below works uniformly
+                class _FakeResponse:  # noqa: N801
+                    text = or_resp.choices[0].message.content or ""
+                response = _FakeResponse()
+                now = datetime.now(timezone.utc).isoformat()
+                _vision_health["last_model_used"] = _or_model
+                _vision_health["quota_limited"] = False
+                _vision_health["last_error"] = None
+                _vision_health["checked_at"] = now
+                _vision_health["last_success_at"] = now
+                break  # success — stop trying further models
+            except Exception as or_exc:
+                last_exc = or_exc
+                _vision_health["last_model_used"] = _or_model
+                _vision_health["last_error"] = str(or_exc)
+                _vision_health["checked_at"] = datetime.now(timezone.utc).isoformat()
+                quota_errors.append(f"OpenRouter/{_or_model}: {or_exc}")
 
     if response is None:
         if quota_errors:
-            tried = ", ".join(ordered_models)
-            _vision_health["last_error"] = f"quota exceeded across models: {tried}"
+            tried = ", ".join(quota_errors)
+            _vision_health["last_error"] = f"quota exceeded: {tried}"
             raise HTTPException(
                 status_code=429,
                 detail=(
-                    "Gemini Vision quota exceeded across configured models. "
-                    f"Tried: {tried}. "
-                    "Please check Google AI Studio quota/billing, or wait and retry."
+                    "Vision quota exceeded across all providers (Gemini + OpenRouter). "
+                    "Please check your API quotas or wait and retry."
                 ),
             ) from last_exc
-        raise HTTPException(status_code=502, detail="Gemini Vision API error: no response from configured models")
+        raise HTTPException(status_code=502, detail=f"Vision API error: {last_exc or 'no response from any provider'}")
 
     raw_text = response.text or ""
 
@@ -454,9 +513,8 @@ async def suggest_metadata(
     if not settings.GEMINI_API_KEY:
         raise HTTPException(status_code=503, detail="Gemini API key not configured")
 
-    from google import genai
-
-    client = genai.Client(api_key=settings.GEMINI_API_KEY)
+    from app.ai.copilot import _get_gemini_client
+    client = _get_gemini_client()
 
     prompt = (
         "You are an inventory metadata assistant for a university research lab (UTA SEAR Lab). "
@@ -471,7 +529,7 @@ async def suggest_metadata(
 
     try:
         response = await client.aio.models.generate_content(
-            model="gemini-2.0-flash",
+            model=settings.GEMINI_CHAT_MODEL,
             contents=[prompt],
         )
     except Exception as exc:

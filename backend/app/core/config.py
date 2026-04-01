@@ -120,9 +120,30 @@ class Settings(BaseSettings):
     OPENAI_API_KEY: str = ""          # Optional fallback for AI copilot chat
     OPENAI_MODEL: str = "gpt-4o-mini"
 
-    # OpenRouter (secondary fallback, OpenAI-compatible)
+    # OpenRouter (fallback chain after Gemini, OpenAI-compatible)
     OPENROUTER_API_KEY: str = ""
-    OPENROUTER_MODEL: str = "openai/gpt-4o-mini"
+    # 1st fallback — best available free text model
+    OPENROUTER_MODEL: str = "meta-llama/llama-3.1-8b-instruct:free"
+    # 2nd fallback — pinned secondary free model
+    OPENROUTER_SECONDARY_MODEL: str = "qwen/qwen3-8b:free"
+    # Vision fallbacks for Smart Scan (tried in order when all Gemini vision models fail)
+    OPENROUTER_VISION_MODEL: str = "meta-llama/llama-3.2-11b-vision-instruct:free"
+    OPENROUTER_VISION_FALLBACK_MODELS_RAW: str = (
+        "nvidia/nemotron-nano-12b-v2-vl:free,"
+        "google/gemini-2.0-flash-exp:free,"
+        "qwen/qwen2-vl-7b-instruct:free"
+    )
+
+    @computed_field
+    @property
+    def OPENROUTER_VISION_FALLBACK_MODELS(self) -> list[str]:
+        return _coerce_env_to_str_list(
+            self.OPENROUTER_VISION_FALLBACK_MODELS_RAW,
+            default=[
+                "nvidia/nemotron-nano-12b-v2-vl:free",
+                "google/gemini-2.0-flash-exp:free",
+            ],
+        )
 
     # Gemini (primary)
     GEMINI_API_KEY: str = ""          # Required to enable Gemini copilot
@@ -130,7 +151,7 @@ class Settings(BaseSettings):
     # Vision model used by Smart Scan (/ai/vision/analyze)
     GEMINI_VISION_MODEL: str = "gemini-2.0-flash"
     # Comma-separated or JSON list fallback models to try when quota/rate-limit hits.
-    GEMINI_VISION_FALLBACK_MODELS_RAW: str = "gemini-1.5-flash,gemini-1.5-pro"
+    GEMINI_VISION_FALLBACK_MODELS_RAW: str = "gemini-2.0-flash-lite,gemini-1.5-flash-8b"
 
     @computed_field
     @property

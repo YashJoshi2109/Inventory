@@ -335,12 +335,15 @@ export function AiCopilot() {
   );
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const recognitionRef = useRef<any>(null);
+  const isListeningRef = useRef(false);   // declared here — used by voice fns below
   const voiceBaseRef = useRef(""); // input value when recording started
   const voiceConfirmedRef = useRef(""); // confirmed (final) transcript so far
   // TTS
   const [ttsEnabled, setTtsEnabled] = useState(false);
   const ttsEnabledRef = useRef(false);
   const [ttsActive, setTtsActive] = useState(false); // true while AI is speaking
+  // Cache available voices — Chrome loads them async via onvoiceschanged
+  const voicesRef = useRef<SpeechSynthesisVoice[]>([]);
 
   // Refs — avoid stale closures
   const activeSessionIdRef = useRef<number | null>(null);
@@ -398,7 +401,8 @@ export function AiCopilot() {
   // ── TTS ───────────────────────────────────────────────────────────────────
   const pickVoice = (): SpeechSynthesisVoice | null => {
     if (!window.speechSynthesis) return null;
-    const voices = window.speechSynthesis.getVoices();
+    // Use cached list (populated by onvoiceschanged); fall back to live call for Firefox/Safari
+    const voices = voicesRef.current.length ? voicesRef.current : window.speechSynthesis.getVoices();
     const preferred = [
       "Google US English",
       "Microsoft Aria Online (Natural)",
@@ -612,7 +616,6 @@ export function AiCopilot() {
   // Ref so silence timer can call sendMessage without stale closure
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const sendMessageRef = useRef<((text: string) => Promise<void>) | null>(null);
-  const isListeningRef = useRef(false);
 
   const quotaAnchorRef = useRef<HTMLDivElement>(null);
   const [quotaCardOpen, setQuotaCardOpen] = useState(false);
@@ -872,6 +875,27 @@ export function AiCopilot() {
 
   // Keep ref in sync so voice silence timer can call sendMessage
   useEffect(() => { sendMessageRef.current = sendMessage; }, [sendMessage]);
+
+  // Load TTS voices — Chrome fires onvoiceschanged async; Firefox/Safari return synchronously
+  useEffect(() => {
+    if (!window.speechSynthesis) return;
+    const loadVoices = () => { voicesRef.current = window.speechSynthesis.getVoices(); };
+    loadVoices(); // immediate for Firefox/Safari
+    window.speechSynthesis.onvoiceschanged = loadVoices; // Chrome async load
+    return () => { window.speechSynthesis.onvoiceschanged = null; };
+  }, []);
+
+  // Cleanup voice resources on unmount (prevents memory leaks + stale loops)
+  useEffect(() => {
+    return () => {
+      if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current);
+      if (restartTimerRef.current) clearTimeout(restartTimerRef.current);
+      isListeningRef.current = false;
+      try { recognitionRef.current?.abort(); } catch { /* ignore */ }
+      recognitionRef.current = null;
+      window.speechSynthesis?.cancel();
+    };
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Derived ────────────────────────────────────────────────────────────────
   const filtered = sessions.filter(s => s.title.toLowerCase().includes(searchTerm.toLowerCase()));
