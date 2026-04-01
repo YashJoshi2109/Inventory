@@ -29,9 +29,11 @@ from app.core.config import settings
 
 log = logging.getLogger(__name__)
 
-# Module-level Gemini client cache — avoids per-request client construction which
+# Module-level client caches — avoids per-request client construction which
 # adds ~50-100ms latency and burns extra CPU on every copilot call.
 _gemini_client: Any = None
+_openrouter_client: Any = None
+_openai_client: Any = None
 
 
 def _get_gemini_client() -> Any:
@@ -41,6 +43,31 @@ def _get_gemini_client() -> Any:
         from google import genai
         _gemini_client = genai.Client(api_key=settings.GEMINI_API_KEY)
     return _gemini_client
+
+
+def _get_openrouter_client() -> Any:
+    """Return a cached OpenRouter client (OpenAI-compatible), creating it once on first call."""
+    global _openrouter_client
+    if _openrouter_client is None:
+        from openai import AsyncOpenAI
+        _openrouter_client = AsyncOpenAI(
+            api_key=settings.OPENROUTER_API_KEY,
+            base_url="https://openrouter.ai/api/v1",
+            default_headers={
+                "HTTP-Referer": "https://sear-lab-inventory.app",
+                "X-Title": "SEAR Lab Inventory Copilot",
+            },
+        )
+    return _openrouter_client
+
+
+def _get_openai_client() -> Any:
+    """Return a cached OpenAI client, creating it once on first call."""
+    global _openai_client
+    if _openai_client is None:
+        from openai import AsyncOpenAI
+        _openai_client = AsyncOpenAI(api_key=settings.OPENAI_API_KEY)
+    return _openai_client
 
 
 SYSTEM_PROMPT = """You are the SEAR Lab Inventory Copilot — an expert AI assistant built directly into the laboratory inventory management system. You have live access to the inventory database through tool functions.
@@ -273,15 +300,9 @@ async def run_copilot(
                 stream_error = exc
 
             if stream_error is not None:
-                log.warning("Gemini streaming error (%s): falling back to rule-based responder", type(stream_error).__name__)
-                session_for_fallback, close_fallback = await _get_db()
-                try:
-                    async for chunk in _fallback_responder(messages, session_for_fallback, actor_id, actor_roles):
-                        yield chunk
-                finally:
-                    if close_fallback:
-                        await session_for_fallback.commit()
-                        await session_for_fallback.close()
+                log.warning("Gemini streaming error (%s): trying OpenRouter/OpenAI fallback", type(stream_error).__name__)
+                async for chunk in _openai_compat_fallback(messages, _get_db, actor_id, actor_roles):
+                    yield chunk
                 return
 
             # Preserve model's turn for function-calling conversation continuity
@@ -351,65 +372,48 @@ async def run_copilot(
         yield _sse({"type": "done"})
         return
 
-    # ── Fallback: no Gemini key ───────────────────────────────────────────
-    if not settings.OPENAI_API_KEY:
-        session, should_close = await _get_db()
-        try:
-            async for chunk in _fallback_responder(messages, session, actor_id, actor_roles):
-                yield chunk
-        finally:
-            if should_close:
-                await session.commit()
-                await session.close()
-        return
+    # ── Fallback: no Gemini key → try OpenRouter → OpenAI → rule-based ───
+    async for chunk in _openai_compat_fallback(messages, _get_db, actor_id, actor_roles):
+        yield chunk
 
-    try:
-        from openai import AsyncOpenAI
-        client = AsyncOpenAI(api_key=settings.OPENAI_API_KEY)
-    except ImportError:
-        yield _sse({"type": "error", "message": "openai package not installed. Run: pip install openai"})
-        return
 
-    # Agentic loop — max 6 tool-call rounds to prevent infinite loops
+# ── OpenAI-compatible agentic loop (shared by OpenRouter + OpenAI) ────────────
+
+async def _run_openai_compat_loop(
+    *,
+    client: Any,
+    model: str,
+    messages: list[dict],
+    get_db,  # callable: () -> Awaitable[(session, should_close)]
+    actor_id: int,
+    actor_roles: list[str],
+) -> AsyncIterator[str]:
+    """
+    Generic agentic loop for any OpenAI-compatible API (OpenRouter, OpenAI, etc.).
+    Yields SSE strings. Raises on API errors so the caller can try the next provider.
+    """
+    msgs = list(messages)  # local copy so retries don't corrupt the outer list
+
     for _round in range(6):
-        try:
-            stream = await client.chat.completions.create(
-                model=settings.OPENAI_MODEL,
-                messages=messages,
-                tools=TOOL_SCHEMAS,
-                tool_choice="auto",
-                stream=True,
-                temperature=0.2,
-            )
-        except Exception as exc:
-            log.warning("OpenAI API error (%s): falling back to rule-based responder", type(exc).__name__)
-            # Fall back to rule-based responder on any OpenAI error (quota, rate limit, etc.)
-            session_for_fallback, close_fallback = await _get_db()
-            try:
-                async for chunk in _fallback_responder(messages, session_for_fallback, actor_id, actor_roles):
-                    yield chunk
-            finally:
-                if close_fallback:
-                    await session_for_fallback.commit()
-                    await session_for_fallback.close()
-            return
+        stream = await client.chat.completions.create(
+            model=model,
+            messages=msgs,
+            tools=TOOL_SCHEMAS,
+            tool_choice="auto",
+            stream=True,
+            temperature=0.2,
+        )
 
-        # Accumulate the streamed response
         accumulated_content = ""
         accumulated_tool_calls: list[dict] = []
-        current_tool: dict | None = None
 
         async for chunk in stream:
             delta = chunk.choices[0].delta if chunk.choices else None
             if delta is None:
                 continue
-
-            # Text token
             if delta.content:
                 accumulated_content += delta.content
                 yield _sse({"type": "token", "content": delta.content})
-
-            # Tool call delta
             if delta.tool_calls:
                 for tc in delta.tool_calls:
                     idx = tc.index
@@ -423,11 +427,9 @@ async def run_copilot(
                         if tc.function.arguments:
                             accumulated_tool_calls[idx]["args"] += tc.function.arguments
 
-        # No tool calls → conversation is done
         if not accumulated_tool_calls:
             break
 
-        # Build assistant message with tool_calls for history
         assistant_msg: dict[str, Any] = {"role": "assistant", "content": accumulated_content or None}
         assistant_msg["tool_calls"] = [
             {
@@ -437,9 +439,8 @@ async def run_copilot(
             }
             for tc in accumulated_tool_calls
         ]
-        messages.append(assistant_msg)
+        msgs.append(assistant_msg)
 
-        # Execute each tool call — open a fresh session if needed
         for tc in accumulated_tool_calls:
             tool_name = tc["name"]
             try:
@@ -450,7 +451,7 @@ async def run_copilot(
             yield _sse({"type": "tool_call", "name": tool_name, "args": args})
 
             try:
-                tool_session, tool_should_close = await _get_db()
+                tool_session, tool_should_close = await get_db()
                 try:
                     result = await dispatch_tool(
                         name=tool_name,
@@ -469,18 +470,72 @@ async def run_copilot(
                 result = {"error": str(exc)}
 
             yield _sse({"type": "tool_result", "name": tool_name, "data": result})
-
-            messages.append({
+            msgs.append({
                 "role": "tool",
                 "tool_call_id": tc["id"],
                 "content": json.dumps(result),
             })
 
-    # Signal completion (message_id is assigned by the API layer)
     yield _sse({"type": "done"})
 
 
-# ── Fallback: no OpenAI key ───────────────────────────────────────────────────
+async def _openai_compat_fallback(
+    messages: list[dict],
+    get_db,
+    actor_id: int,
+    actor_roles: list[str],
+) -> AsyncIterator[str]:
+    """
+    Try OpenRouter, then OpenAI, then rule-based — in that order.
+    Each provider is attempted only if its API key is configured.
+    """
+    try:
+        from openai import AsyncOpenAI  # noqa: F401 — ensure package installed
+    except ImportError:
+        yield _sse({"type": "error", "message": "openai package not installed. Run: pip install openai"})
+        return
+
+    providers = []
+    if settings.OPENROUTER_API_KEY:
+        providers.append(("OpenRouter", _get_openrouter_client, settings.OPENROUTER_MODEL))
+    if settings.OPENAI_API_KEY:
+        providers.append(("OpenAI", _get_openai_client, settings.OPENAI_MODEL))
+
+    for provider_name, get_client, model in providers:
+        log.info("Copilot: trying %s (%s)", provider_name, model)
+        buffer: list[str] = []
+        try:
+            async for chunk in _run_openai_compat_loop(
+                client=get_client(),
+                model=model,
+                messages=messages,
+                get_db=get_db,
+                actor_id=actor_id,
+                actor_roles=actor_roles,
+            ):
+                buffer.append(chunk)
+        except Exception as exc:
+            log.warning("%s error (%s): trying next provider", provider_name, type(exc).__name__)
+            continue
+
+        # Success — yield buffered chunks
+        for chunk in buffer:
+            yield chunk
+        return
+
+    # All LLM providers exhausted — fall back to rule-based
+    log.info("Copilot: all LLM providers failed/unconfigured, using rule-based fallback")
+    session, should_close = await get_db()
+    try:
+        async for chunk in _fallback_responder(messages, session, actor_id, actor_roles):
+            yield chunk
+    finally:
+        if should_close:
+            await session.commit()
+            await session.close()
+
+
+# ── Rule-based fallback ───────────────────────────────────────────────────────
 
 async def _fallback_responder(
     messages: list[dict],

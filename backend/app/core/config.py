@@ -120,6 +120,10 @@ class Settings(BaseSettings):
     OPENAI_API_KEY: str = ""          # Optional fallback for AI copilot chat
     OPENAI_MODEL: str = "gpt-4o-mini"
 
+    # OpenRouter (secondary fallback, OpenAI-compatible)
+    OPENROUTER_API_KEY: str = ""
+    OPENROUTER_MODEL: str = "openai/gpt-4o-mini"
+
     # Gemini (primary)
     GEMINI_API_KEY: str = ""          # Required to enable Gemini copilot
     GEMINI_CHAT_MODEL: str = "gemini-2.0-flash"

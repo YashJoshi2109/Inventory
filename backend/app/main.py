@@ -155,6 +155,12 @@ async def root():
     return payload
 
 
+@app.get("/ping", tags=["health"], include_in_schema=False)
+async def ping():
+    """Ultra-lightweight keep-alive endpoint — no DB, no logic, instant reply."""
+    return {"pong": True}
+
+
 @app.get("/health", tags=["health"])
 async def health_check():
     body: dict[str, str | bool | dict[str, bool | str]] = {

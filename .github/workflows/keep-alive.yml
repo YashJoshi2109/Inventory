@@ -1,39 +1,74 @@
 name: Keep Alive
 
-# Pings the Render backend every 14 minutes to prevent the free-tier service
-# from going to sleep. Render free services spin down after 15 minutes of
-# inactivity; a ping at 14-minute intervals keeps them warm for users.
+# Pings the Render backend every 10 minutes to prevent the free-tier service
+# from spinning down. Render free services idle-out after 15 minutes of
+# inactivity; a ping at 10-minute intervals keeps them warm.
+#
+# REQUIRED: Add a repository secret named BACKEND_URL with the value
+#   https://<your-service>.onrender.com
+# (Settings → Secrets and variables → Actions → New repository secret)
 
 on:
   schedule:
-    - cron: "*/14 * * * *"   # every 14 minutes
-  workflow_dispatch:           # allow a manual run from the GitHub UI
+    - cron: "*/10 * * * *"   # every 10 minutes — safe margin under Render's 15-min idle
+  workflow_dispatch:           # allow a manual run from the GitHub Actions UI
 
 jobs:
   ping:
     name: Ping backend health
     runs-on: ubuntu-latest
-    timeout-minutes: 2
+    timeout-minutes: 3
 
     steps:
-      - name: Wake Render service
+      - name: Verify BACKEND_URL secret is set
         run: |
           if [ -z "$BACKEND_URL" ]; then
-            echo "BACKEND_URL secret not set — skipping keep-alive ping"
-            exit 0
+            echo "::error::BACKEND_URL secret is not set."
+            echo "::error::Go to GitHub → Settings → Secrets and variables → Actions → New repository secret"
+            echo "::error::Name: BACKEND_URL   Value: https://<your-service>.onrender.com"
+            exit 1
           fi
+          echo "BACKEND_URL is configured: ${BACKEND_URL}"
+        env:
+          BACKEND_URL: ${{ secrets.BACKEND_URL }}
+
+      - name: Wake Render service (attempt 1)
+        id: ping1
+        run: |
           HTTP=$(curl -s -o /dev/null -w "%{http_code}" \
-            --max-time 60 \
-            --retry 2 \
-            --retry-delay 5 \
-            "$BACKEND_URL/health" || echo "000")
-          echo "Health ping returned: $HTTP"
+            --max-time 55 \
+            --retry 0 \
+            "$BACKEND_URL/ping" || echo "000")
+          echo "http_code=$HTTP" >> "$GITHUB_OUTPUT"
+          echo "Ping 1 returned: $HTTP"
+        env:
+          BACKEND_URL: ${{ secrets.BACKEND_URL }}
+
+      - name: Second ping to confirm awake (only if first timed out)
+        if: steps.ping1.outputs.http_code == '000'
+        run: |
+          echo "First ping timed out (service was sleeping — this is normal). Sending follow-up ping..."
+          sleep 5
+          HTTP=$(curl -s -o /dev/null -w "%{http_code}" \
+            --max-time 30 \
+            --retry 0 \
+            "$BACKEND_URL/ping" || echo "000")
+          echo "Ping 2 returned: $HTTP"
           if [[ "$HTTP" == "200" ]]; then
-            echo "Backend is awake and healthy."
-          elif [[ "$HTTP" == "000" ]]; then
-            echo "Connection timeout — backend may still be starting up. (Normal on first wake.)"
+            echo "Service is now awake after wake-up ping."
           else
-            echo "Unexpected status $HTTP — backend may be redeploying or unhealthy."
+            echo "::warning::Service still not responding (status $HTTP). It may be redeploying."
           fi
         env:
           BACKEND_URL: ${{ secrets.BACKEND_URL }}
+
+      - name: Report final status
+        run: |
+          CODE="${{ steps.ping1.outputs.http_code }}"
+          if [[ "$CODE" == "200" ]]; then
+            echo "Backend is healthy and warm."
+          elif [[ "$CODE" == "000" ]]; then
+            echo "Service was cold — wake-up ping sent. Will be warm for next real user request."
+          else
+            echo "::warning::Unexpected HTTP $CODE — service may be redeploying."
+          fi
