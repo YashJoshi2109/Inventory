@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState, useMemo, type ComponentType, Suspense, lazy } from "react";
+import { useLocation } from "react-router-dom";
 import { clsx } from "clsx";
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -382,6 +383,16 @@ function FlowHeader({ icon: Icon, label, accent }: { icon: IconComponent; label:
 
 // ─── ADD WORKFLOW ─────────────────────────────────────────────────────────────
 
+export interface SmartScanPrefill {
+  name: string;
+  sku: string;
+  category: string;   // category name — matched to ID after categories load
+  unit: string;
+  quantity: number;
+  description: string;
+  supplier: string;
+}
+
 type AddSubType = "add-stock" | "new-item";
 type AddStep = "select-subtype" | "scan-item" | "scan-rack" | "confirm" | "fill-details";
 
@@ -389,30 +400,46 @@ function AddFlow({
   onReset,
   onPhaseChange,
   onLocationFound,
+  prefill,
 }: {
   onReset: () => void;
   onPhaseChange?: (phase: string) => void;
   onLocationFound?: (code: string) => void;
+  prefill?: SmartScanPrefill | null;
 }) {
-  const [subtype, setSubtype] = useState<AddSubType | null>(null);
-  const [step, setStep] = useState<AddStep>("select-subtype");
+  const [subtype, setSubtype] = useState<AddSubType | null>(() => prefill ? "new-item" : null);
+  const [step, setStep] = useState<AddStep>(() => prefill ? "scan-rack" : "select-subtype");
   const [scannedRack, setScannedRack] = useState<ScanResult | null>(null);
   const [scannedItem, setScannedItem] = useState<ScanResult | null>(null);
   const [loading, setLoading] = useState(false);
-  const [qty, setQty] = useState("1");
+  const [qty, setQty] = useState(() => prefill ? String(prefill.quantity || 1) : "1");
   const [notes, setNotes] = useState("");
   const [newItemForm, setNewItemForm] = useState({
-    sku: "", name: "", category_id: "", unit: "EA", unit_cost: "", supplier: "", description: "",
+    sku: prefill?.sku ?? "",
+    name: prefill?.name ?? "",
+    category_id: "",
+    unit: prefill?.unit || "EA",
+    unit_cost: "",
+    supplier: prefill?.supplier ?? "",
+    description: prefill?.description ?? "",
   });
   const [categories, setCategories] = useState<{ id: number; name: string }[]>([]);
   const processingRef = useRef(false);
 
-  // Load categories for new-item form
+  // Load categories for new-item form; auto-match prefill category name → id
   useEffect(() => {
     if (subtype === "new-item" && categories.length === 0) {
-      itemsApi.getCategories().then(setCategories).catch(() => {});
+      itemsApi.getCategories().then((cats) => {
+        setCategories(cats);
+        if (prefill?.category) {
+          const match = cats.find(
+            (c) => c.name.toLowerCase() === prefill.category.toLowerCase()
+          );
+          if (match) setNewItemForm((f) => ({ ...f, category_id: String(match.id) }));
+        }
+      }).catch(() => {});
     }
-  }, [subtype, categories.length]);
+  }, [subtype, categories.length, prefill]);
 
   const go = (newStep: AddStep) => { setStep(newStep); onPhaseChange?.(newStep); };
 
@@ -581,6 +608,16 @@ function AddFlow({
       {/* ── add-stock / new-item: scan rack QR ── */}
       {step === "scan-rack" && (
         <div className="space-y-3">
+          {prefill && (
+            <div className="flex items-center gap-2.5 px-3 py-2.5 rounded-xl"
+              style={{ background: "rgba(139,92,246,0.08)", border: "1px solid rgba(139,92,246,0.25)" }}>
+              <CheckCircle2 size={14} className="text-purple-400 shrink-0" />
+              <div className="flex-1 min-w-0">
+                <p className="text-xs font-semibold text-purple-300">Smart Scan prefill active</p>
+                <p className="text-[11px] text-slate-500 truncate">{prefill.name} · {prefill.sku}</p>
+              </div>
+            </div>
+          )}
           {scannedItem && <ScannedCard result={scannedItem} label="Item" accent="#fbbf24" />}
           <ScanPrompt label="Scan Destination Shelf QR" hint="Point at rack / location QR" onScan={doRackScan} loading={loading} />
           <button onClick={() => go(subtype === "add-stock" ? "scan-item" : "select-subtype")}
@@ -1417,7 +1454,10 @@ const MODE_META: Record<
 };
 
 export function Scan() {
-  const [mode, setMode] = useState<ScanMode | null>(null);
+  const location = useLocation();
+  const routePrefill = (location.state as { prefill?: SmartScanPrefill } | null)?.prefill ?? null;
+
+  const [mode, setMode] = useState<ScanMode | null>(() => routePrefill ? "add" : null);
   const [flowPhase, setFlowPhase] = useState("idle");
   const [scannedLocCode, setScannedLocCode] = useState<string | null>(null);
 
@@ -1492,7 +1532,7 @@ export function Scan() {
             {/* Flow content — scrollable only internally */}
             <div className="flex-1 min-h-0 overflow-y-auto">
               <div className="max-w-2xl w-full mx-auto px-2 py-2">
-                {mode === "add"      && <AddFlow      onReset={() => { setMode(null); setScannedLocCode(null); }} onPhaseChange={setFlowPhase} onLocationFound={setScannedLocCode} />}
+                {mode === "add"      && <AddFlow      onReset={() => { setMode(null); setScannedLocCode(null); }} onPhaseChange={setFlowPhase} onLocationFound={setScannedLocCode} prefill={routePrefill} />}
                 {mode === "remove"   && <RemoveFlow   onReset={() => { setMode(null); setScannedLocCode(null); }} onPhaseChange={setFlowPhase} onLocationFound={setScannedLocCode} />}
                 {mode === "transfer" && <TransferFlow onReset={() => { setMode(null); setScannedLocCode(null); }} onPhaseChange={setFlowPhase} onLocationFound={setScannedLocCode} />}
                 {mode === "modify"   && <ModifyFlow   onReset={() => { setMode(null); setScannedLocCode(null); }} onPhaseChange={setFlowPhase} />}

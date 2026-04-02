@@ -2,7 +2,7 @@ import { NavLink } from "react-router-dom";
 import {
   LayoutDashboard, Package, MapPin, QrCode,
   ClipboardList, Upload, Users,
-  Beaker, BrainCircuit, Bell, LogOut, Bot, Settings, Camera,
+  Beaker, BrainCircuit, Bell, LogOut, Bot, Settings, Camera, Zap,
 } from "lucide-react";
 import { clsx } from "clsx";
 import { useAuthStore } from "@/store/auth";
@@ -22,6 +22,7 @@ const navItems = [
   { to: "/smart-scan",   label: "Smart Scan",   icon: Camera, highlight: true },
   { to: "/ai",           label: "AI Insights",  icon: BrainCircuit },
   { to: "/users",        label: "Users",        icon: Users, roles: ["admin", "manager"] },
+  { to: "/energy",      label: "Energy Hub",   icon: Zap, highlight3: true },
   { to: "/settings",    label: "Settings",     icon: Settings },
 ];
 
@@ -79,7 +80,7 @@ export function Sidebar() {
 
       {/* Navigation */}
       <nav className="flex-1 px-3 py-4 space-y-0.5 overflow-y-auto scrollbar-none">
-        {(navItems as Array<{ to: string; label: string; icon: React.ElementType; highlight?: boolean; highlight2?: boolean; roles?: string[] }>).map(({ to, label, icon: Icon, highlight, highlight2, roles }) => {
+        {(navItems as Array<{ to: string; label: string; icon: React.ElementType; highlight?: boolean; highlight2?: boolean; highlight3?: boolean; roles?: string[] }>).map(({ to, label, icon: Icon, highlight, highlight2, highlight3, roles }) => {
           if (roles && !hasRole(...roles)) return null;
           return (
             <NavLink
@@ -92,6 +93,8 @@ export function Sidebar() {
                     ? "text-white"
                     : isActive && highlight2
                     ? "text-purple-200"
+                    : isActive && highlight3
+                    ? "text-amber-200"
                     : isActive
                     ? "text-brand-300"
                     : "text-slate-500 hover:text-slate-200",
@@ -109,6 +112,12 @@ export function Sidebar() {
                       background: "linear-gradient(135deg, rgba(139,92,246,0.25), rgba(167,139,250,0.12))",
                       border: "1px solid rgba(167,139,250,0.3)",
                       boxShadow: "0 0 15px rgba(167,139,250,0.12)",
+                    }
+                  : isActive && highlight3
+                  ? {
+                      background: "linear-gradient(135deg, rgba(217,119,6,0.25), rgba(251,191,36,0.12))",
+                      border: "1px solid rgba(251,191,36,0.35)",
+                      boxShadow: "0 0 15px rgba(251,191,36,0.12)",
                     }
                   : isActive
                   ? {
@@ -129,6 +138,8 @@ export function Sidebar() {
                         ? "text-white"
                         : isActive && highlight2
                         ? "text-purple-300"
+                        : isActive && highlight3
+                        ? "text-amber-300"
                         : isActive
                         ? "text-brand-400"
                         : "text-slate-500 group-hover:text-slate-300 transition-colors",

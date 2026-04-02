@@ -12,6 +12,12 @@ backend/*.egg-info/
 backend/.pytest_cache/
 backend/uploads/
 
+# ─── HVAC Collector ───────────────────────────────────────────────────────────
+hvac_collector/.venv/
+hvac_collector/__pycache__/
+hvac_collector/*.csv          # local CSV backups — data lives in Supabase
+hvac_collector/tokens.json    # OAuth tokens (sensitive)
+
 # ─── Node ─────────────────────────────────────────────────────────────────────
 node_modules/
 frontend/node_modules/

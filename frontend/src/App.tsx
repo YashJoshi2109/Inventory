@@ -21,6 +21,7 @@ const AiCopilot     = lazy(() => import("@/pages/AiCopilot").then((m) => ({ defa
 const SmartScan     = lazy(() => import("@/pages/SmartScan").then((m) => ({ default: m.SmartScan })));
 const Settings      = lazy(() => import("@/pages/Settings").then((m) => ({ default: m.Settings })));
 const Admin         = lazy(() => import("@/pages/Admin").then((m) => ({ default: m.Admin })));
+const EnergyDashboard = lazy(() => import("@/pages/EnergyDashboard").then((m) => ({ default: m.EnergyDashboard })));
 const Login         = lazy(() => import("@/pages/Login").then((m) => ({ default: m.Login })));
 const Register      = lazy(() => import("@/pages/Register").then((m) => ({ default: m.Register })));
 const VerifyEmail   = lazy(() => import("@/pages/VerifyEmail").then((m) => ({ default: m.VerifyEmail })));
@@ -151,6 +152,7 @@ export default function App() {
                 <Route path="smart-scan" element={<Suspense fallback={<PageSpinner />}><SmartScan /></Suspense>} />
                 <Route path="settings" element={<Suspense fallback={<PageSpinner />}><Settings /></Suspense>} />
                 <Route path="users" element={<Suspense fallback={<PageSpinner />}><Admin /></Suspense>} />
+                <Route path="energy" element={<Suspense fallback={<PageSpinner />}><EnergyDashboard /></Suspense>} />
               </Route>
               <Route path="*" element={<Navigate to="/dashboard" replace />} />
             </Routes>

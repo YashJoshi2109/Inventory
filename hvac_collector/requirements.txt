@@ -1,0 +1,11 @@
+# HVAC Energy Collector dependencies
+# Install separately from the FastAPI backend:
+#   cd hvac_collector && pip install -r requirements.txt
+
+pyeconet
+thinq-connect
+supabase
+aiohttp
+requests
+pandas
+python-dotenv

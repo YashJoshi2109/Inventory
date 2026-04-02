@@ -17,6 +17,8 @@ import {
   Info,
   Loader2,
   Package,
+  PackagePlus,
+  PenLine,
   Plus,
   RefreshCw,
   Scan,
@@ -25,6 +27,7 @@ import {
   Upload,
   X,
 } from "lucide-react";
+import type { SmartScanPrefill } from "@/pages/Scan";
 import { useAuthStore } from "@/store/auth";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -145,6 +148,173 @@ function ConfidenceBar({ value }: { value: number }) {
   );
 }
 
+// ─── SKU suggestion ───────────────────────────────────────────────────────────
+
+function suggestSku(name: string, brand: string, model: string): string {
+  const prefix = brand
+    ? brand.replace(/\s+/g, "").slice(0, 3).toUpperCase()
+    : name.split(" ").map((w) => w[0] ?? "").join("").slice(0, 3).toUpperCase();
+  const mid = model
+    ? model.replace(/\s+/g, "").slice(0, 4).toUpperCase()
+    : name.split(" ").slice(-1)[0]?.slice(0, 4).toUpperCase() ?? "";
+  const suffix = String(Math.floor(Math.random() * 900) + 100);
+  return [prefix, mid, suffix].filter(Boolean).join("-");
+}
+
+// ─── Review Sheet ─────────────────────────────────────────────────────────────
+
+function ReviewSheet({
+  item,
+  imagePreview,
+  onConfirm,
+  onCancel,
+}: {
+  item: DetectedItem;
+  imagePreview: string | null;
+  onConfirm: (prefill: SmartScanPrefill) => void;
+  onCancel: () => void;
+}) {
+  const [form, setForm] = useState<SmartScanPrefill>(() => ({
+    name: item.name || "",
+    sku: suggestSku(item.name, item.brand, item.model),
+    category: item.category || "",
+    unit: "EA",
+    quantity: item.quantity || 1,
+    description: [item.brand && `Brand: ${item.brand}`, item.model && `Model: ${item.model}`, item.notes]
+      .filter(Boolean).join(" · "),
+    supplier: item.brand || "",
+  }));
+  const confidence = Math.round(item.confidence * 100);
+  const confColor = confidence >= 80 ? "#34d399" : confidence >= 50 ? "#fbbf24" : "#f87171";
+
+  const field = (label: string, key: keyof SmartScanPrefill, opts?: { type?: string; required?: boolean }) => (
+    <div>
+      <label className="block text-[11px] text-slate-400 mb-1 font-medium">
+        {label}{opts?.required && <span className="text-red-400 ml-0.5">*</span>}
+      </label>
+      <input
+        type={opts?.type ?? "text"}
+        value={String(form[key])}
+        onChange={(e) => setForm((f) => ({ ...f, [key]: opts?.type === "number" ? Number(e.target.value) : e.target.value }))}
+        className="w-full rounded-xl px-3 py-2 text-sm text-white bg-white/5 border border-white/10 focus:outline-none focus:border-cyan-400/50 transition-colors"
+      />
+    </div>
+  );
+
+  return (
+    <div className="fixed inset-0 z-50 flex flex-col" style={{ background: "rgba(3,7,18,0.85)", backdropFilter: "blur(12px)" }}>
+      {/* Header */}
+      <div className="flex items-center gap-3 px-4 pt-5 pb-3 shrink-0"
+        style={{ borderBottom: "1px solid rgba(255,255,255,0.07)" }}>
+        <button onClick={onCancel}
+          className="w-8 h-8 rounded-xl flex items-center justify-center text-slate-400 hover:text-white transition-colors"
+          style={{ background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.08)" }}>
+          <X size={15} />
+        </button>
+        <div className="flex-1">
+          <p className="text-sm font-bold text-white">Verify before adding</p>
+          <p className="text-[11px] text-slate-500">Review AI-detected details — edit anything before sending to inventory</p>
+        </div>
+        <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-xl text-[11px] font-semibold"
+          style={{ background: `${confColor}18`, border: `1px solid ${confColor}40`, color: confColor }}>
+          <span className="w-1.5 h-1.5 rounded-full" style={{ background: confColor }} />
+          {confidence}% confidence
+        </div>
+      </div>
+
+      {/* Scrollable body */}
+      <div className="flex-1 overflow-y-auto px-4 py-4 space-y-4">
+
+        {/* Image + AI badge */}
+        {imagePreview && (
+          <div className="relative w-full h-36 rounded-2xl overflow-hidden"
+            style={{ border: "1px solid rgba(34,211,238,0.15)" }}>
+            <img src={imagePreview} alt="Scanned" className="w-full h-full object-cover" />
+            <div className="absolute bottom-2 left-2 flex items-center gap-1.5 px-2.5 py-1 rounded-xl text-[11px] font-semibold"
+              style={{ background: "rgba(0,0,0,0.7)", backdropFilter: "blur(8px)", color: "#22d3ee", border: "1px solid rgba(34,211,238,0.25)" }}>
+              <Sparkles size={11} />
+              AI Detected
+            </div>
+          </div>
+        )}
+
+        {/* Warning if low confidence */}
+        {confidence < 60 && (
+          <div className="flex items-start gap-2.5 px-3 py-2.5 rounded-xl"
+            style={{ background: "rgba(251,191,36,0.07)", border: "1px solid rgba(251,191,36,0.2)" }}>
+            <AlertTriangle size={14} className="text-amber-400 shrink-0 mt-0.5" />
+            <p className="text-xs text-amber-300/80">
+              Low confidence detection — please verify all fields carefully before adding to inventory.
+            </p>
+          </div>
+        )}
+
+        {/* Editable form */}
+        <div className="space-y-3 pb-2">
+          <p className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider flex items-center gap-1.5">
+            <PenLine size={11} /> Edit details
+          </p>
+          {field("Item Name", "name", { required: true })}
+          <div className="grid grid-cols-2 gap-2">
+            {field("SKU", "sku", { required: true })}
+            {field("Unit", "unit")}
+          </div>
+          <div className="grid grid-cols-2 gap-2">
+            {field("Category", "category")}
+            {field("Initial Qty", "quantity", { type: "number" })}
+          </div>
+          {field("Supplier / Brand", "supplier")}
+          <div>
+            <label className="block text-[11px] text-slate-400 mb-1 font-medium">Description / Notes</label>
+            <textarea
+              rows={2}
+              value={form.description}
+              onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))}
+              className="w-full rounded-xl px-3 py-2 text-sm text-white bg-white/5 border border-white/10 focus:outline-none focus:border-cyan-400/50 transition-colors resize-none"
+            />
+          </div>
+        </div>
+
+        {/* Info note */}
+        <div className="flex items-start gap-2 px-3 py-2.5 rounded-xl"
+          style={{ background: "rgba(34,211,238,0.05)", border: "1px solid rgba(34,211,238,0.12)" }}>
+          <Info size={13} className="text-cyan-400 shrink-0 mt-0.5" />
+          <p className="text-[11px] text-slate-400">
+            After confirming, you'll scan a <span className="text-cyan-300 font-semibold">shelf QR</span> to place this item. The form will be pre-filled.
+          </p>
+        </div>
+      </div>
+
+      {/* Footer buttons */}
+      <div className="px-4 pt-3 pb-6 flex gap-3 shrink-0"
+        style={{ borderTop: "1px solid rgba(255,255,255,0.06)" }}>
+        <button onClick={onCancel}
+          className="flex-1 py-3.5 rounded-2xl text-sm font-semibold text-slate-400 hover:text-white transition-colors"
+          style={{ background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.08)" }}>
+          Cancel
+        </button>
+        <button
+          onClick={() => {
+            if (!form.name.trim() || !form.sku.trim()) {
+              toast.error("Name and SKU are required");
+              return;
+            }
+            onConfirm(form);
+          }}
+          className="flex-2 flex-[2] flex items-center justify-center gap-2 py-3.5 rounded-2xl text-sm font-bold transition-all hover:scale-[1.02] active:scale-[0.98]"
+          style={{
+            background: "linear-gradient(135deg,#7c3aed,#a855f7)",
+            boxShadow: "0 4px 24px rgba(139,92,246,0.4)",
+            color: "white",
+          }}>
+          <PackagePlus size={16} />
+          Confirm — Go to Scan
+        </button>
+      </div>
+    </div>
+  );
+}
+
 // ─── Main Component ───────────────────────────────────────────────────────────
 
 export function SmartScan() {
@@ -171,6 +341,7 @@ export function SmartScan() {
   const [visionStatus, setVisionStatus] = useState<VisionStatus | null>(null);
   const [cameraFacing, setCameraFacing] = useState<"environment" | "user">("environment");
   const [showRawAnalysis, setShowRawAnalysis] = useState(false);
+  const [reviewItem, setReviewItem] = useState<DetectedItem | null>(null);
 
   useEffect(() => {
     if (!accessToken) return;
@@ -346,24 +517,16 @@ export function SmartScan() {
     setMode("camera");
   }, [capturedPreview]);
 
-  // ── Navigate to scan with pre-filled item ─────────────────────────────────
+  // ── Open review sheet for human verification ──────────────────────────────
 
-  const addItemToInventory = useCallback(
-    (item: DetectedItem) => {
-      navigate("/scan", {
-        state: {
-          prefill: {
-            name: item.name,
-            category: item.category,
-            brand: item.brand,
-            model: item.model,
-            quantity: item.quantity,
-          },
-        },
-      });
-    },
-    [navigate]
-  );
+  const addItemToInventory = useCallback((item: DetectedItem) => {
+    setReviewItem(item);
+  }, []);
+
+  const confirmAndNavigate = useCallback((prefill: SmartScanPrefill) => {
+    setReviewItem(null);
+    navigate("/scan", { state: { prefill } });
+  }, [navigate]);
 
   // ── Flip camera ───────────────────────────────────────────────────────────
 
@@ -889,12 +1052,13 @@ export function SmartScan() {
                           onClick={() => addItemToInventory(item)}
                           className="flex items-center gap-1 px-2.5 py-1.5 rounded-xl text-xs font-semibold shrink-0 transition-all hover:scale-105 active:scale-95"
                           style={{
-                            background: "linear-gradient(135deg,#0891b2,#22d3ee)",
-                            color: "#030712",
+                            background: "linear-gradient(135deg,#7c3aed,#a855f7)",
+                            color: "white",
+                            boxShadow: "0 2px 10px rgba(139,92,246,0.35)",
                           }}
                         >
-                          <Plus size={12} />
-                          Add
+                          <PackagePlus size={12} />
+                          Review &amp; Add
                         </button>
                       </div>
                     </div>
@@ -1130,6 +1294,16 @@ export function SmartScan() {
         className="hidden"
         onChange={handleFileSelect}
       />
+
+      {/* ── Human Verification Sheet ── */}
+      {reviewItem && (
+        <ReviewSheet
+          item={reviewItem}
+          imagePreview={capturedPreview}
+          onConfirm={confirmAndNavigate}
+          onCancel={() => setReviewItem(null)}
+        />
+      )}
     </div>
   );
 }

@@ -13,11 +13,13 @@ import {
 import { formatDistanceToNow } from "date-fns";
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
-  ResponsiveContainer, PieChart, Pie, Cell,
+  ResponsiveContainer, PieChart, Pie, Cell, AreaChart, Area,
 } from "recharts";
 import { clsx } from "clsx";
 import type { InventoryEvent } from "@/types";
 import { animationVariants } from "@/utils/animations";
+import { energyApi } from "@/api/energy";
+import { Sun, TrendingUp } from "lucide-react";
 
 const EVENT_ICONS = {
   STOCK_IN:   { icon: ArrowUpRight,   color: "#22d3ee", bg: "rgba(34,211,238,0.1)" },
@@ -187,6 +189,127 @@ function getGreeting() {
   return "Good evening";
 }
 
+function EcoEnergyWidget() {
+  const { data: energy, isLoading } = useQuery({
+    queryKey: ["dashboard-energy-widget"],
+    queryFn: () => energyApi.getDashboard(12),
+    refetchInterval: 15_000,
+  });
+  const navigate = useNavigate();
+
+  if (isLoading || !energy) {
+    return <SkeletonCard rows={5} />;
+  }
+
+  const { latest, stats, history } = energy;
+  if (!latest) return null;
+
+  // Format chart data (last 20 points to fit nicely)
+  const chartData = history.labels.map((label, idx) => ({
+    time: new Date(label).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }),
+    solar: history.solar[idx] || 0,
+    consumption: (history.ac[idx] || 0) + (history.hwh[idx] || 0) + (history.consumption[idx] || 0),
+  })).slice(-20);
+
+  const isSurplus = stats.savings_status === "SURPLUS";
+
+  return (
+    <motion.div
+      variants={animationVariants.fadeInUp}
+      initial="hidden"
+      whileInView="visible"
+      viewport={{ once: true, margin: "-50px" }}
+      className="col-span-1 lg:col-span-3 rounded-3xl overflow-hidden relative cursor-pointer hover:shadow-2xl transition-all duration-300"
+      onClick={() => navigate("/energy")}
+      style={{
+        background: "linear-gradient(145deg, rgba(7,15,31,0.8) 0%, rgba(15,23,42,0.9) 100%)",
+        border: "1px solid rgba(34,211,238,0.15)",
+        backdropFilter: "blur(12px)",
+      }}
+    >
+      <div className="absolute top-0 right-0 w-64 h-64 blur-3xl opacity-10 rounded-full transition-colors duration-1000" style={{ background: isSurplus ? "#34d399" : "#f87171" }} />
+      
+      <div className="p-6 flex flex-col h-full gap-5 relative z-10">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-2xl flex items-center justify-center animate-pulse-slow" style={{ background: "rgba(34,211,238,0.15)", border: "1px solid rgba(34,211,238,0.3)" }}>
+              <Zap size={20} className="text-cyan-400" />
+            </div>
+            <div>
+              <h3 className="text-base font-bold text-white tracking-wide">EcoEnergy Hub</h3>
+              <p className="text-[11px] text-cyan-400/80 uppercase tracking-widest font-semibold flex items-center gap-1"><span className="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-pulse" /> Live Metrics</p>
+            </div>
+          </div>
+          <div className={`px-3 py-1.5 rounded-full text-xs font-bold border flex items-center gap-1.5 backdrop-blur-md ${isSurplus ? 'bg-emerald-500/15 border-emerald-500/30 text-emerald-400' : 'bg-red-500/15 border-red-500/30 text-red-400'}`}>
+            {isSurplus ? <TrendingUp size={14} /> : <TrendingDown size={14} />}
+            {stats.savings_status}
+          </div>
+        </div>
+
+        {/* Live Metrics Grid */}
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+          <div className="p-4 rounded-2xl bg-white/5 border border-white/5 hover:bg-white/10 transition-colors">
+            <div className="flex items-center gap-1.5 mb-1 text-amber-400/80">
+              <Sun size={12} />
+              <p className="text-[11px] font-semibold uppercase tracking-wide">Solar Gen</p>
+            </div>
+            <p className="text-2xl font-black text-amber-400">{Math.round(latest.solar_current_power_w)}<span className="text-sm text-amber-400/60 ml-1 font-semibold">W</span></p>
+          </div>
+          <div className="p-4 rounded-2xl bg-white/5 border border-white/5 hover:bg-white/10 transition-colors">
+            <div className="flex items-center gap-1.5 mb-1 text-cyan-400/80">
+              <Activity size={12} />
+              <p className="text-[11px] font-semibold uppercase tracking-wide">Total Load</p>
+            </div>
+            <p className="text-2xl font-black text-cyan-400">{Math.round(latest.total_consumption_w)}<span className="text-sm text-cyan-400/60 ml-1 font-semibold">W</span></p>
+          </div>
+          <div className="p-4 rounded-2xl bg-white/5 border border-white/5 hover:bg-white/10 transition-colors">
+            <div className="flex items-center gap-1.5 mb-1 text-indigo-400/80">
+              <Zap size={12} />
+              <p className="text-[11px] font-semibold uppercase tracking-wide">HVAC Use</p>
+            </div>
+            <p className="text-2xl font-black text-indigo-400">{Math.round(latest.ac_consumption_w)}<span className="text-sm text-indigo-400/60 ml-1 font-semibold">W</span></p>
+          </div>
+          <div className="p-4 rounded-2xl bg-white/5 border border-white/5 hover:bg-white/10 transition-colors">
+            <div className="flex items-center gap-1.5 mb-1 text-rose-400/80">
+              <Activity size={12} />
+              <p className="text-[11px] font-semibold uppercase tracking-wide">Heater Use</p>
+            </div>
+            <p className="text-2xl font-black text-rose-400">{Math.round(latest.hwh_consumption_w)}<span className="text-sm text-rose-400/60 ml-1 font-semibold">W</span></p>
+          </div>
+        </div>
+
+        {/* Miniature Animated Area Chart */}
+        <div className="flex-1 mt-2 min-h-[160px] w-full relative">
+          <ResponsiveContainer width="100%" height="100%">
+            <AreaChart data={chartData} margin={{ top: 10, right: 0, left: -20, bottom: 0 }}>
+              <defs>
+                <linearGradient id="solarGradMain" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="5%" stopColor="#fbbf24" stopOpacity={0.4} />
+                  <stop offset="95%" stopColor="#fbbf24" stopOpacity={0} />
+                </linearGradient>
+                <linearGradient id="consGradMain" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="5%" stopColor="#22d3ee" stopOpacity={0.4} />
+                  <stop offset="95%" stopColor="#22d3ee" stopOpacity={0} />
+                </linearGradient>
+              </defs>
+              <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="rgba(255,255,255,0.04)" />
+              <XAxis dataKey="time" axisLine={false} tickLine={false} tick={{ fill: "#64748b", fontSize: 10 }} tickMargin={10} minTickGap={30} />
+              <YAxis axisLine={false} tickLine={false} tick={{ fill: "#64748b", fontSize: 10 }} />
+              <Tooltip 
+                contentStyle={{ background: "rgba(15,23,42,0.95)", border: "1px solid rgba(255,255,255,0.15)", borderRadius: "12px", fontSize: "12px", backdropFilter: "blur(16px)", boxShadow: "0 10px 30px rgba(0,0,0,0.5)" }}
+                itemStyle={{ color: "#e2e8f0", fontWeight: 'bold' }}
+                cursor={{ stroke: 'rgba(255,255,255,0.1)', strokeWidth: 1, strokeDasharray: '4 4' }}
+              />
+              <Area type="monotone" dataKey="solar" stroke="#fbbf24" strokeWidth={2.5} fillOpacity={1} fill="url(#solarGradMain)" name="Solar Gen (W)" isAnimationActive />
+              <Area type="monotone" dataKey="consumption" stroke="#22d3ee" strokeWidth={2.5} fillOpacity={1} fill="url(#consGradMain)" name="Usage (W)" isAnimationActive />
+            </AreaChart>
+          </ResponsiveContainer>
+        </div>
+      </div>
+    </motion.div>
+  );
+}
+
 export function Dashboard() {
   const { data: stats, isLoading, error } = useQuery({
     queryKey: ["dashboard-stats"],
@@ -325,6 +448,11 @@ export function Dashboard() {
           );
         })}
       </motion.div>
+
+      {/* EcoEnergy Hub Widget */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+        <EcoEnergyWidget />
+      </div>
 
       {/* Charts row */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
