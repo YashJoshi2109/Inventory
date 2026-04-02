@@ -6,6 +6,7 @@ import type {
   DashboardStats,
   ScanResult,
   ForecastResult,
+  StockLevel,
 } from "@/types";
 
 export const transactionsApi = {
@@ -36,6 +37,31 @@ export const transactionsApi = {
 export const scanApi = {
   lookup: async (barcode_value: string): Promise<ScanResult> => {
     const { data } = await apiClient.post<ScanResult>("/scans/lookup", { barcode_value });
+    return data;
+  },
+
+  stockLevels: async (item_id: number): Promise<StockLevel[]> => {
+    const { data } = await apiClient.get<StockLevel[]>(`/scans/stock-levels/${item_id}`);
+    return data;
+  },
+
+  add: async (payload: {
+    item_id: number;
+    location_id: number;
+    quantity: number;
+    notes?: string;
+  }): Promise<InventoryEvent> => {
+    const { data } = await apiClient.post<InventoryEvent>("/scans/stock-in", payload);
+    return data;
+  },
+
+  remove: async (payload: {
+    item_id: number;
+    location_id: number;
+    quantity: number;
+    notes?: string;
+  }): Promise<InventoryEvent> => {
+    const { data } = await apiClient.post<InventoryEvent>("/scans/stock-out", { ...payload, reason: "Manual removal" });
     return data;
   },
 

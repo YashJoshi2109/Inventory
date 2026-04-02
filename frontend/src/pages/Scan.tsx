@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState, type ComponentType } from "react";
+import { useCallback, useEffect, useRef, useState, useMemo, type ComponentType, Suspense, lazy } from "react";
 import { clsx } from "clsx";
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -17,10 +17,103 @@ import { Badge } from "@/components/ui/Badge";
 import { Modal } from "@/components/ui/Modal";
 import { scanApi } from "@/api/transactions";
 import { itemsApi } from "@/api/items";
-import type { ScanResult } from "@/types";
+import { apiClient } from "@/api/client";
+import type { ScanResult, Area, Location, StockLevel } from "@/types";
 import { useQuery } from "@tanstack/react-query";
 import { openOrDownloadDataUrl } from "@/utils/fileActions";
 import { useHaptic } from "@/hooks/useHaptic";
+
+type WorkerAction = "idle" | "add" | "remove" | "transfer" | "modify";
+
+function apiErrMsg(err: unknown, fallback: string): string {
+  const detail = (err as { response?: { data?: { detail?: unknown } } })?.response?.data?.detail;
+  if (typeof detail === "string") return detail;
+  if (Array.isArray(detail)) return (detail as { msg: string }[]).map((d) => d.msg).join(", ");
+  return fallback;
+}
+
+async function safeStockLevels(item_id: number): Promise<StockLevel[]> {
+  try {
+    return await itemsApi.getStockLevels(item_id);
+  } catch (err) {
+    const status = (err as { response?: { status?: number } })?.response?.status;
+    if (status === 404) return [];
+    throw err;
+  }
+}
+
+const levelToScanResult = (level: StockLevel): ScanResult => ({
+  id: level.location_id,
+  code: level.location_code,
+  name: level.location_name,
+  result_type: "location",
+  details: {
+    total_quantity: level.quantity,
+    unit: "units",
+  },
+});
+
+function StockLevelPicker({
+  levels,
+  onSelect,
+  onScanInstead,
+  label,
+}: {
+  levels: StockLevel[];
+  onSelect: (level: StockLevel) => void;
+  onScanInstead?: () => void;
+  label: string;
+}) {
+  return (
+    <div className="space-y-3">
+      <p className="text-sm text-slate-400">{label}</p>
+      <div className="space-y-2 max-h-[300px] overflow-y-auto pr-1">
+        {levels.filter(l => l.quantity > 0).length === 0 ? (
+          <div className="py-8 text-center border border-dashed border-slate-800 rounded-xl">
+            <Package className="mx-auto text-slate-700 mb-2" size={24} />
+            <p className="text-xs text-slate-600">No stock found in any location</p>
+          </div>
+        ) : (
+          levels.filter(l => l.quantity > 0).map((level) => (
+            <button
+              key={level.location_id}
+              onClick={() => onSelect(level)}
+              className="w-full flex items-center justify-between p-4 rounded-xl transition-all hover:bg-white/5 border border-white/5 hover:border-white/10"
+              style={{ background: "rgba(255,255,255,0.02)" }}
+            >
+              <div className="flex items-center gap-3">
+                <div className="w-8 h-8 rounded-lg bg-brand-400/10 flex items-center justify-center border border-brand-400/20">
+                  <MapPin size={14} className="text-brand-400" />
+                </div>
+                <div className="text-left">
+                  <p className="text-sm font-bold text-white">{level.location_name}</p>
+                  <p className="text-[10px] text-slate-500 font-mono italic">Rack ID: {level.location_id}</p>
+                </div>
+              </div>
+              <div className="text-right">
+                <p className="text-base font-black text-brand-400">{level.quantity}</p>
+                <p className="text-[9px] text-slate-500 uppercase tracking-tighter">Available</p>
+              </div>
+            </button>
+          ))
+        )}
+      </div>
+      {onScanInstead && (
+        <button
+          onClick={onScanInstead}
+          className="w-full flex items-center justify-center gap-2 py-3 rounded-xl border border-white/10 text-xs text-slate-400 hover:text-white hover:bg-white/5 transition-all"
+        >
+          <QrCode size={14} /> Scan different rack QR
+        </button>
+      )}
+    </div>
+  );
+}
+
+const Inventory3DPanel = lazy(async () => {
+  const mod = await import("@/components/visualization/Inventory3DPanel");
+  return { default: mod.Inventory3DPanel };
+});
 
 type ScanMode = "add" | "remove" | "transfer" | "modify";
 
@@ -80,49 +173,34 @@ const MODES: Array<{
 
 function ModeSelector({ onSelect }: { onSelect: (m: ScanMode) => void }) {
   return (
-    <div className="p-5 space-y-5">
-      {/* Hero */}
-      <div className="text-center space-y-2 py-2">
-        <div
-          className="inline-flex items-center justify-center w-14 h-14 rounded-2xl mb-2 animate-glow-pulse"
-          style={{
-            background: "rgba(34,211,238,0.1)",
-            border: "1px solid rgba(34,211,238,0.3)",
-          }}
-        >
-          <Zap size={26} className="text-brand-400" />
-        </div>
-        <h2 className="text-xl font-bold text-white">Scanner Workflow</h2>
-        <p className="text-sm text-slate-500">Select an action to begin</p>
-      </div>
-
-      {/* Mode grid */}
-      <div className="grid grid-cols-2 gap-3">
-        {MODES.map(({ id, label, icon: Icon, color, borderColor, bgColor, glowColor, desc }) => (
+    <div className="h-full w-full flex items-center justify-center p-4 overflow-y-auto">
+      <div className="grid grid-cols-2 md:flex md:flex-row gap-3 md:gap-4 w-full max-w-3xl">
+        {MODES.map((m) => (
           <button
-            key={id}
-            onClick={() => onSelect(id)}
-            className="group flex flex-col items-center gap-3 p-5 rounded-2xl text-center transition-all duration-200 hover:scale-[1.02] active:scale-[0.98]"
+            key={m.id}
+            onClick={() => onSelect(m.id as ScanMode)}
+            className="group relative flex flex-col items-center justify-center gap-3 rounded-2xl border transition-all duration-300 overflow-hidden hover:scale-[1.03] active:scale-[0.97] md:flex-1 py-6 md:py-8"
             style={{
-              background: bgColor,
-              border: `1px solid ${borderColor}`,
-            }}
-            onMouseEnter={(e) => {
-              (e.currentTarget as HTMLButtonElement).style.boxShadow = `0 0 20px ${glowColor}`;
-            }}
-            onMouseLeave={(e) => {
-              (e.currentTarget as HTMLButtonElement).style.boxShadow = "none";
+              borderColor: m.borderColor,
+              background: m.bgColor,
+              boxShadow: `0 8px 32px -8px ${m.glowColor}, inset 0 1px 0 rgba(255,255,255,0.06)`,
             }}
           >
-            <div
-              className="w-11 h-11 rounded-xl flex items-center justify-center"
-              style={{ background: `${glowColor}`, border: `1px solid ${borderColor}` }}
-            >
-              <Icon size={22} className={color} />
+            {/* Bottom glow */}
+            <div className="absolute inset-x-0 bottom-0 h-1/2 pointer-events-none opacity-20 group-hover:opacity-50 transition-opacity duration-500"
+              style={{background:`radial-gradient(circle at 50% 100%,${m.glowColor},transparent 70%)`}} />
+            {/* Top shimmer */}
+            <div className="absolute inset-x-0 top-0 h-px opacity-40 group-hover:opacity-80 transition-opacity duration-300"
+              style={{background:`linear-gradient(90deg,transparent,${m.borderColor.replace("0.25","0.6")},transparent)`}} />
+
+            <div className="relative w-12 h-12 md:w-14 md:h-14 rounded-2xl flex items-center justify-center transition-all duration-300 group-hover:scale-110 group-hover:-rotate-6"
+              style={{background:m.bgColor,border:`1.5px solid ${m.borderColor}`,boxShadow:`0 0 20px -4px ${m.glowColor}`}}>
+              <m.icon className={`w-6 h-6 md:w-7 md:h-7 ${m.color}`} />
             </div>
-            <div>
-              <p className="text-sm font-semibold text-white">{label}</p>
-              <p className="text-xs text-slate-500 mt-0.5">{desc}</p>
+
+            <div className="text-center mt-1 z-10 px-2">
+              <p className="text-[13px] md:text-[15px] font-black tracking-[0.12em] uppercase text-white leading-tight drop-shadow-md">{m.label}</p>
+              <p className="text-[10px] md:text-[11px] text-slate-400 group-hover:text-slate-200 transition-colors mt-1.5 leading-snug max-w-[140px] mx-auto">{m.desc}</p>
             </div>
           </button>
         ))}
@@ -224,7 +302,7 @@ function ScanPrompt({
         <BarcodeScanner
           onScan={handleScan}
           hint={hint ?? "Point at item QR code"}
-          className="h-72 w-full rounded-2xl"
+          className="h-44 w-full rounded-2xl"
           autoStart
         />
       ) : (
@@ -304,389 +382,230 @@ function FlowHeader({ icon: Icon, label, accent }: { icon: IconComponent; label:
 
 // ─── ADD WORKFLOW ─────────────────────────────────────────────────────────────
 
-type AddSubMode =
-  | "choose"
-  | "scan-item"
-  | "scan-rack"
-  | "confirm"
-  | "new-item-loc"
-  | "new-item"
-  | "new-item-rack"
-  | "new-item-confirm";
+type AddSubType = "add-stock" | "new-item";
+type AddStep = "select-subtype" | "scan-item" | "scan-rack" | "confirm" | "fill-details";
 
-function revokeQrUrl(url: string | null) {
-  if (url?.startsWith("blob:")) URL.revokeObjectURL(url);
-}
-
-async function fetchQrWithRetry(itemId: number, attempts = 3): Promise<string | null> {
-  for (let i = 0; i < attempts; i++) {
-    try {
-      const blob = await itemsApi.downloadQrPng(itemId);
-      return URL.createObjectURL(blob);
-    } catch {
-      if (i < attempts - 1) await new Promise((r) => setTimeout(r, 600));
-    }
-  }
-  return null;
-}
-
-function AddFlow({ onReset }: { onReset: () => void }) {
-  const { triggerHaptic } = useHaptic();
-  const [sub, setSub] = useState<AddSubMode>("choose");
-  const [item, setItem] = useState<ScanResult | null>(null);
-  const [rack, setRack] = useState<ScanResult | null>(null);
-  const [qty, setQty] = useState("1");
-  const [ref, setRef] = useState("");
-  const [notes, setNotes] = useState("");
+function AddFlow({
+  onReset,
+  onPhaseChange,
+  onLocationFound,
+}: {
+  onReset: () => void;
+  onPhaseChange?: (phase: string) => void;
+  onLocationFound?: (code: string) => void;
+}) {
+  const [subtype, setSubtype] = useState<AddSubType | null>(null);
+  const [step, setStep] = useState<AddStep>("select-subtype");
+  const [scannedRack, setScannedRack] = useState<ScanResult | null>(null);
+  const [scannedItem, setScannedItem] = useState<ScanResult | null>(null);
   const [loading, setLoading] = useState(false);
+  const [qty, setQty] = useState("1");
+  const [notes, setNotes] = useState("");
+  const [newItemForm, setNewItemForm] = useState({
+    sku: "", name: "", category_id: "", unit: "EA", unit_cost: "", supplier: "", description: "",
+  });
+  const [categories, setCategories] = useState<{ id: number; name: string }[]>([]);
   const processingRef = useRef(false);
 
-  const { data: categories } = useQuery({
-    queryKey: ["categories"],
-    queryFn: itemsApi.getCategories,
-  });
-
-  const [newItem, setNewItem] = useState({
-    sku: "",
-    name: "",
-    description: "",
-    category_id: "",
-    unit: "EA",
-    unit_cost: "0",
-    reorder_level: "0",
-    supplier: "",
-  });
-
-  /** Rack chosen before creating a new item (scan-first flow). */
-  const [newItemPresetRack, setNewItemPresetRack] = useState<ScanResult | null>(null);
-
-  // Auto-generate next SKU when entering new-item form
+  // Load categories for new-item form
   useEffect(() => {
-    if (sub !== "new-item" || newItem.sku) return;
-    itemsApi.list({ page: 1, page_size: 1 }).then((res) => {
-      const next = (res.total + 1).toString().padStart(3, "0");
-      setNewItem((p) => ({ ...p, sku: `SKU-${next}` }));
-    }).catch(() => {/* non-fatal */});
-  }, [sub]); // eslint-disable-line react-hooks/exhaustive-deps
+    if (subtype === "new-item" && categories.length === 0) {
+      itemsApi.getCategories().then(setCategories).catch(() => {});
+    }
+  }, [subtype, categories.length]);
 
-  const [createdItem, setCreatedItem] = useState<{
-    id: number;
-    sku: string;
-    name: string;
-  } | null>(null);
-  const [showQrModal, setShowQrModal] = useState(false);
-  const [qrImageUrl, setQrImageUrl] = useState<string | null>(null);
-  const [sendingQrEmail, setSendingQrEmail] = useState(false);
+  const go = (newStep: AddStep) => { setStep(newStep); onPhaseChange?.(newStep); };
 
-  const doScan = useCallback(
-    async (value: string, target: "item" | "rack") => {
-      if (processingRef.current) return;
-      processingRef.current = true;
-      setLoading(true);
-      try {
-        const result = await scanApi.lookup(value);
-        if (result.result_type === "unknown") {
-          triggerHaptic("error");
-          toast.error(`Unknown barcode: ${value}`);
-          return;
-        }
-        if (target === "item" && result.result_type === "item") {
-          triggerHaptic("success");
-          setItem(result);
-          setSub("scan-rack");
-          toast.success(`Item loaded: ${result.name}`);
-        } else if (target === "rack" && result.result_type === "location") {
-          triggerHaptic("success");
-          setRack(result);
-          setSub(sub === "new-item-rack" ? "new-item-confirm" : "confirm");
-          toast.success(`Location: ${result.name}`);
-        } else {
-          triggerHaptic("warning");
-          toast.error(`Expected ${target === "item" ? "item QR" : "rack / location QR"} — try again`);
-        }
-      } catch {
-        triggerHaptic("error");
-        toast.error("Lookup failed. Try again.");
-      } finally {
-        setLoading(false);
-        setTimeout(() => {
-          processingRef.current = false;
-        }, 500);
-      }
-    },
-    [sub, triggerHaptic],
-  );
+  const pickSubtype = (st: AddSubType) => {
+    setSubtype(st);
+    // add-stock: scan item first; new-item: scan rack first
+    go(st === "add-stock" ? "scan-item" : "scan-rack");
+  };
 
-  const scanNewItemPresetLocation = useCallback(async (value: string) => {
+  // ── add-stock: scan item QR first ────────────────────────────────────────────
+  const doItemScan = useCallback(async (value: string) => {
     if (processingRef.current) return;
     processingRef.current = true;
     setLoading(true);
     try {
       const result = await scanApi.lookup(value);
-      if (result.result_type !== "location") {
-        toast.error("Scan a rack / location QR code");
+      if (result.result_type !== "item") {
+        toast.error("Scan an item QR — this is a rack barcode");
         return;
       }
-      setNewItemPresetRack(result);
-      setSub("new-item");
-      toast.success(`Will store at: ${result.name}`);
+      setScannedItem(result);
+      go("scan-rack");
+      toast.success(`Item: ${result.name}`);
     } catch {
       toast.error("Lookup failed. Try again.");
     } finally {
       setLoading(false);
       setTimeout(() => { processingRef.current = false; }, 500);
     }
-  }, []);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [onPhaseChange]);
 
-  const commit = async () => {
-    const targetItem =
-      createdItem ?? (item ? { id: item.id!, name: item.name, sku: item.code } : null);
-    if (!targetItem || !rack) return;
+  // ── scan rack QR (both subtypes use this) ────────────────────────────────────
+  const doRackScan = useCallback(async (value: string) => {
+    if (processingRef.current) return;
+    processingRef.current = true;
     setLoading(true);
     try {
-      await scanApi.stockIn({
-        item_id: targetItem.id,
-        location_id: rack.id!,
+      const result = await scanApi.lookup(value);
+      if (result.result_type !== "location") {
+        toast.error("Scan a rack QR code — this is an item barcode");
+        return;
+      }
+      setScannedRack(result);
+      onLocationFound?.(result.code);
+      go(subtype === "add-stock" ? "confirm" : "fill-details");
+      toast.success(`Location: ${result.name}`);
+    } catch {
+      toast.error("Lookup failed. Try again.");
+    } finally {
+      setLoading(false);
+      setTimeout(() => { processingRef.current = false; }, 500);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [onPhaseChange, subtype]);
+
+  // ── add-stock: commit ─────────────────────────────────────────────────────────
+  const commit = async () => {
+    if (!scannedRack || !scannedItem) return;
+    setLoading(true);
+    try {
+      await scanApi.add({
+        location_id: scannedRack.id!,
+        item_id: scannedItem.id!,
         quantity: parseFloat(qty),
-        reference: ref || undefined,
         notes: notes || undefined,
       });
-      toast.success(`✓ Added ${qty} × ${targetItem.name} → ${rack.name}`);
+      toast.success(`✓ Added ${qty} × ${scannedItem.name} to ${scannedRack.code}`);
       onReset();
-    } catch (e: unknown) {
-      const msg = (e as { response?: { data?: { detail?: string } } })?.response?.data?.detail;
-      toast.error(typeof msg === "string" ? msg : "Failed to add stock");
+    } catch {
+      toast.error("Add failed. Try again.");
     } finally {
       setLoading(false);
     }
   };
 
-  const createNewItem = async () => {
-    if (!newItem.sku.trim() || !newItem.name.trim()) {
-      toast.error("SKU and Name are required");
-      return;
-    }
+  // ── new-item: create item + add to rack ───────────────────────────────────────
+  const commitNewItem = async () => {
+    if (!scannedRack || !newItemForm.name.trim() || !newItemForm.sku.trim()) return;
     setLoading(true);
     try {
       const created = await itemsApi.create({
-        sku: newItem.sku.trim().toUpperCase(),
-        name: newItem.name.trim(),
-        description: newItem.description || undefined,
-        category_id: newItem.category_id ? Number(newItem.category_id) : undefined,
-        unit: newItem.unit || "EA",
-        unit_cost: parseFloat(newItem.unit_cost) || 0,
-        reorder_level: parseFloat(newItem.reorder_level) || 0,
-        supplier: newItem.supplier || undefined,
+        sku: newItemForm.sku.trim(),
+        name: newItemForm.name.trim(),
+        description: newItemForm.description || undefined,
+        category_id: newItemForm.category_id ? parseInt(newItemForm.category_id) : undefined,
+        unit: newItemForm.unit || "EA",
+        unit_cost: newItemForm.unit_cost ? parseFloat(newItemForm.unit_cost) : undefined,
+        supplier: newItemForm.supplier || undefined,
       });
-      setCreatedItem({ id: created.id, sku: created.sku, name: created.name });
-      toast.success(`Item ${created.sku} created!`);
-
-      revokeQrUrl(qrImageUrl);
-      let url: string | null = null;
-      if (created.qr_png_base64) {
-        url = `data:image/png;base64,${created.qr_png_base64}`;
-      } else {
-        url = await fetchQrWithRetry(created.id);
-        if (!url) {
-          toast.error("QR image could not be loaded — use Item detail to download later.");
-        }
-      }
-      if (url) {
-        setQrImageUrl(url);
-        setShowQrModal(true);
-      }
-
-      if (newItemPresetRack) {
-        setRack(newItemPresetRack);
-        setSub("new-item-confirm");
-      } else {
-        setSub("new-item-rack");
-      }
-    } catch (e: unknown) {
-      const msg = (e as { response?: { data?: { detail?: string } } })?.response?.data?.detail;
-      toast.error(typeof msg === "string" ? msg : "Failed to create item");
+      await scanApi.add({
+        location_id: scannedRack.id!,
+        item_id: created.id,
+        quantity: parseFloat(qty) || 1,
+        notes: notes || undefined,
+      });
+      toast.success(`✓ Created "${created.name}" and added to ${scannedRack.code}`);
+      // Offer to email the QR
+      try {
+        await itemsApi.sendQrToEmail(created.id);
+        toast.success("QR code sent to your email");
+      } catch { /* email optional */ }
+      onReset();
+    } catch (err) {
+      toast.error(apiErrMsg(err, "Failed to create item."));
     } finally {
       setLoading(false);
     }
   };
 
-  const sendQrToEmail = async () => {
-    if (!createdItem?.id) {
-      toast.error("QR send failed: item not available yet.");
-      return;
-    }
-    if (sendingQrEmail) return;
-    setSendingQrEmail(true);
-    try {
-      const res = await itemsApi.sendQrToEmail(createdItem.id);
-      if (res.success) toast.success(res.message);
-      else toast.error(res.message);
-    } catch (e: unknown) {
-      const msg = (e as { response?: { data?: { detail?: string } } })?.response?.data?.detail;
-      toast.error(typeof msg === "string" ? msg : "Failed to send QR to email");
-    } finally {
-      setSendingQrEmail(false);
-    }
-  };
-
-  const openNewItemFlow = () => {
-    setNewItem({
-      sku: "",
-      name: "",
-      description: "",
-      category_id: "",
-      unit: "EA",
-      unit_cost: "0",
-      reorder_level: "0",
-      supplier: "",
-    });
-    setNewItemPresetRack(null);
-    setSub("new-item-loc");
-  };
-
   return (
-    <div className="p-5 space-y-4">
+    <div className="p-4 space-y-4">
       <FlowHeader icon={ArrowUpRight} label="Add Stock" accent="#34d399" />
 
-      {/* QR Modal */}
-      {showQrModal && qrImageUrl && (
-        <Modal
-          open
-          onClose={() => {
-            revokeQrUrl(qrImageUrl);
-            setQrImageUrl(null);
-            setShowQrModal(false);
-          }}
-          title="Item QR Code — Print & Stick"
-        >
-          <div className="p-6 flex flex-col items-center gap-4">
-            <img
-              src={qrImageUrl}
-              alt="QR Code"
-              className="w-48 h-48 rounded-xl"
-              style={{ border: "1px solid rgba(34,211,238,0.2)" }}
-            />
-            <p className="text-sm text-slate-400 text-center">
-              Print this QR and stick it on the item for future scanning.
-            </p>
-            <div className="flex gap-2 w-full flex-col sm:flex-row">
-              <Button
-                variant="secondary"
-                fullWidth
-                onClick={async () => {
-                  try {
-                    const sku = createdItem?.sku ?? "item";
-                    await openOrDownloadDataUrl(qrImageUrl!, `${sku}-qr.png`);
-                  } catch {
-                    toast.error("Could not open QR image. Try Send QR to Email.");
-                  }
-                }}
-              >
-                Open / Print
-              </Button>
-              <Button
-                variant="secondary"
-                fullWidth
-                leftIcon={<Mail size={16} />}
-                loading={sendingQrEmail}
-                disabled={!createdItem?.id}
-                onClick={sendQrToEmail}
-              >
-                Send QR to Email
-              </Button>
-              <Button
-                variant="primary"
-                fullWidth
-                onClick={() => {
-                  revokeQrUrl(qrImageUrl);
-                  setQrImageUrl(null);
-                  setShowQrModal(false);
-                }}
-              >
-                Continue
-              </Button>
-            </div>
-          </div>
-        </Modal>
+      {/* ── Step 0: choose subtype ── */}
+      {step === "select-subtype" && (
+        <div className="grid grid-cols-2 gap-3 mt-2">
+          {[
+            {
+              id: "add-stock" as AddSubType,
+              icon: <QrCode size={28} className="text-emerald-400" />,
+              title: "Add stock",
+              desc: "Scan item QR, then shelf QR",
+              accent: "#34d399",
+              border: "rgba(52,211,153,0.25)",
+              bg: "rgba(52,211,153,0.06)",
+            },
+            {
+              id: "new-item" as AddSubType,
+              icon: <Plus size={28} className="text-brand-400" />,
+              title: "New Item",
+              desc: "Scan shelf → details → QR",
+              accent: "#22d3ee",
+              border: "rgba(34,211,238,0.25)",
+              bg: "rgba(34,211,238,0.06)",
+            },
+          ].map((opt) => (
+            <button key={opt.id} onClick={() => pickSubtype(opt.id)}
+              className="group relative flex flex-col items-center justify-center gap-3 rounded-2xl border py-6 px-4 transition-all duration-300 hover:scale-[1.03] active:scale-[0.97] overflow-hidden"
+              style={{ borderColor: opt.border, background: opt.bg, boxShadow: `0 4px 24px -6px ${opt.accent}30` }}>
+              <div className="absolute inset-x-0 bottom-0 h-1/2 pointer-events-none opacity-20 group-hover:opacity-50 transition-opacity"
+                style={{ background: `radial-gradient(ellipse 80% 60% at 50% 100%,${opt.accent}80,transparent)` }} />
+              <div className="w-14 h-14 rounded-2xl flex items-center justify-center transition-transform duration-300 group-hover:scale-110 group-hover:-rotate-3"
+                style={{ background: opt.bg, border: `1.5px solid ${opt.border}` }}>
+                {opt.icon}
+              </div>
+              <div className="text-center">
+                <p className="text-[15px] font-black text-white tracking-wide">{opt.title}</p>
+                <p className="text-[11px] text-slate-500 mt-1 group-hover:text-slate-300 transition-colors">{opt.desc}</p>
+              </div>
+            </button>
+          ))}
+        </div>
       )}
 
-      {sub === "choose" && (
-        <div className="grid grid-cols-2 gap-3">
-          <button
-            onClick={() => setSub("scan-item")}
-            className="flex flex-col items-center gap-3 p-5 rounded-2xl transition-all hover:scale-[1.02]"
-            style={{
-              background: "rgba(52,211,153,0.06)",
-              border: "1px solid rgba(52,211,153,0.25)",
-            }}
-          >
-            <QrCode size={26} className="text-emerald-400" />
-            <div className="text-center">
-              <p className="text-sm font-semibold text-white">Add stock</p>
-              <p className="text-xs text-slate-500 mt-0.5">Scan item QR, then shelf QR</p>
-            </div>
-          </button>
-          <button
-            type="button"
-            onClick={openNewItemFlow}
-            className="flex flex-col items-center gap-3 p-5 rounded-2xl transition-all hover:scale-[1.02]"
-            style={{
-              background: "rgba(34,211,238,0.06)",
-              border: "1px solid rgba(34,211,238,0.25)",
-            }}
-          >
-            <Plus size={26} className="text-brand-400" />
-            <div className="text-center">
-              <p className="text-sm font-semibold text-white">New Item</p>
-              <p className="text-xs text-slate-500 mt-0.5">Scan shelf → details → QR</p>
-            </div>
+      {/* ── add-stock: Step 1 — scan item QR ── */}
+      {step === "scan-item" && subtype === "add-stock" && (
+        <div className="space-y-3">
+          <ScanPrompt label="Scan the Item QR" hint="Point at item barcode / QR code" onScan={doItemScan} loading={loading} />
+          <button onClick={() => go("select-subtype")} className="w-full text-center text-xs text-slate-600 hover:text-slate-400 transition-colors">
+            ← Back
           </button>
         </div>
       )}
 
-      {sub === "scan-item" && (
-        <>
-          <p className="text-center text-xs font-semibold text-brand-400 tracking-wide">STEP 1 OF 3</p>
-          <ScanPrompt
-            label="Scan the item QR code"
-            hint="Point at item QR code"
-            onScan={(v) => doScan(v, "item")}
-            loading={loading}
-          />
-        </>
+      {/* ── add-stock / new-item: scan rack QR ── */}
+      {step === "scan-rack" && (
+        <div className="space-y-3">
+          {scannedItem && <ScannedCard result={scannedItem} label="Item" accent="#fbbf24" />}
+          <ScanPrompt label="Scan Destination Shelf QR" hint="Point at rack / location QR" onScan={doRackScan} loading={loading} />
+          <button onClick={() => go(subtype === "add-stock" ? "scan-item" : "select-subtype")}
+            className="w-full text-center text-xs text-slate-600 hover:text-slate-400 transition-colors">
+            ← Back
+          </button>
+        </div>
       )}
 
-      {sub === "scan-rack" && item && (
-        <>
-          <p className="text-center text-xs font-semibold text-brand-400 tracking-wide">STEP 2 OF 3</p>
-          <ScannedCard result={item} label="Item" accent="#34d399" />
-          <ScanPrompt
-            label="Scan the storage location QR"
-            hint="Point at rack / shelf QR"
-            onScan={(v) => doScan(v, "rack")}
-            loading={loading}
-          />
-        </>
-      )}
+      {/* ── add-stock: confirm ── */}
+      {step === "confirm" && scannedRack && scannedItem && (
+        <div className="space-y-4">
+          <div className="grid grid-cols-2 gap-3">
+            <ScannedCard result={scannedItem} label="Item" accent="#fbbf24" />
+            <ScannedCard result={scannedRack} label="To Rack" accent="#34d399" />
+          </div>
 
-      {sub === "confirm" && item && rack && (
-        <>
-          <p className="text-center text-xs font-semibold text-brand-400 tracking-wide">STEP 3 OF 3 — REVIEW</p>
-          <ScannedCard result={item} label="Item" accent="#34d399" />
-          <ScannedCard result={rack} label="Storage location" accent="#22d3ee" />
-          <div className="space-y-3 pt-1">
+          <div className="space-y-3">
             <Input
-              label="Quantity to add"
+              label="Quantity to Add"
               type="number"
               min="0.001"
               step="any"
               value={qty}
               onChange={(e) => setQty(e.target.value)}
-            />
-            <Input
-              label="Reference / PO (optional)"
-              value={ref}
-              onChange={(e) => setRef(e.target.value)}
             />
             <Input
               label="Notes (optional)"
@@ -694,303 +613,145 @@ function AddFlow({ onReset }: { onReset: () => void }) {
               onChange={(e) => setNotes(e.target.value)}
             />
           </div>
-          <Button fullWidth size="lg" variant="success" loading={loading} onClick={commit}>
-            Add stock to this location
-          </Button>
-        </>
-      )}
 
-      {sub === "new-item-loc" && (
-        <>
-          <p className="text-center text-xs font-semibold text-brand-400 tracking-wide">NEW ITEM — STEP 1 OF 3</p>
-          <p className="text-sm text-slate-400 text-center px-1">
-            Scan the <strong className="text-slate-200">rack or shelf QR</strong> where this item will be stored.
-            You can skip if you will scan the shelf after printing the label.
-          </p>
-          <ScanPrompt
-            label="Scan storage location QR"
-            hint="Point at rack / location QR"
-            onScan={scanNewItemPresetLocation}
-            loading={loading}
-          />
-          <Button
-            type="button"
-            variant="secondary"
-            fullWidth
-            onClick={() => setSub("new-item")}
-          >
-            Skip — I&apos;ll scan shelf after the label
+          <Button fullWidth size="lg" variant="primary" loading={loading} onClick={commit}>
+            Confirm Addition
           </Button>
-        </>
-      )}
 
-      {sub === "new-item" && (
-        <div className="space-y-3">
-          <p className="text-center text-xs font-semibold text-brand-400 tracking-wide">
-            NEW ITEM — STEP 2 OF 3
-          </p>
-          {newItemPresetRack && (
-            <div
-              className="flex items-center gap-2 p-3 rounded-xl text-sm"
-              style={{ background: "rgba(34,211,238,0.08)", border: "1px solid rgba(34,211,238,0.25)" }}
+          <div className="flex justify-between items-center px-1">
+            <button
+              onClick={() => go("scan-item")}
+              className="text-xs text-slate-600 hover:text-slate-400"
             >
-              <MapPin size={16} className="text-brand-400 shrink-0" />
-              <span className="text-slate-300">
-                Storing at: <strong className="text-white">{newItemPresetRack.name}</strong>{" "}
-                <span className="font-mono text-slate-500">({newItemPresetRack.code})</span>
-              </span>
-            </div>
-          )}
-          <p className="text-xs text-slate-500 text-center">
-            Fill in details — a QR code is generated when you create the item.
-          </p>
-          <div className="grid grid-cols-2 gap-3">
+              Change item
+            </button>
+            <button
+              onClick={onReset}
+              className="text-xs text-red-900/40 hover:text-red-900/60"
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* ── new-item: fill details ── */}
+      {step === "fill-details" && scannedRack && (
+        <div className="space-y-3">
+          <ScannedCard result={scannedRack} label="Destination" accent="#34d399" />
+
+          <div className="space-y-2">
             <Input
               label="SKU *"
-              value={newItem.sku}
-              onChange={(e) => setNewItem((p) => ({ ...p, sku: e.target.value }))}
-              placeholder="SKU-011"
+              placeholder="e.g. EL-CAP-100"
+              value={newItemForm.sku}
+              onChange={(e) => setNewItemForm((f) => ({ ...f, sku: e.target.value }))}
             />
             <Input
-              label="Unit"
-              value={newItem.unit}
-              onChange={(e) => setNewItem((p) => ({ ...p, unit: e.target.value }))}
-              placeholder="EA"
+              label="Name *"
+              placeholder="e.g. 100µF Capacitor"
+              value={newItemForm.name}
+              onChange={(e) => setNewItemForm((f) => ({ ...f, name: e.target.value }))}
             />
-          </div>
-          <Input
-            label="Item Name *"
-            value={newItem.name}
-            onChange={(e) => setNewItem((p) => ({ ...p, name: e.target.value }))}
-            placeholder="Sodium Chloride 500g"
-          />
-          <Input
-            label="Description"
-            value={newItem.description}
-            onChange={(e) => setNewItem((p) => ({ ...p, description: e.target.value }))}
-          />
-          <label className="block text-sm text-slate-300">
-            Category
-            <select
-              value={newItem.category_id}
-              onChange={(e) => setNewItem((p) => ({ ...p, category_id: e.target.value }))}
-              className="mt-1 w-full rounded-xl px-3 py-2.5 text-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
-              style={{
-                background: "rgba(255,255,255,0.05)",
-                border: "1px solid rgba(255,255,255,0.1)",
-              }}
-            >
-              <option value="">Select category</option>
-              {categories?.map((c) => (
-                <option key={c.id} value={c.id}>
-                  {c.name}
-                </option>
-              ))}
-            </select>
-          </label>
-          <div className="grid grid-cols-2 gap-3">
-            <Input
-              label="Unit Cost ($)"
-              type="number"
-              value={newItem.unit_cost}
-              onChange={(e) => setNewItem((p) => ({ ...p, unit_cost: e.target.value }))}
-            />
-            <Input
-              label="Reorder Level"
-              type="number"
-              value={newItem.reorder_level}
-              onChange={(e) => setNewItem((p) => ({ ...p, reorder_level: e.target.value }))}
-            />
-          </div>
-          <Input
-            label="Supplier"
-            value={newItem.supplier}
-            onChange={(e) => setNewItem((p) => ({ ...p, supplier: e.target.value }))}
-          />
-          <Button
-            fullWidth
-            size="lg"
-            variant="primary"
-            loading={loading}
-            disabled={!newItem.sku.trim() || !newItem.name.trim()}
-            onClick={createNewItem}
-          >
-            Create item &amp; show QR
-          </Button>
-          <button
-            type="button"
-            className="w-full text-center text-xs text-slate-600 hover:text-slate-400 py-1"
-            onClick={() => setSub("new-item-loc")}
-          >
-            ← Change storage location scan
-          </button>
-        </div>
-      )}
-
-      {sub === "new-item-rack" && createdItem && (
-        <div className="space-y-3">
-          <p className="text-center text-xs font-semibold text-brand-400 tracking-wide">NEW ITEM — STEP 3 OF 3</p>
-          <div
-            className="p-4 rounded-xl"
-            style={{
-              background: "rgba(34,211,238,0.06)",
-              border: "1px solid rgba(34,211,238,0.25)",
-            }}
-          >
-            <p className="text-xs text-brand-400 font-semibold uppercase tracking-wide mb-1">
-              Item created
-            </p>
-            <p className="text-base text-white font-bold">{createdItem.name}</p>
-            <p className="font-mono text-xs text-slate-400 mt-0.5">{createdItem.sku}</p>
-          </div>
-          <ScanPrompt
-            label="Scan the storage location QR"
-            hint="Point at rack / location QR"
-            onScan={(v) => doScan(v, "rack")}
-            loading={loading}
-          />
-          <Button variant="secondary" fullWidth onClick={onReset}>
-            Skip — add stock later
-          </Button>
-        </div>
-      )}
-
-      {sub === "new-item-confirm" && createdItem && rack && (
-        <>
-          <p className="text-center text-xs font-semibold text-brand-400 tracking-wide">NEW ITEM — STEP 3 OF 3 — REVIEW</p>
-          <div
-            className="p-4 rounded-xl"
-            style={{
-              background: "rgba(34,211,238,0.06)",
-              border: "1px solid rgba(34,211,238,0.25)",
-            }}
-          >
-            <p className="text-xs text-brand-400 font-semibold">New item</p>
-            <p className="text-base font-bold text-white mt-0.5">{createdItem.name}</p>
-            <p className="font-mono text-xs text-slate-400">{createdItem.sku}</p>
-          </div>
-          <ScannedCard result={rack} label="Storage location" accent="#22d3ee" />
-          <div className="space-y-3">
-            <Input
-              label="Quantity to add"
-              type="number"
-              min="0.001"
-              step="any"
-              value={qty}
-              onChange={(e) => setQty(e.target.value)}
-            />
-            <Input
-              label="Reference / PO (optional)"
-              value={ref}
-              onChange={(e) => setRef(e.target.value)}
-            />
-          </div>
-          <Button fullWidth size="lg" variant="success" loading={loading} onClick={commit}>
-            Add stock to this location
-          </Button>
-        </>
-      )}
-    </div>
-  );
-}
-
-// ─── Stock Level Picker ───────────────────────────────────────────────────────
-
-import type { StockLevel } from "@/types";
-
-function StockLevelPicker({
-  levels,
-  onSelect,
-  onScanInstead,
-  label = "Select the rack / location:",
-}: {
-  levels: StockLevel[];
-  onSelect: (level: StockLevel) => void;
-  onScanInstead: () => void;
-  label?: string;
-}) {
-  const withStock = levels.filter((l) => l.quantity > 0);
-  return (
-    <div className="space-y-3">
-      <p className="text-sm text-slate-400 text-center">{label}</p>
-      {withStock.length === 0 ? (
-        <div
-          className="p-4 rounded-xl text-center"
-          style={{ background: "rgba(239,68,68,0.06)", border: "1px solid rgba(239,68,68,0.2)" }}
-        >
-          <Package size={24} className="text-red-400 mx-auto mb-2" />
-          <p className="text-sm text-red-400 font-medium">No stock found at any location</p>
-        </div>
-      ) : (
-        <div className="space-y-2">
-          {withStock.map((level) => (
-            <button
-              key={level.location_id}
-              onClick={() => onSelect(level)}
-              className="w-full flex items-center gap-3 p-3.5 rounded-xl text-left transition-all hover:scale-[1.01]"
-              style={{ background: "rgba(34,211,238,0.05)", border: "1px solid rgba(34,211,238,0.2)" }}
-            >
-              <div
-                className="w-9 h-9 rounded-xl flex items-center justify-center shrink-0"
-                style={{ background: "rgba(34,211,238,0.12)" }}
-              >
-                <MapPin size={16} className="text-brand-400" />
+            <div className="flex gap-2">
+              <div className="flex-1">
+                <label className="block text-xs text-slate-400 mb-1">Category</label>
+                <select
+                  value={newItemForm.category_id}
+                  onChange={(e) => setNewItemForm((f) => ({ ...f, category_id: e.target.value }))}
+                  className="w-full rounded-xl bg-white/5 border border-white/10 text-sm text-white px-3 py-2 focus:outline-none focus:border-cyan-400/50"
+                >
+                  <option value="">— none —</option>
+                  {categories.map((c) => (
+                    <option key={c.id} value={c.id}>{c.name}</option>
+                  ))}
+                </select>
               </div>
-              <div className="flex-1 min-w-0">
-                <p className="text-sm font-semibold text-white truncate">{level.location_name}</p>
-                <p className="font-mono text-xs text-slate-500">{level.location_code}</p>
+              <div className="w-24">
+                <Input
+                  label="Unit"
+                  placeholder="EA"
+                  value={newItemForm.unit}
+                  onChange={(e) => setNewItemForm((f) => ({ ...f, unit: e.target.value }))}
+                />
               </div>
-              <div className="text-right shrink-0">
-                <p className="text-lg font-bold text-brand-400">{level.quantity}</p>
-                <p className="text-[10px] text-slate-500">in stock</p>
+            </div>
+            <div className="flex gap-2">
+              <div className="flex-1">
+                <Input
+                  label="Unit Cost ($)"
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  placeholder="0.00"
+                  value={newItemForm.unit_cost}
+                  onChange={(e) => setNewItemForm((f) => ({ ...f, unit_cost: e.target.value }))}
+                />
               </div>
+              <div className="flex-1">
+                <Input
+                  label="Initial Qty"
+                  type="number"
+                  min="1"
+                  step="any"
+                  value={qty}
+                  onChange={(e) => setQty(e.target.value)}
+                />
+              </div>
+            </div>
+            <Input
+              label="Supplier"
+              placeholder="optional"
+              value={newItemForm.supplier}
+              onChange={(e) => setNewItemForm((f) => ({ ...f, supplier: e.target.value }))}
+            />
+          </div>
+
+          <Button fullWidth size="lg" variant="primary" loading={loading} onClick={commitNewItem}
+            disabled={!newItemForm.name.trim() || !newItemForm.sku.trim()}>
+            Create &amp; Add to Shelf
+          </Button>
+
+          <div className="flex justify-between items-center px-1">
+            <button onClick={() => go("scan-rack")} className="text-xs text-slate-600 hover:text-slate-400">
+              ← Change shelf
             </button>
-          ))}
+            <button onClick={onReset} className="text-xs text-red-900/40 hover:text-red-900/60">
+              Cancel
+            </button>
+          </div>
         </div>
       )}
-      <div className="flex items-center gap-3">
-        <div className="flex-1 h-px" style={{ background: "rgba(255,255,255,0.06)" }} />
-        <span className="text-xs text-slate-600">or</span>
-        <div className="flex-1 h-px" style={{ background: "rgba(255,255,255,0.06)" }} />
-      </div>
-      <button
-        onClick={onScanInstead}
-        className="w-full flex items-center justify-center gap-2 py-3 rounded-xl text-sm font-medium transition-all"
-        style={{ background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.08)" }}
-      >
-        <QrCode size={15} className="text-slate-400" />
-        <span className="text-slate-400">Scan rack QR instead</span>
-      </button>
     </div>
   );
-}
-
-// Helper: convert StockLevel → ScanResult
-function levelToScanResult(level: StockLevel): import("@/types").ScanResult {
-  return {
-    result_type: "location",
-    id: level.location_id,
-    code: level.location_code,
-    name: level.location_name,
-    details: { quantity: level.quantity },
-  };
 }
 
 // ─── REMOVE WORKFLOW ──────────────────────────────────────────────────────────
 
-type RemoveStep = "scan-item" | "select-location" | "scan-rack" | "confirm";
+type RemoveStep = "scan-item" | "select-location" | "confirm";
 
-function RemoveFlow({ onReset }: { onReset: () => void }) {
+function RemoveFlow({
+  onReset,
+  onPhaseChange,
+  onLocationFound,
+}: {
+  onReset: () => void;
+  onPhaseChange?: (phase: string) => void;
+  onLocationFound?: (code: string) => void;
+}) {
   const [step, setStep] = useState<RemoveStep>("scan-item");
-  const [item, setItem] = useState<ScanResult | null>(null);
-  const [rack, setRack] = useState<ScanResult | null>(null);
+  const [scannedItem, setScannedItem] = useState<ScanResult | null>(null);
   const [stockLevels, setStockLevels] = useState<StockLevel[]>([]);
-  const [qty, setQty] = useState("1");
-  const [reason, setReason] = useState("");
-  const [borrower, setBorrower] = useState("");
-  const [notes, setNotes] = useState("");
+  const [selectedStock, setSelectedStock] = useState<StockLevel | null>(null);
   const [loading, setLoading] = useState(false);
+  const [qty, setQty] = useState("1");
+  const [notes, setNotes] = useState("");
   const processingRef = useRef(false);
+
+  const setStepWithPhase = (newStep: RemoveStep) => {
+    setStep(newStep);
+    onPhaseChange?.(newStep);
+  };
 
   const doItemScan = useCallback(async (value: string) => {
     if (processingRef.current) return;
@@ -998,117 +759,121 @@ function RemoveFlow({ onReset }: { onReset: () => void }) {
     setLoading(true);
     try {
       const result = await scanApi.lookup(value);
-      if (result.result_type === "unknown") { toast.error(`Unknown barcode: ${value}`); return; }
-      if (result.result_type !== "item") { toast.error("Scan an item QR — not a rack barcode"); return; }
-      setItem(result);
-      // Fetch stock levels for this item so user can pick a location
-      const levels = await itemsApi.getStockLevels(result.id!);
+      if (result.result_type !== "item") {
+        toast.error("Scan an item QR — this is a rack barcode");
+        return;
+      }
+      setScannedItem(result);
+      const levels = await safeStockLevels(result.id!);
       setStockLevels(levels);
-      // Pre-fill qty from max available location
-      const maxLevel = levels.reduce((m, l) => (l.quantity > (m?.quantity ?? -1) ? l : m), levels[0] ?? null);
-      if (maxLevel && maxLevel.quantity > 0) setQty(String(Math.min(1, maxLevel.quantity)));
-      setStep("select-location");
-      toast.success(`Item loaded: ${result.name}`);
-    } catch { toast.error("Lookup failed. Try again."); }
-    finally { setLoading(false); setTimeout(() => { processingRef.current = false; }, 500); }
-  }, []);
+      setStepWithPhase("select-location");
+      toast.success(`Loaded item: ${result.name}`);
+    } catch (err) {
+      toast.error(apiErrMsg(err, "Lookup failed. Try again."));
+    } finally {
+      setLoading(false);
+      setTimeout(() => {
+        processingRef.current = false;
+      }, 500);
+    }
+  }, [onPhaseChange]);
 
-  const doRackScan = useCallback(async (value: string) => {
-    if (processingRef.current) return;
-    processingRef.current = true;
-    setLoading(true);
-    try {
-      const result = await scanApi.lookup(value);
-      if (result.result_type !== "location") { toast.error("Scan a rack QR code"); return; }
-      setRack(result);
-      setStep("confirm");
-      toast.success(`Rack: ${result.name}`);
-    } catch { toast.error("Lookup failed. Try again."); }
-    finally { setLoading(false); setTimeout(() => { processingRef.current = false; }, 500); }
-  }, []);
-
-  const selectLocation = (level: StockLevel) => {
-    setRack(levelToScanResult(level));
+  const selectStock = (level: StockLevel) => {
+    setSelectedStock(level);
     setQty(String(Math.min(1, level.quantity)));
-    setStep("confirm");
+    onLocationFound?.(level.location_name);
+    setStepWithPhase("confirm");
   };
 
   const commit = async () => {
-    if (!item || !rack) return;
+    if (!scannedItem || !selectedStock) return;
     setLoading(true);
     try {
-      await scanApi.stockOut({
-        item_id: item.id!, location_id: rack.id!,
+      await scanApi.remove({
+        item_id: scannedItem.id!,
+        location_id: selectedStock.location_id,
         quantity: parseFloat(qty),
-        reason: reason || undefined, borrower: borrower || undefined, notes: notes || undefined,
+        notes: notes || undefined,
       });
-      toast.success(`✓ Removed ${qty} × ${item.name} from ${rack.name}`);
+      toast.success(`✓ Removed ${qty} × ${scannedItem.name} from ${selectedStock.location_name}`);
       onReset();
-    } catch (e: unknown) {
-      const msg = (e as { response?: { data?: { detail?: string } } })?.response?.data?.detail;
-      toast.error(typeof msg === "string" ? msg : "Failed to remove stock");
-    } finally { setLoading(false); }
+    } catch (err) {
+      toast.error(apiErrMsg(err, "Remove failed. Check if enough stock."));
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
     <div className="p-5 space-y-4">
-      <FlowHeader icon={ArrowDownRight} label="Remove Stock" accent="#f87171" />
-
       {step === "scan-item" && (
-        <ScanPrompt label="Scan item QR code to remove" hint="Point at item QR code" onScan={doItemScan} loading={loading} />
+        <ScanPrompt
+          label="Scan the Item QR to remove"
+          hint="Point at item QR code"
+          onScan={doItemScan}
+          loading={loading}
+        />
       )}
 
-      {step === "select-location" && item && (
+      {step === "select-location" && scannedItem && (
         <>
-          <ScannedCard result={item} label="Item" accent="#34d399" />
+          <ScannedCard result={scannedItem} label="Item Selected" accent="#f87171" />
           <StockLevelPicker
             levels={stockLevels}
-            onSelect={selectLocation}
-            onScanInstead={() => setStep("scan-rack")}
-            label="Select the rack to remove from:"
+            onSelect={selectStock}
+            label="Pick location to remove from:"
           />
         </>
       )}
 
-      {step === "scan-rack" && item && (
-        <>
-          <ScannedCard result={item} label="Item" accent="#34d399" />
-          <ScanPrompt label="Scan the source rack QR" hint="Point at rack / location QR" onScan={doRackScan} loading={loading} />
-          <button onClick={() => setStep("select-location")} className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl text-sm text-slate-500 hover:text-slate-300 transition-colors" style={{ border: "1px solid rgba(255,255,255,0.06)" }}>
-            <List size={14} /> View stock locations instead
-          </button>
-        </>
-      )}
-
-      {step === "confirm" && item && rack && (
+      {step === "confirm" && scannedItem && selectedStock && (
         <div className="space-y-4">
-          <ScannedCard result={item} label="Item" accent="#34d399" />
-          <ScannedCard result={rack} label="Source Rack" accent="#f87171" />
-
-          <div className="flex items-center justify-between p-3.5 rounded-xl" style={{ background: "rgba(239,68,68,0.08)", border: "1px solid rgba(239,68,68,0.2)" }}>
-            <div>
-              <p className="text-xs text-red-400 font-medium">Available at this Rack</p>
-              <p className="text-xl font-bold text-white">
-                {stockLevels.find(l => l.location_id === rack.id)?.quantity ?? item.details?.total_quantity ?? "?"}{" "}
-                <span className="text-sm font-normal text-slate-400">{item.details?.unit ?? ""}</span>
+          <div className="grid grid-cols-2 gap-3">
+            <ScannedCard result={scannedItem} label="Item" accent="#f87171" />
+            <div
+              className="p-3 rounded-xl space-y-1"
+              style={{
+                background: "rgba(255,255,255,0.03)",
+                border: "1px solid rgba(255,255,255,0.06)",
+              }}
+            >
+              <p className="text-[10px] text-slate-500 font-bold uppercase tracking-wider">
+                From Location
+              </p>
+              <p className="text-white font-bold text-sm truncate">
+                {selectedStock.location_name}
+              </p>
+              <p className="text-brand-400 text-xs font-mono">
+                {selectedStock.quantity} in stock
               </p>
             </div>
-            <Package size={24} className="text-red-400/50" />
           </div>
 
           <div className="space-y-3">
-            <Input label="Quantity to Remove" type="number" min="0.001" step="any" value={qty} onChange={(e) => setQty(e.target.value)} />
-            <Input label="Reason / Purpose (optional)" placeholder="Experiment A1" value={reason} onChange={(e) => setReason(e.target.value)} />
-            <Input label="Borrower (optional)" placeholder="Dr. Smith" value={borrower} onChange={(e) => setBorrower(e.target.value)} />
-            <Input label="Notes (optional)" value={notes} onChange={(e) => setNotes(e.target.value)} />
+            <Input
+              label="Quantity to Remove"
+              type="number"
+              min="0.001"
+              max={selectedStock.quantity}
+              step="any"
+              value={qty}
+              onChange={(e) => setQty(e.target.value)}
+            />
+            <Input
+              label="Notes (optional)"
+              value={notes}
+              onChange={(e) => setNotes(e.target.value)}
+            />
           </div>
 
-          <Button fullWidth size="lg" variant="danger" loading={loading} onClick={commit}>
-            Confirm Remove
+          <Button fullWidth size="lg" variant="primary" loading={loading} onClick={commit}>
+            Confirm Removal
           </Button>
-
-          <button onClick={() => setStep("select-location")} className="w-full text-center text-xs text-slate-600 hover:text-slate-400 transition-colors py-1">
-            ← Change rack
+          <button
+            onClick={() => setStepWithPhase("select-location")}
+            className="w-full text-center text-xs text-slate-600 hover:text-slate-400 transition-colors"
+          >
+            ← Back to location list
           </button>
         </div>
       )}
@@ -1118,18 +883,38 @@ function RemoveFlow({ onReset }: { onReset: () => void }) {
 
 // ─── TRANSFER WORKFLOW ────────────────────────────────────────────────────────
 
-type TransferStep = "scan-item" | "item-loaded" | "select-source" | "scan-source-rack" | "scan-dest-rack" | "confirm";
+type TransferStep =
+  | "scan-item"
+  | "item-loaded"
+  | "select-source"
+  | "scan-source-rack"
+  | "scan-dest-rack"
+  | "confirm";
 
-function TransferFlow({ onReset }: { onReset: () => void }) {
+function TransferFlow({
+  onReset,
+  onPhaseChange,
+  onLocationFound,
+}: {
+  onReset: () => void;
+  onPhaseChange?: (phase: string) => void;
+  onLocationFound?: (code: string) => void;
+}) {
   const [step, setStep] = useState<TransferStep>("scan-item");
   const [item, setItem] = useState<ScanResult | null>(null);
   const [stockLevels, setStockLevels] = useState<StockLevel[]>([]);
   const [sourceRack, setSourceRack] = useState<ScanResult | null>(null);
   const [destRack, setDestRack] = useState<ScanResult | null>(null);
+
+  const [loading, setLoading] = useState(false);
   const [qty, setQty] = useState("1");
   const [notes, setNotes] = useState("");
-  const [loading, setLoading] = useState(false);
   const processingRef = useRef(false);
+
+  const setStepWithPhase = (newStep: TransferStep) => {
+    setStep(newStep);
+    onPhaseChange?.(newStep);
+  };
 
   const doItemScan = useCallback(async (value: string) => {
     if (processingRef.current) return;
@@ -1137,15 +922,24 @@ function TransferFlow({ onReset }: { onReset: () => void }) {
     setLoading(true);
     try {
       const result = await scanApi.lookup(value);
-      if (result.result_type !== "item") { toast.error("Scan an item QR — not a rack barcode"); return; }
+      if (result.result_type !== "item") {
+        toast.error("Scan an item QR — this is a rack barcode");
+        return;
+      }
       setItem(result);
-      const levels = await itemsApi.getStockLevels(result.id!);
+      const levels = await safeStockLevels(result.id!);
       setStockLevels(levels);
-      setStep("item-loaded");
-      toast.success(`Item loaded: ${result.name}`);
-    } catch { toast.error("Lookup failed. Try again."); }
-    finally { setLoading(false); setTimeout(() => { processingRef.current = false; }, 500); }
-  }, []);
+      setStepWithPhase("item-loaded");
+      toast.success(`Loaded item: ${result.name}`);
+    } catch (err) {
+      toast.error(apiErrMsg(err, "Lookup failed. Try again."));
+    } finally {
+      setLoading(false);
+      setTimeout(() => {
+        processingRef.current = false;
+      }, 500);
+    }
+  }, [onPhaseChange]);
 
   const doSourceScan = useCallback(async (value: string) => {
     if (processingRef.current) return;
@@ -1153,20 +947,23 @@ function TransferFlow({ onReset }: { onReset: () => void }) {
     setLoading(true);
     try {
       const result = await scanApi.lookup(value);
-      if (result.result_type !== "location") { toast.error("Scan a rack QR code"); return; }
-      // Warn if 0 stock at this location
-      const level = stockLevels.find(l => l.location_id === result.id);
-      if (level && level.quantity <= 0) {
-        toast.error(`No stock of this item at ${result.name} — pick a different rack`);
+      if (result.result_type !== "location") {
+        toast.error("Scan a rack QR code");
         return;
       }
       setSourceRack(result);
-      if (level) setQty(String(Math.min(1, level.quantity)));
-      setStep("scan-dest-rack");
-      toast.success(`Source rack: ${result.name}`);
-    } catch { toast.error("Lookup failed. Try again."); }
-    finally { setLoading(false); setTimeout(() => { processingRef.current = false; }, 500); }
-  }, [stockLevels]);
+      onLocationFound?.(result.code);
+      setStepWithPhase("scan-dest-rack");
+      toast.success(`From: ${result.name}`);
+    } catch (err) {
+      toast.error(apiErrMsg(err, "Lookup failed. Try again."));
+    } finally {
+      setLoading(false);
+      setTimeout(() => {
+        processingRef.current = false;
+      }, 500);
+    }
+  }, [onPhaseChange]);
 
   const doDestScan = useCallback(async (value: string) => {
     if (processingRef.current) return;
@@ -1174,18 +971,27 @@ function TransferFlow({ onReset }: { onReset: () => void }) {
     setLoading(true);
     try {
       const result = await scanApi.lookup(value);
-      if (result.result_type !== "location") { toast.error("Scan a rack QR code"); return; }
+      if (result.result_type !== "location") {
+        toast.error("Scan a rack QR code");
+        return;
+      }
       setDestRack(result);
-      setStep("confirm");
+      setStepWithPhase("confirm");
       toast.success(`Destination: ${result.name}`);
-    } catch { toast.error("Lookup failed. Try again."); }
-    finally { setLoading(false); setTimeout(() => { processingRef.current = false; }, 500); }
-  }, []);
+    } catch (err) {
+      toast.error(apiErrMsg(err, "Lookup failed. Try again."));
+    } finally {
+      setLoading(false);
+      setTimeout(() => {
+        processingRef.current = false;
+      }, 500);
+    }
+  }, [onPhaseChange]);
 
   const selectSource = (level: StockLevel) => {
     setSourceRack(levelToScanResult(level));
     setQty(String(Math.min(1, level.quantity)));
-    setStep("scan-dest-rack");
+    setStepWithPhase("scan-dest-rack");
   };
 
   const commit = async () => {
@@ -1201,52 +1007,77 @@ function TransferFlow({ onReset }: { onReset: () => void }) {
       });
       toast.success(`✓ Transferred ${qty} × ${item.name}: ${sourceRack.code} → ${destRack.code}`);
       onReset();
-    } catch (e: unknown) {
-      const msg = (e as { response?: { data?: { detail?: string } } })?.response?.data?.detail;
-      toast.error(typeof msg === "string" ? msg : "Transfer failed. Check source has enough stock.");
-    } finally { setLoading(false); }
+    } catch (err) {
+      toast.error(apiErrMsg(err, "Transfer failed. Check source has enough stock."));
+    } finally {
+      setLoading(false);
+    }
   };
 
-  const sourceStock = sourceRack ? stockLevels.find(l => l.location_id === sourceRack.id)?.quantity : undefined;
+  const sourceStock = sourceRack
+    ? stockLevels.find((l) => l.location_id === sourceRack.id)?.quantity
+    : undefined;
 
   return (
     <div className="p-5 space-y-4">
-      <FlowHeader icon={ArrowLeftRight} label="Transfer Between Racks" accent="#22d3ee" />
-
       {step === "scan-item" && (
-        <ScanPrompt label="Scan the item QR to transfer" hint="Point at item QR code" onScan={doItemScan} loading={loading} />
+        <ScanPrompt
+          label="Scan the item QR to transfer"
+          hint="Point at item QR code"
+          onScan={doItemScan}
+          loading={loading}
+        />
       )}
 
       {step === "item-loaded" && item && (
         <div className="space-y-4">
           <ScannedCard result={item} label="Item Loaded" accent="#22d3ee" />
-          <div className="p-4 rounded-xl space-y-2" style={{ background: "rgba(34,211,238,0.05)", border: "1px solid rgba(34,211,238,0.15)" }}>
-            <p className="text-xs text-brand-400 font-semibold uppercase tracking-wide">Item Details</p>
+          <div
+            className="p-4 rounded-xl space-y-2"
+            style={{
+              background: "rgba(34,211,238,0.05)",
+              border: "1px solid rgba(34,211,238,0.15)",
+            }}
+          >
+            <p className="text-xs text-brand-400 font-semibold uppercase tracking-wide">
+              Item Details
+            </p>
             <p className="text-lg font-bold text-white">{item.name}</p>
             <p className="font-mono text-xs text-slate-400">{item.code}</p>
             {typeof item.details?.total_quantity === "number" && (
               <div className="flex items-baseline gap-2 pt-1">
-                <span className="text-2xl font-bold text-brand-400">{item.details.total_quantity}</span>
+                <span className="text-2xl font-bold text-brand-400">
+                  {item.details.total_quantity}
+                </span>
                 <span className="text-sm text-slate-400">{item.details?.unit ?? "units"} total in stock</span>
               </div>
             )}
           </div>
           {/* Show stock distribution */}
-          {stockLevels.filter(l => l.quantity > 0).length > 0 && (
+          {stockLevels.filter((l) => l.quantity > 0).length > 0 && (
             <div className="space-y-1.5">
               <p className="text-xs text-slate-500 font-medium">Stock by location:</p>
-              {stockLevels.filter(l => l.quantity > 0).map(l => (
-                <div key={l.location_id} className="flex items-center justify-between text-xs px-3 py-2 rounded-lg" style={{ background: "rgba(255,255,255,0.03)" }}>
-                  <span className="text-slate-400">{l.location_name}</span>
-                  <span className="font-semibold text-brand-400">{l.quantity}</span>
-                </div>
-              ))}
+              {stockLevels
+                .filter((l) => l.quantity > 0)
+                .map((l) => (
+                  <div
+                    key={l.location_id}
+                    className="flex items-center justify-between text-xs px-3 py-2 rounded-lg"
+                    style={{ background: "rgba(255,255,255,0.03)" }}
+                  >
+                    <span className="text-slate-400">{l.location_name}</span>
+                    <span className="font-semibold text-brand-400">{l.quantity}</span>
+                  </div>
+                ))}
             </div>
           )}
           <button
-            onClick={() => setStep("select-source")}
+            onClick={() => setStepWithPhase("select-source")}
             className="w-full flex items-center justify-center gap-2 py-3.5 rounded-xl text-sm font-semibold text-white transition-all"
-            style={{ background: "linear-gradient(135deg, rgba(34,211,238,0.2), rgba(8,145,178,0.2))", border: "1px solid rgba(34,211,238,0.35)" }}
+            style={{
+              background: "linear-gradient(135deg, rgba(34,211,238,0.2), rgba(8,145,178,0.2))",
+              border: "1px solid rgba(34,211,238,0.35)",
+            }}
           >
             <MapPin size={16} />
             Proceed — Select Source Rack
@@ -1261,7 +1092,7 @@ function TransferFlow({ onReset }: { onReset: () => void }) {
           <StockLevelPicker
             levels={stockLevels}
             onSelect={selectSource}
-            onScanInstead={() => setStep("scan-source-rack")}
+            onScanInstead={() => setStepWithPhase("scan-source-rack")}
             label="Select SOURCE rack (where item is now):"
           />
         </>
@@ -1270,8 +1101,17 @@ function TransferFlow({ onReset }: { onReset: () => void }) {
       {step === "scan-source-rack" && item && (
         <>
           <ScannedCard result={item} label="Item" accent="#22d3ee" />
-          <ScanPrompt label="Scan the SOURCE rack QR" hint="Point at rack / location QR" onScan={doSourceScan} loading={loading} />
-          <button onClick={() => setStep("select-source")} className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl text-sm text-slate-500 hover:text-slate-300 transition-colors" style={{ border: "1px solid rgba(255,255,255,0.06)" }}>
+          <ScanPrompt
+            label="Scan the SOURCE rack QR"
+            hint="Point at rack / location QR"
+            onScan={doSourceScan}
+            loading={loading}
+          />
+          <button
+            onClick={() => setStepWithPhase("select-source")}
+            className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl text-sm text-slate-500 hover:text-slate-300 transition-colors"
+            style={{ border: "1px solid rgba(255,255,255,0.06)" }}
+          >
             <List size={14} /> View stock locations instead
           </button>
         </>
@@ -1281,7 +1121,12 @@ function TransferFlow({ onReset }: { onReset: () => void }) {
         <>
           <ScannedCard result={item} label="Item" accent="#22d3ee" />
           <ScannedCard result={sourceRack} label="Source Rack" accent="#f87171" />
-          <ScanPrompt label="Scan the DESTINATION rack QR" hint="Point at rack / location QR" onScan={doDestScan} loading={loading} />
+          <ScanPrompt
+            label="Scan the DESTINATION rack QR"
+            hint="Point at rack / location QR"
+            onScan={doDestScan}
+            loading={loading}
+          />
         </>
       )}
 
@@ -1289,30 +1134,62 @@ function TransferFlow({ onReset }: { onReset: () => void }) {
         <div className="space-y-4">
           <ScannedCard result={item} label="Item" accent="#22d3ee" />
           <div className="flex items-center gap-2">
-            <div className="flex-1"><ScannedCard result={sourceRack} label="From" accent="#f87171" /></div>
-            <div className="w-8 h-8 rounded-full flex items-center justify-center shrink-0" style={{ background: "rgba(34,211,238,0.1)", border: "1px solid rgba(34,211,238,0.3)" }}>
+            <div className="flex-1">
+              <ScannedCard result={sourceRack} label="From" accent="#f87171" />
+            </div>
+            <div
+              className="w-8 h-8 rounded-full flex items-center justify-center shrink-0"
+              style={{
+                background: "rgba(34,211,238,0.1)",
+                border: "1px solid rgba(34,211,238,0.3)",
+              }}
+            >
               <ArrowLeftRight size={14} className="text-brand-400" />
             </div>
-            <div className="flex-1"><ScannedCard result={destRack} label="To" accent="#22d3ee" /></div>
+            <div className="flex-1">
+              <ScannedCard result={destRack} label="To" accent="#22d3ee" />
+            </div>
           </div>
 
-          <div className="flex items-baseline justify-between p-3.5 rounded-xl" style={{ background: "rgba(34,211,238,0.06)", border: "1px solid rgba(34,211,238,0.2)" }}>
+          <div
+            className="flex items-baseline justify-between p-3.5 rounded-xl"
+            style={{
+              background: "rgba(34,211,238,0.06)",
+              border: "1px solid rgba(34,211,238,0.2)",
+            }}
+          >
             <span className="text-sm text-slate-400">Available at source</span>
             <span className="text-lg font-bold text-white">
               {sourceStock ?? item.details?.total_quantity ?? "?"}{" "}
-              <span className="text-sm font-normal text-slate-400">{item.details?.unit ?? ""}</span>
+              <span className="text-sm font-normal text-slate-400">
+                {item.details?.unit ?? ""}
+              </span>
             </span>
           </div>
 
           <div className="space-y-3">
-            <Input label="Quantity to Transfer" type="number" min="0.001" step="any" value={qty} onChange={(e) => setQty(e.target.value)} />
-            <Input label="Notes (optional)" value={notes} onChange={(e) => setNotes(e.target.value)} />
+            <Input
+              label="Quantity to Transfer"
+              type="number"
+              min="0.001"
+              step="any"
+              value={qty}
+              onChange={(e) => setQty(e.target.value)}
+            />
+            <Input
+              label="Notes (optional)"
+              value={notes}
+              onChange={(e) => setNotes(e.target.value)}
+            />
           </div>
 
           <Button fullWidth size="lg" variant="primary" loading={loading} onClick={commit}>
             Confirm Transfer
           </Button>
-          <button onClick={() => setStep("select-source")} className="w-full text-center text-xs text-slate-600 hover:text-slate-400 transition-colors py-1">
+          <button
+            onClick={() => setStepWithPhase("select-source")}
+            className="w-full text-center text-xs text-slate-600 hover:text-slate-400 transition-colors py-1"
+          >
             ← Change source rack
           </button>
         </div>
@@ -1325,12 +1202,23 @@ function TransferFlow({ onReset }: { onReset: () => void }) {
 
 type ModifyStep = "scan-item" | "edit-form";
 
-function ModifyFlow({ onReset }: { onReset: () => void }) {
+function ModifyFlow({
+  onReset,
+  onPhaseChange,
+}: {
+  onReset: () => void;
+  onPhaseChange?: (phase: string) => void;
+}) {
   const [step, setStep] = useState<ModifyStep>("scan-item");
   const [scannedItem, setScannedItem] = useState<ScanResult | null>(null);
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const processingRef = useRef(false);
+
+  const setStepWithPhase = (newStep: ModifyStep) => {
+    setStep(newStep);
+    onPhaseChange?.(newStep);
+  };
 
   const { data: categories } = useQuery({
     queryKey: ["categories"],
@@ -1370,7 +1258,7 @@ function ModifyFlow({ onReset }: { onReset: () => void }) {
         supplier: full.supplier ?? "",
         notes: (full as unknown as { notes?: string }).notes ?? "",
       });
-      setStep("edit-form");
+      setStepWithPhase("edit-form");
       toast.success(`Loaded: ${result.name}`);
     } catch {
       toast.error("Lookup failed. Try again.");
@@ -1380,7 +1268,7 @@ function ModifyFlow({ onReset }: { onReset: () => void }) {
         processingRef.current = false;
       }, 500);
     }
-  }, []);
+  }, [onPhaseChange]);
 
   const save = async () => {
     if (!scannedItem) return;
@@ -1409,8 +1297,6 @@ function ModifyFlow({ onReset }: { onReset: () => void }) {
 
   return (
     <div className="p-5 space-y-4">
-      <FlowHeader icon={Settings2} label="Modify Item" accent="#c084fc" />
-
       {step === "scan-item" && (
         <ScanPrompt
           label="Scan item QR to load its details"
@@ -1532,54 +1418,88 @@ const MODE_META: Record<
 
 export function Scan() {
   const [mode, setMode] = useState<ScanMode | null>(null);
+  const [flowPhase, setFlowPhase] = useState("idle");
+  const [scannedLocCode, setScannedLocCode] = useState<string | null>(null);
 
   const meta = mode ? MODE_META[mode] : null;
   const Icon = meta?.icon ?? null;
 
+  const workerAction: WorkerAction = useMemo(() => {
+    if (!mode) return "idle";
+    return mode as WorkerAction;
+  }, [mode]);
+
   return (
-    <div className="flex flex-col h-full max-w-lg mx-auto">
-      {/* Header */}
-      <div
-        className="px-5 py-3.5 flex items-center gap-3 shrink-0"
-        style={{ borderBottom: "1px solid rgba(255,255,255,0.06)" }}
-      >
-        {mode ? (
-          <button
-            onClick={() => setMode(null)}
-            className="text-slate-500 hover:text-brand-400 transition-colors"
-          >
-            <RotateCcw size={17} />
-          </button>
-        ) : (
-          <Package size={18} className="text-slate-500" />
-        )}
+    <div className="flex flex-col h-full overflow-hidden" style={{ maxHeight: "100vh" }}>
 
-        {Icon && meta && (
-          <div
-            className="w-7 h-7 rounded-lg flex items-center justify-center shrink-0"
-            style={{ background: `${meta.accent}20`, border: `1px solid ${meta.accent}30` }}
-          >
-            <Icon size={14} style={{ color: meta.accent }} />
-          </div>
-        )}
-
-        <h2 className="text-base font-bold text-white flex-1">
-          {meta ? `${meta.label} — Scanner` : "Scanner Workflow"}
-        </h2>
-
-        {meta && (
-          <Badge variant={meta.badgeVariant} className="text-xs capitalize">
-            {mode}
-          </Badge>
-        )}
+      {/* ── TOP: Interactive 3D Storage — landscape, full width ── */}
+      <div className="shrink-0 p-3 pb-1.5" style={{ height: "35%" }}>
+        <Suspense
+          fallback={
+            <div className="w-full h-full rounded-2xl flex items-center justify-center"
+              style={{ background: "rgba(3,7,20,0.9)", border: "1px solid rgba(34,211,238,0.12)" }}>
+              <Loader2 size={24} className="animate-spin text-brand-400" />
+            </div>
+          }
+        >
+          <Inventory3DPanel action={workerAction} phaseLabel={flowPhase} focusedLocationCode={scannedLocCode} />
+        </Suspense>
       </div>
 
-      <div className="flex-1 overflow-y-auto pb-24">
-        {!mode && <ModeSelector onSelect={setMode} />}
-        {mode === "add"      && <AddFlow      onReset={() => setMode(null)} />}
-        {mode === "remove"   && <RemoveFlow   onReset={() => setMode(null)} />}
-        {mode === "transfer" && <TransferFlow onReset={() => setMode(null)} />}
-        {mode === "modify"   && <ModifyFlow   onReset={() => setMode(null)} />}
+      {/* ── BOTTOM: Action selector or active workflow ── */}
+      <div className="flex-1 min-h-0 overflow-hidden px-3 pb-3 pt-1.5">
+        {!mode ? (
+          /* ── Four compact action buttons ── */
+          <div className="h-full rounded-2xl overflow-hidden"
+            style={{
+              background: "linear-gradient(160deg,rgba(4,9,24,0.75) 0%,rgba(6,12,30,0.65) 100%)",
+              border: "1px solid rgba(255,255,255,0.06)",
+              boxShadow: "inset 0 1px 0 rgba(255,255,255,0.03)",
+            }}>
+            <ModeSelector onSelect={setMode} />
+          </div>
+        ) : (
+          /* ── Active workflow ── */
+          <div className="h-full rounded-2xl flex flex-col overflow-hidden"
+            style={{
+              background: "linear-gradient(160deg,rgba(4,9,24,0.82) 0%,rgba(6,12,30,0.75) 100%)",
+              border: `1px solid ${meta?.accent ?? "rgba(255,255,255,0.08)"}22`,
+              boxShadow: "inset 0 1px 0 rgba(255,255,255,0.03)",
+            }}>
+            {/* Mini workflow header */}
+            <div className="flex items-center gap-2.5 px-4 py-2 shrink-0"
+              style={{ borderBottom: "1px solid rgba(255,255,255,0.05)" }}>
+              <button onClick={() => { setMode(null); setFlowPhase("idle"); setScannedLocCode(null); }}
+                className="w-7 h-7 rounded-lg flex items-center justify-center text-slate-500 hover:text-brand-400 hover:bg-white/5 transition-all"
+                style={{ border: "1px solid rgba(255,255,255,0.07)" }}>
+                <RotateCcw size={13} />
+              </button>
+              {Icon && meta && (
+                <div className="w-6 h-6 rounded-lg flex items-center justify-center shrink-0"
+                  style={{ background: `${meta.accent}22`, border: `1px solid ${meta.accent}30` }}>
+                  <Icon size={12} style={{ color: meta.accent }} />
+                </div>
+              )}
+              <p className="text-[13px] font-bold text-white flex-1">
+                {meta?.label ?? ""} Workflow
+              </p>
+              {meta && (
+                <Badge variant={meta.badgeVariant} className="text-[10px] capitalize">
+                  {mode}
+                </Badge>
+              )}
+            </div>
+            {/* Flow content — scrollable only internally */}
+            <div className="flex-1 min-h-0 overflow-y-auto">
+              <div className="max-w-2xl w-full mx-auto px-2 py-2">
+                {mode === "add"      && <AddFlow      onReset={() => { setMode(null); setScannedLocCode(null); }} onPhaseChange={setFlowPhase} onLocationFound={setScannedLocCode} />}
+                {mode === "remove"   && <RemoveFlow   onReset={() => { setMode(null); setScannedLocCode(null); }} onPhaseChange={setFlowPhase} onLocationFound={setScannedLocCode} />}
+                {mode === "transfer" && <TransferFlow onReset={() => { setMode(null); setScannedLocCode(null); }} onPhaseChange={setFlowPhase} onLocationFound={setScannedLocCode} />}
+                {mode === "modify"   && <ModifyFlow   onReset={() => { setMode(null); setScannedLocCode(null); }} onPhaseChange={setFlowPhase} />}
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );

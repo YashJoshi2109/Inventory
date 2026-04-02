@@ -92,12 +92,17 @@ async def list_locations(
     for loc in locs:
         loc_with_area = await repo.get_with_area(loc.id)
         if loc_with_area:
+            from app.repositories.transaction_repo import StockLevelRepository
+            stock_repo = StockLevelRepository(session)
+            stock_levels = await stock_repo.get_by_location(loc.id)
+            total_items = sum(sl.quantity for sl in stock_levels)
+
             result.append(LocationRead(
                 **_model_dict(loc_with_area, {"area", "barcodes"}),
                 area_code=loc_with_area.area.code if loc_with_area.area else "",
                 area_name=loc_with_area.area.name if loc_with_area.area else "",
                 barcodes=[],
-                item_count=0,
+                item_count=int(total_items),
             ))
     return result
 
