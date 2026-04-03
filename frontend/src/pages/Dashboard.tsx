@@ -1,6 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
-import { type ComponentType } from "react";
-import { motion } from "framer-motion";
+import { type ComponentType, useEffect, useRef, useState } from "react";
+import { motion, animate } from "framer-motion";
 import { useNavigate } from "react-router-dom";
 import { dashboardApi } from "@/api/transactions";
 import { SkeletonKpiCard, SkeletonCard } from "@/components/ui/Skeleton";
@@ -19,7 +19,7 @@ import { clsx } from "clsx";
 import type { InventoryEvent } from "@/types";
 import { animationVariants } from "@/utils/animations";
 import { energyApi } from "@/api/energy";
-import { Sun, TrendingUp } from "lucide-react";
+import { Sun, TrendingUp, Droplets, Wind } from "lucide-react";
 
 const EVENT_ICONS = {
   STOCK_IN:   { icon: ArrowUpRight,   color: "#22d3ee", bg: "rgba(34,211,238,0.1)" },
@@ -189,11 +189,160 @@ function getGreeting() {
   return "Good evening";
 }
 
+// ── Animated number counter ───────────────────────────────────────────────────
+function AnimatedWatt({ value }: { value: number }) {
+  const [display, setDisplay] = useState(value);
+  const prev = useRef(value);
+  useEffect(() => {
+    if (prev.current === value) return;
+    const from = prev.current;
+    prev.current = value;
+    const ctrl = animate(from, value, {
+      duration: 0.9,
+      ease: "easeOut",
+      onUpdate: (v) => setDisplay(Math.round(v)),
+    });
+    return () => ctrl.stop();
+  }, [value]);
+  return <>{display.toLocaleString()}</>;
+}
+
+// ── Half-circle SVG gauge (bigger + cleaner) ──────────────────────────────────
+const GR = 80; const GCX = 100; const GCY = 94;
+const GARC = Math.PI * GR; // 251.3
+
+function SolarGauge({ solarW, totalW }: { solarW: number; totalW: number }) {
+  const pct = totalW > 0 ? Math.min(100, Math.max(0, (solarW / totalW) * 100)) : 0;
+  const fillLen = (pct / 100) * GARC;
+  const d = `M ${GCX - GR},${GCY} A ${GR},${GR} 0 0 1 ${GCX + GR},${GCY}`;
+  const needleRad = ((-90 + (pct / 100) * 180) * Math.PI) / 180;
+  const nx = GCX + (GR - 16) * Math.cos(needleRad);
+  const ny = GCY + (GR - 16) * Math.sin(needleRad);
+
+  return (
+    <div className="flex flex-col items-center justify-center shrink-0">
+      <svg viewBox="0 0 200 106" className="w-52 h-auto overflow-visible">
+        <defs>
+          <linearGradient id="gG" x1="0%" y1="0%" x2="100%" y2="0%">
+            <stop offset="0%" stopColor="#f59e0b" />
+            <stop offset="55%" stopColor="#10b981" />
+            <stop offset="100%" stopColor="#34d399" />
+          </linearGradient>
+          <filter id="gF" x="-20%" y="-20%" width="140%" height="140%">
+            <feDropShadow dx="0" dy="0" stdDeviation="4" floodColor="#34d399" floodOpacity="0.6" />
+          </filter>
+          <filter id="gF0" x="-20%" y="-20%" width="140%" height="140%">
+            <feDropShadow dx="0" dy="0" stdDeviation="3" floodColor="#f59e0b" floodOpacity="0.4" />
+          </filter>
+        </defs>
+
+        {/* Outer ring track */}
+        <path d={d} fill="none" stroke="rgba(255,255,255,0.06)" strokeWidth={14} strokeLinecap="round" />
+
+        {/* Segment ticks */}
+        {[0,25,50,75,100].map((t) => {
+          const a = ((-90 + (t / 100) * 180) * Math.PI) / 180;
+          return (
+            <line key={t}
+              x1={GCX + (GR + 6) * Math.cos(a)} y1={GCY + (GR + 6) * Math.sin(a)}
+              x2={GCX + (GR + 13) * Math.cos(a)} y2={GCY + (GR + 13) * Math.sin(a)}
+              stroke={t === 0 || t === 100 ? "rgba(255,255,255,0.35)" : "rgba(255,255,255,0.18)"}
+              strokeWidth={t % 50 === 0 ? 2 : 1.2} strokeLinecap="round"
+            />
+          );
+        })}
+
+        {/* Filled arc — animated */}
+        <motion.path
+          d={d} fill="none" stroke="url(#gG)" strokeWidth={14} strokeLinecap="round"
+          initial={{ strokeDasharray: `0 ${GARC + 20}` }}
+          animate={{ strokeDasharray: `${fillLen} ${GARC + 20}` }}
+          transition={{ duration: 1.6, ease: [0.22, 1, 0.36, 1] }}
+          filter={pct > 3 ? `url(#${pct > 50 ? "gF" : "gF0"})` : undefined}
+        />
+
+        {/* Needle */}
+        <motion.line
+          x1={GCX} y1={GCY} x2={nx} y2={ny}
+          stroke="rgba(255,255,255,0.9)" strokeWidth={2.5} strokeLinecap="round"
+          animate={{ x2: nx, y2: ny }}
+          transition={{ duration: 1.6, ease: [0.22, 1, 0.36, 1] }}
+        />
+        <circle cx={GCX} cy={GCY} r={5} fill="white" opacity={0.95} />
+        <circle cx={GCX} cy={GCY} r={2.5} fill="#030712" opacity={0.8} />
+
+        {/* Center big pct */}
+        <text x={GCX} y={GCY - 16} textAnchor="middle" fill="white"
+          fontSize="24" fontWeight="900" fontFamily="system-ui,sans-serif">{Math.round(pct)}%</text>
+        <text x={GCX} y={GCY - 1} textAnchor="middle" fill="#64748b"
+          fontSize="7" fontWeight="600" fontFamily="system-ui,sans-serif" letterSpacing="0.12em">SOLAR COVERAGE</text>
+
+        {/* Boundary labels */}
+        <text x={GCX - GR - 6} y={GCY + 16} textAnchor="end"
+          fill="#475569" fontSize="8" fontFamily="system-ui,sans-serif">0%</text>
+        <text x={GCX + GR + 6} y={GCY + 16} textAnchor="start"
+          fill="#475569" fontSize="8" fontFamily="system-ui,sans-serif">100%</text>
+
+        {/* Solar W label below */}
+        <text x={GCX} y={GCY + 18} textAnchor="middle" fill="#f59e0b"
+          fontSize="9.5" fontWeight="700" fontFamily="system-ui,sans-serif">
+          {solarW > 0 ? `☀ ${Math.round(solarW)} W generating` : "☾ No solar input"}
+        </text>
+      </svg>
+    </div>
+  );
+}
+
+// ── Power breakdown bar ────────────────────────────────────────────────────────
+function PowerBar({
+  label, watts, totalW, color, icon: Icon, delay = 0,
+}: {
+  label: string;
+  watts: number;
+  totalW: number;
+  color: string;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  icon: ComponentType<any>;
+  delay?: number;
+}) {
+  const pct = totalW > 0 ? Math.min(100, (watts / totalW) * 100) : 0;
+  return (
+    <motion.div
+      initial={{ opacity: 0, x: -8 }}
+      animate={{ opacity: 1, x: 0 }}
+      transition={{ delay, duration: 0.4 }}
+      className="flex items-center gap-2.5"
+    >
+      <div className="flex items-center gap-1.5 w-20 shrink-0">
+        <Icon size={10} style={{ color }} />
+        <span className="text-[10px] font-semibold text-slate-400 truncate">{label}</span>
+      </div>
+      <div className="flex-1 h-3 rounded-full overflow-hidden" style={{ background: "rgba(255,255,255,0.05)" }}>
+        <motion.div
+          className="h-full rounded-full"
+          style={{ background: `linear-gradient(90deg, ${color}cc, ${color})` }}
+          initial={{ width: "0%" }}
+          animate={{ width: `${pct}%` }}
+          transition={{ duration: 1.2, delay: delay + 0.1, ease: [0.22, 1, 0.36, 1] }}
+        />
+      </div>
+      <span className="text-[10px] font-bold w-14 text-right shrink-0 tabular-nums" style={{ color }}>
+        <AnimatedWatt value={Math.round(watts)} />W
+      </span>
+      <span className="text-[9px] text-slate-600 w-8 text-right shrink-0 tabular-nums">
+        {Math.round(pct)}%
+      </span>
+    </motion.div>
+  );
+}
+
+// ── Main widget ───────────────────────────────────────────────────────────────
 function EcoEnergyWidget() {
   const { data: energy, isLoading } = useQuery({
     queryKey: ["dashboard-energy-widget"],
     queryFn: () => energyApi.getDashboard(12),
     refetchInterval: 15_000,
+    staleTime: 10_000,
   });
   const navigate = useNavigate();
 
@@ -204,14 +353,33 @@ function EcoEnergyWidget() {
   const { latest, stats, history } = energy;
   if (!latest) return null;
 
-  // Format chart data (last 20 points to fit nicely)
-  const chartData = history.labels.map((label, idx) => ({
-    time: new Date(label).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }),
-    solar: history.solar[idx] || 0,
-    consumption: (history.ac[idx] || 0) + (history.hwh[idx] || 0) + (history.consumption[idx] || 0),
-  })).slice(-20);
-
   const isSurplus = stats.savings_status === "SURPLUS";
+  const netW = Math.abs(Math.round(latest.net_balance_w ?? 0));
+  const solarW = Math.round(latest.solar_current_power_w ?? 0);
+  const totalW = Math.round(latest.total_consumption_w ?? 0);
+  const acW = Math.round(latest.ac_consumption_w ?? 0);
+  const hwhW = Math.round(latest.hwh_consumption_w ?? 0);
+  const baseW = Math.max(0, totalW - acW - hwhW);
+  const acOn = (latest.ac_power_mode ?? "").toUpperCase() !== "POWER_OFF";
+  const hwhOn = latest.hwh_running === true;
+
+  // ── FIXED: correct chart data indexing ──────────────────────────────────────
+  const n = history.labels.length;
+  const start = Math.max(0, n - 24);
+  const rawChart = history.labels.slice(start).map((label, idx) => ({
+    t: label,
+    solar: Math.round(history.solar[start + idx] ?? 0),
+    ac:    Math.round((history.ac  ?? [])[start + idx] ?? 0),
+    hwh:   Math.round((history.hwh ?? [])[start + idx] ?? 0),
+    total: Math.round(history.consumption[start + idx] ?? 0),
+  }));
+
+  // If no history yet, seed with a single live reading so chart isn't empty
+  const chartData = rawChart.length === 0
+    ? [{ t: "Now", solar: solarW, ac: acW, hwh: hwhW, total: totalW }]
+    : rawChart;
+
+  const hasRealHistory = rawChart.length > 1;
 
   return (
     <motion.div
@@ -219,92 +387,224 @@ function EcoEnergyWidget() {
       initial="hidden"
       whileInView="visible"
       viewport={{ once: true, margin: "-50px" }}
-      className="col-span-1 lg:col-span-3 rounded-3xl overflow-hidden relative cursor-pointer hover:shadow-2xl transition-all duration-300"
+      className="col-span-1 lg:col-span-3 rounded-3xl overflow-hidden relative cursor-pointer group"
       onClick={() => navigate("/energy")}
       style={{
-        background: "linear-gradient(145deg, rgba(7,15,31,0.8) 0%, rgba(15,23,42,0.9) 100%)",
-        border: "1px solid rgba(34,211,238,0.15)",
-        backdropFilter: "blur(12px)",
+        background: "linear-gradient(150deg, rgba(4,8,20,0.95) 0%, rgba(7,14,32,0.98) 100%)",
+        border: "1px solid rgba(34,211,238,0.13)",
+        backdropFilter: "blur(24px)",
+        boxShadow: "0 0 0 1px rgba(255,255,255,0.04), 0 32px 64px rgba(0,0,0,0.5)",
       }}
     >
-      <div className="absolute top-0 right-0 w-64 h-64 blur-3xl opacity-10 rounded-full transition-colors duration-1000" style={{ background: isSurplus ? "#34d399" : "#f87171" }} />
-      
-      <div className="p-6 flex flex-col h-full gap-5 relative z-10">
-        <div className="flex items-center justify-between">
+      {/* Ambient background glow */}
+      <div className="absolute inset-0 pointer-events-none overflow-hidden rounded-3xl">
+        <motion.div
+          animate={{ opacity: isSurplus ? 0.08 : 0.06 }}
+          transition={{ duration: 1 }}
+          className="absolute -top-16 -right-16 w-80 h-80 rounded-full blur-3xl"
+          style={{ background: isSurplus ? "#10b981" : "#f87171" }}
+        />
+        <div className="absolute -bottom-12 -left-8 w-48 h-48 rounded-full blur-3xl opacity-5"
+          style={{ background: "#22d3ee" }} />
+      </div>
+
+      <div className="relative z-10 p-5 flex flex-col gap-4">
+
+        {/* ── Row 1: Header ── */}
+        <div className="flex items-center justify-between gap-3">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-2xl flex items-center justify-center animate-pulse-slow" style={{ background: "rgba(34,211,238,0.15)", border: "1px solid rgba(34,211,238,0.3)" }}>
-              <Zap size={20} className="text-cyan-400" />
-            </div>
+            <motion.div
+              animate={{ scale: [1, 1.1, 1] }}
+              transition={{ repeat: Infinity, duration: 2.6, ease: "easeInOut" }}
+              className="w-9 h-9 rounded-xl flex items-center justify-center shrink-0"
+              style={{ background: "rgba(34,211,238,0.12)", border: "1px solid rgba(34,211,238,0.28)" }}
+            >
+              <Zap size={16} className="text-cyan-400" />
+            </motion.div>
             <div>
-              <h3 className="text-base font-bold text-white tracking-wide">EcoEnergy Hub</h3>
-              <p className="text-[11px] text-cyan-400/80 uppercase tracking-widest font-semibold flex items-center gap-1"><span className="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-pulse" /> Live Metrics</p>
+              <p className="text-sm font-bold text-white tracking-wide">EcoEnergy Hub</p>
+              <div className="flex items-center gap-1.5 mt-0.5">
+                <motion.span className="w-1.5 h-1.5 rounded-full bg-cyan-400"
+                  animate={{ opacity: [1, 0.2, 1] }} transition={{ repeat: Infinity, duration: 1.8 }} />
+                <span className="text-[10px] text-cyan-400/60 font-semibold uppercase tracking-widest">Live · 15 s</span>
+              </div>
             </div>
           </div>
-          <div className={`px-3 py-1.5 rounded-full text-xs font-bold border flex items-center gap-1.5 backdrop-blur-md ${isSurplus ? 'bg-emerald-500/15 border-emerald-500/30 text-emerald-400' : 'bg-red-500/15 border-red-500/30 text-red-400'}`}>
-            {isSurplus ? <TrendingUp size={14} /> : <TrendingDown size={14} />}
-            {stats.savings_status}
+
+          <motion.div
+            animate={{ scale: [1, 1.025, 1] }}
+            transition={{ repeat: Infinity, duration: 3.2 }}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-bold shrink-0"
+            style={{
+              background: isSurplus ? "rgba(16,185,129,0.12)" : "rgba(248,113,113,0.1)",
+              border: `1px solid ${isSurplus ? "rgba(16,185,129,0.32)" : "rgba(248,113,113,0.3)"}`,
+              color: isSurplus ? "#10b981" : "#f87171",
+            }}
+          >
+            {isSurplus ? <TrendingUp size={11} /> : <TrendingDown size={11} />}
+            {isSurplus ? `+${netW} W SURPLUS` : `−${netW} W DEFICIT`}
+          </motion.div>
+        </div>
+
+        {/* ── Row 2: Gauge LEFT + Stats RIGHT ── */}
+        <div className="flex items-start gap-4">
+
+          {/* Gauge */}
+          <SolarGauge solarW={solarW} totalW={totalW} />
+
+          {/* Right: two KPI pairs + status dots */}
+          <div className="flex-1 flex flex-col justify-center gap-3 min-w-0">
+            {/* KPI row */}
+            <div className="grid grid-cols-2 gap-2">
+              {[
+                { icon: Sun,      label: "Solar Gen",  val: solarW, unit: "W", color: "#f59e0b" },
+                { icon: Activity, label: "Total Load", val: totalW, unit: "W", color: "#22d3ee" },
+              ].map(({ icon: Icon, label, val, color, unit }) => (
+                <motion.div key={label}
+                  initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }}
+                  transition={{ duration: 0.4 }}
+                  className="rounded-2xl p-3 relative overflow-hidden"
+                  style={{
+                    background: `linear-gradient(135deg, ${color}0a 0%, rgba(255,255,255,0.02) 100%)`,
+                    border: `1px solid ${color}1a`,
+                  }}
+                >
+                  <div className="absolute top-0 right-0 w-10 h-10 rounded-full blur-xl opacity-20" style={{ background: color }} />
+                  <div className="flex items-center gap-1 mb-1" style={{ color: `${color}90` }}>
+                    <Icon size={10} />
+                    <span className="text-[9px] font-bold uppercase tracking-widest">{label}</span>
+                  </div>
+                  <p className="text-lg font-black leading-none" style={{ color }}>
+                    <AnimatedWatt value={val} />
+                    <span className="text-[10px] font-semibold opacity-50 ml-0.5">{unit}</span>
+                  </p>
+                </motion.div>
+              ))}
+            </div>
+
+            {/* Appliance status strip */}
+            <div className="flex gap-2">
+              {[
+                { label: "HVAC", on: acOn,  color: acOn  ? "#818cf8" : "#475569", Icon: Wind },
+                { label: "HWH",  on: hwhOn, color: hwhOn ? "#fb923c" : "#475569", Icon: Droplets },
+              ].map(({ label, on, color, Icon }) => (
+                <div key={label}
+                  className="flex-1 flex items-center gap-2 px-3 py-2 rounded-xl"
+                  style={{
+                    background: on ? `${color}12` : "rgba(255,255,255,0.03)",
+                    border: `1px solid ${on ? `${color}28` : "rgba(255,255,255,0.06)"}`,
+                  }}
+                >
+                  <motion.span className="w-1.5 h-1.5 rounded-full shrink-0"
+                    style={{ background: color }}
+                    animate={on ? { opacity: [1, 0.3, 1] } : { opacity: 0.4 }}
+                    transition={{ repeat: Infinity, duration: 1.4 }}
+                  />
+                  <Icon size={11} style={{ color }} />
+                  <span className="text-[10px] font-semibold" style={{ color }}>{label}</span>
+                  <span className="text-[9px] ml-auto font-bold tabular-nums" style={{ color: `${color}cc` }}>
+                    <AnimatedWatt value={label === "HVAC" ? acW : hwhW} />W
+                  </span>
+                </div>
+              ))}
+            </div>
           </div>
         </div>
 
-        {/* Live Metrics Grid */}
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-          <div className="p-4 rounded-2xl bg-white/5 border border-white/5 hover:bg-white/10 transition-colors">
-            <div className="flex items-center gap-1.5 mb-1 text-amber-400/80">
-              <Sun size={12} />
-              <p className="text-[11px] font-semibold uppercase tracking-wide">Solar Gen</p>
+        {/* ── Row 3: Power breakdown bars (always visible — AC/HWH/Base have real values) ── */}
+        <div className="rounded-2xl p-3.5 flex flex-col gap-2.5"
+          style={{ background: "rgba(255,255,255,0.025)", border: "1px solid rgba(255,255,255,0.06)" }}>
+          <p className="text-[9px] text-slate-600 uppercase tracking-widest font-bold mb-0.5">Power Breakdown</p>
+          <PowerBar label="Solar"   watts={solarW} totalW={totalW} color="#f59e0b" icon={Sun}      delay={0}    />
+          <PowerBar label="HVAC"    watts={acW}    totalW={totalW} color="#818cf8" icon={Wind}     delay={0.06} />
+          <PowerBar label="Heater"  watts={hwhW}   totalW={totalW} color="#fb923c" icon={Droplets} delay={0.12} />
+          <PowerBar label="Base"    watts={baseW}  totalW={totalW} color="#22d3ee" icon={Activity} delay={0.18} />
+        </div>
+
+        {/* ── Row 4: Area chart — AC + HWH always have non-zero data ── */}
+        <div>
+          <div className="flex items-center justify-between mb-2">
+            <p className="text-[9px] text-slate-600 uppercase tracking-widest font-bold">
+              {hasRealHistory ? "Last 2 Hours" : "Live (no history yet)"}
+            </p>
+            <div className="flex items-center gap-3">
+              {[
+                { color: "#f59e0b", label: "Solar" },
+                { color: "#818cf8", label: "HVAC" },
+                { color: "#22d3ee", label: "Load" },
+              ].map(({ color, label }) => (
+                <div key={label} className="flex items-center gap-1">
+                  <div className="w-2 h-2 rounded-full" style={{ background: color }} />
+                  <span className="text-[9px] text-slate-600">{label}</span>
+                </div>
+              ))}
             </div>
-            <p className="text-2xl font-black text-amber-400">{Math.round(latest.solar_current_power_w)}<span className="text-sm text-amber-400/60 ml-1 font-semibold">W</span></p>
           </div>
-          <div className="p-4 rounded-2xl bg-white/5 border border-white/5 hover:bg-white/10 transition-colors">
-            <div className="flex items-center gap-1.5 mb-1 text-cyan-400/80">
-              <Activity size={12} />
-              <p className="text-[11px] font-semibold uppercase tracking-wide">Total Load</p>
-            </div>
-            <p className="text-2xl font-black text-cyan-400">{Math.round(latest.total_consumption_w)}<span className="text-sm text-cyan-400/60 ml-1 font-semibold">W</span></p>
-          </div>
-          <div className="p-4 rounded-2xl bg-white/5 border border-white/5 hover:bg-white/10 transition-colors">
-            <div className="flex items-center gap-1.5 mb-1 text-indigo-400/80">
-              <Zap size={12} />
-              <p className="text-[11px] font-semibold uppercase tracking-wide">HVAC Use</p>
-            </div>
-            <p className="text-2xl font-black text-indigo-400">{Math.round(latest.ac_consumption_w)}<span className="text-sm text-indigo-400/60 ml-1 font-semibold">W</span></p>
-          </div>
-          <div className="p-4 rounded-2xl bg-white/5 border border-white/5 hover:bg-white/10 transition-colors">
-            <div className="flex items-center gap-1.5 mb-1 text-rose-400/80">
-              <Activity size={12} />
-              <p className="text-[11px] font-semibold uppercase tracking-wide">Heater Use</p>
-            </div>
-            <p className="text-2xl font-black text-rose-400">{Math.round(latest.hwh_consumption_w)}<span className="text-sm text-rose-400/60 ml-1 font-semibold">W</span></p>
+
+          <div className="h-[100px] w-full">
+            <ResponsiveContainer width="100%" height="100%">
+              <AreaChart data={chartData} margin={{ top: 2, right: 2, left: -28, bottom: 0 }}>
+                <defs>
+                  <linearGradient id="gS" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="0%" stopColor="#f59e0b" stopOpacity={0.4} />
+                    <stop offset="100%" stopColor="#f59e0b" stopOpacity={0} />
+                  </linearGradient>
+                  <linearGradient id="gA" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="0%" stopColor="#818cf8" stopOpacity={0.35} />
+                    <stop offset="100%" stopColor="#818cf8" stopOpacity={0} />
+                  </linearGradient>
+                  <linearGradient id="gT" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="0%" stopColor="#22d3ee" stopOpacity={0.25} />
+                    <stop offset="100%" stopColor="#22d3ee" stopOpacity={0} />
+                  </linearGradient>
+                </defs>
+                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="rgba(255,255,255,0.04)" />
+                <XAxis dataKey="t" axisLine={false} tickLine={false}
+                  tick={{ fill: "#334155", fontSize: 8 }} tickMargin={5} minTickGap={50}
+                  interval="preserveStartEnd"
+                />
+                <YAxis axisLine={false} tickLine={false} tick={{ fill: "#334155", fontSize: 8 }} width={28} />
+                <Tooltip
+                  contentStyle={{
+                    background: "rgba(4,8,20,0.97)", border: "1px solid rgba(34,211,238,0.2)",
+                    borderRadius: "10px", fontSize: "11px", backdropFilter: "blur(20px)",
+                    boxShadow: "0 8px 32px rgba(0,0,0,0.6)",
+                  }}
+                  itemStyle={{ color: "#e2e8f0", fontWeight: "bold" }}
+                  cursor={{ stroke: "rgba(255,255,255,0.06)", strokeWidth: 1, strokeDasharray: "3 3" }}
+                  formatter={(v: number) => [`${v} W`, undefined]}
+                  isAnimationActive={false}
+                />
+                <Area type="monotone" dataKey="solar" stroke="#f59e0b" strokeWidth={1.8}
+                  fill="url(#gS)" name="Solar" dot={false} isAnimationActive={hasRealHistory} />
+                <Area type="monotone" dataKey="ac" stroke="#818cf8" strokeWidth={1.8}
+                  fill="url(#gA)" name="HVAC" dot={false} isAnimationActive={hasRealHistory} />
+                <Area type="monotone" dataKey="total" stroke="#22d3ee" strokeWidth={1.8}
+                  fill="url(#gT)" name="Load" dot={false} isAnimationActive={hasRealHistory} />
+              </AreaChart>
+            </ResponsiveContainer>
           </div>
         </div>
 
-        {/* Miniature Animated Area Chart */}
-        <div className="flex-1 mt-2 min-h-[160px] w-full relative">
-          <ResponsiveContainer width="100%" height="100%">
-            <AreaChart data={chartData} margin={{ top: 10, right: 0, left: -20, bottom: 0 }}>
-              <defs>
-                <linearGradient id="solarGradMain" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="5%" stopColor="#fbbf24" stopOpacity={0.4} />
-                  <stop offset="95%" stopColor="#fbbf24" stopOpacity={0} />
-                </linearGradient>
-                <linearGradient id="consGradMain" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="5%" stopColor="#22d3ee" stopOpacity={0.4} />
-                  <stop offset="95%" stopColor="#22d3ee" stopOpacity={0} />
-                </linearGradient>
-              </defs>
-              <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="rgba(255,255,255,0.04)" />
-              <XAxis dataKey="time" axisLine={false} tickLine={false} tick={{ fill: "#64748b", fontSize: 10 }} tickMargin={10} minTickGap={30} />
-              <YAxis axisLine={false} tickLine={false} tick={{ fill: "#64748b", fontSize: 10 }} />
-              <Tooltip 
-                contentStyle={{ background: "rgba(15,23,42,0.95)", border: "1px solid rgba(255,255,255,0.15)", borderRadius: "12px", fontSize: "12px", backdropFilter: "blur(16px)", boxShadow: "0 10px 30px rgba(0,0,0,0.5)" }}
-                itemStyle={{ color: "#e2e8f0", fontWeight: 'bold' }}
-                cursor={{ stroke: 'rgba(255,255,255,0.1)', strokeWidth: 1, strokeDasharray: '4 4' }}
-              />
-              <Area type="monotone" dataKey="solar" stroke="#fbbf24" strokeWidth={2.5} fillOpacity={1} fill="url(#solarGradMain)" name="Solar Gen (W)" isAnimationActive />
-              <Area type="monotone" dataKey="consumption" stroke="#22d3ee" strokeWidth={2.5} fillOpacity={1} fill="url(#consGradMain)" name="Usage (W)" isAnimationActive />
-            </AreaChart>
-          </ResponsiveContainer>
+        {/* ── Row 5: Footer stats ── */}
+        <div className="grid grid-cols-4 gap-2 pt-2 border-t border-white/[0.05]">
+          {[
+            { label: "Solar Peak",  val: `${Math.round(stats.solar_peak_today)} W`, color: "#f59e0b" },
+            { label: "Avg Load",    val: `${Math.round(stats.total_consumption_avg)} W`, color: "#22d3ee" },
+            { label: "Net Balance", val: `${isSurplus ? "+" : "−"}${netW} W`, color: isSurplus ? "#10b981" : "#f87171" },
+            { label: "Status",      val: stats.savings_status, color: isSurplus ? "#10b981" : "#f87171" },
+          ].map(({ label, val, color }) => (
+            <div key={label} className="text-center">
+              <p className="text-[8px] text-slate-700 uppercase tracking-widest font-semibold">{label}</p>
+              <p className="text-[10px] font-bold mt-0.5 tabular-nums" style={{ color }}>{val}</p>
+            </div>
+          ))}
         </div>
+      </div>
+
+      {/* Hover hint */}
+      <div className="absolute bottom-3 right-4 text-[9px] text-slate-700 group-hover:text-slate-400 transition-colors font-medium tracking-wide">
+        Open Energy Hub →
       </div>
     </motion.div>
   );

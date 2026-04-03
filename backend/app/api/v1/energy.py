@@ -7,16 +7,125 @@ for the React dashboard using the same SQLAlchemy connection pool.
 
 from __future__ import annotations
 
+import asyncio
+import logging
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, Depends, Query
 from sqlalchemy import text
 
-from app.api.v1.auth import CurrentUser
-from app.core.database import DbSession
+from app.api.v1.auth import CurrentUser, require_roles
+from app.core.database import AsyncSessionLocal, DbSession
+from app.models.user import RoleName
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/energy", tags=["energy"])
+
+# ── 5-min aggregation SQL (idempotent: only collapses buckets with >1 raw row) ─
+_AGGREGATE_SQL = """
+WITH cutoff AS (
+    SELECT
+        id, timestamp,
+        date_trunc('hour', timestamp) +
+            (FLOOR(EXTRACT(MINUTE FROM timestamp) / 5.0) * INTERVAL '5 minutes') AS bucket_ts,
+        ac_device_name, ac_power_mode, ac_operation_mode, ac_run_state,
+        ac_current_temp_c, ac_target_temp_c, ac_current_temp_f, ac_target_temp_f,
+        ac_fan_speed, ac_recommendation, ac_consumption_w,
+        hwh_set_point_f, hwh_mode, hwh_mode_name, hwh_running,
+        hwh_tank_health, hwh_compressor_health, hwh_todays_energy_kwh,
+        hwh_connected, hwh_recommendation, hwh_consumption_w,
+        solar_current_power_w, solar_energy_lifetime_wh, solar_system_status,
+        total_consumption_w, net_balance_w,
+        overall_recommendation, recommendation_reason
+    FROM energy_readings
+    WHERE timestamp < NOW() - INTERVAL '10 minutes'
+),
+multi_buckets AS (
+    SELECT bucket_ts FROM cutoff GROUP BY bucket_ts HAVING COUNT(*) > 1
+),
+agg_insert AS (
+    INSERT INTO energy_readings (
+        timestamp,
+        ac_device_name, ac_power_mode, ac_operation_mode, ac_run_state,
+        ac_current_temp_c, ac_target_temp_c, ac_current_temp_f, ac_target_temp_f,
+        ac_fan_speed, ac_recommendation, ac_consumption_w,
+        hwh_set_point_f, hwh_mode, hwh_mode_name, hwh_running,
+        hwh_tank_health, hwh_compressor_health, hwh_todays_energy_kwh,
+        hwh_connected, hwh_recommendation, hwh_consumption_w,
+        solar_current_power_w, solar_energy_lifetime_wh, solar_system_status,
+        total_consumption_w, net_balance_w,
+        overall_recommendation, recommendation_reason
+    )
+    SELECT
+        b.bucket_ts,
+        (array_agg(c.ac_device_name ORDER BY c.timestamp DESC)
+            FILTER (WHERE c.ac_device_name IS NOT NULL))[1],
+        (array_agg(c.ac_power_mode ORDER BY c.timestamp DESC)
+            FILTER (WHERE c.ac_power_mode IS NOT NULL))[1],
+        (array_agg(c.ac_operation_mode ORDER BY c.timestamp DESC)
+            FILTER (WHERE c.ac_operation_mode IS NOT NULL))[1],
+        (array_agg(c.ac_run_state ORDER BY c.timestamp DESC)
+            FILTER (WHERE c.ac_run_state IS NOT NULL))[1],
+        AVG(c.ac_current_temp_c), AVG(c.ac_target_temp_c),
+        AVG(c.ac_current_temp_f), AVG(c.ac_target_temp_f),
+        (array_agg(c.ac_fan_speed ORDER BY c.timestamp DESC)
+            FILTER (WHERE c.ac_fan_speed IS NOT NULL))[1],
+        (array_agg(c.ac_recommendation ORDER BY c.timestamp DESC)
+            FILTER (WHERE c.ac_recommendation IS NOT NULL))[1],
+        AVG(c.ac_consumption_w),
+        AVG(c.hwh_set_point_f),
+        (array_agg(c.hwh_mode ORDER BY c.timestamp DESC)
+            FILTER (WHERE c.hwh_mode IS NOT NULL))[1],
+        (array_agg(c.hwh_mode_name ORDER BY c.timestamp DESC)
+            FILTER (WHERE c.hwh_mode_name IS NOT NULL))[1],
+        BOOL_OR(c.hwh_running),
+        AVG(c.hwh_tank_health), AVG(c.hwh_compressor_health),
+        AVG(c.hwh_todays_energy_kwh),
+        BOOL_OR(c.hwh_connected),
+        (array_agg(c.hwh_recommendation ORDER BY c.timestamp DESC)
+            FILTER (WHERE c.hwh_recommendation IS NOT NULL))[1],
+        AVG(c.hwh_consumption_w),
+        AVG(c.solar_current_power_w), AVG(c.solar_energy_lifetime_wh),
+        (array_agg(c.solar_system_status ORDER BY c.timestamp DESC)
+            FILTER (WHERE c.solar_system_status IS NOT NULL))[1],
+        AVG(c.total_consumption_w), AVG(c.net_balance_w),
+        (array_agg(c.overall_recommendation ORDER BY c.timestamp DESC)
+            FILTER (WHERE c.overall_recommendation IS NOT NULL))[1],
+        (array_agg(c.recommendation_reason ORDER BY c.timestamp DESC)
+            FILTER (WHERE c.recommendation_reason IS NOT NULL))[1]
+    FROM cutoff c
+    JOIN multi_buckets b ON c.bucket_ts = b.bucket_ts
+    GROUP BY b.bucket_ts
+    RETURNING id
+),
+to_delete AS (
+    SELECT c.id FROM cutoff c JOIN multi_buckets b ON c.bucket_ts = b.bucket_ts
+)
+DELETE FROM energy_readings WHERE id IN (SELECT id FROM to_delete)
+"""
+
+
+async def _run_aggregate_cleanup() -> int:
+    """Aggregate energy_readings into 5-min buckets, delete raw rows. Returns deleted count."""
+    async with AsyncSessionLocal() as session:
+        result = await session.execute(text(_AGGREGATE_SQL))
+        await session.commit()
+        return result.rowcount or 0
+
+
+async def energy_cleanup_loop() -> None:
+    """Background task: runs 5-min aggregation every 5 minutes after an initial 10-min wait."""
+    await asyncio.sleep(600)   # first run: wait 10 min so startup data settles
+    while True:
+        try:
+            deleted = await _run_aggregate_cleanup()
+            if deleted:
+                logger.info("Energy aggregation: collapsed %d raw rows into 5-min buckets", deleted)
+        except Exception as exc:
+            logger.warning("Energy aggregation failed: %s", exc)
+        await asyncio.sleep(300)  # run every 5 minutes
 
 # ── Power constants (kept in sync with dashboard_data.py) ─────────────────────
 AC_RUN_POWER   = 1500   # W
@@ -207,3 +316,16 @@ async def create_reading(
         payload,
     )
     return {"ok": True}
+
+
+@router.post(
+    "/aggregate",
+    dependencies=[Depends(require_roles(RoleName.ADMIN))],
+)
+async def trigger_aggregate(_current_user: CurrentUser) -> dict[str, Any]:
+    """
+    Manually trigger 5-min aggregation of energy_readings.
+    Collapses all raw rows older than 10 minutes into per-bucket averages.
+    """
+    deleted = await _run_aggregate_cleanup()
+    return {"ok": True, "rows_collapsed": deleted}

@@ -78,6 +78,14 @@ async def lifespan(app: FastAPI):
         notification_task = None
         logger.warning("Notification subsystem disabled: %s", e)
 
+    # Energy 5-min aggregation cleanup (reduces table bloat from 15s raw readings)
+    try:
+        from app.api.v1.energy import energy_cleanup_loop
+        energy_task = asyncio.create_task(energy_cleanup_loop())
+    except Exception as e:
+        energy_task = None
+        logger.warning("Energy cleanup task disabled: %s", e)
+
     yield
 
     if settings.MQTT_ENABLED:
@@ -85,6 +93,9 @@ async def lifespan(app: FastAPI):
 
     if notification_task:
         notification_task.cancel()
+
+    if energy_task:
+        energy_task.cancel()
 
     logger.info("Shutting down %s", settings.APP_NAME)
 

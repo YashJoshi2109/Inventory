@@ -71,8 +71,50 @@ class SlidingWindowRateLimiter:
 
 
 # Shared instances
-_chat_limiter = SlidingWindowRateLimiter(limit=30, window_seconds=60)
+_chat_limiter   = SlidingWindowRateLimiter(limit=30,  window_seconds=60)
 _global_limiter = SlidingWindowRateLimiter(limit=300, window_seconds=60)
+
+# Vision AI: keyed on user_id string — 15 scans / user / hour, 50 / user / day
+_vision_hourly_limiter = SlidingWindowRateLimiter(limit=15, window_seconds=3600)
+_vision_daily_limiter  = SlidingWindowRateLimiter(limit=50, window_seconds=86400)
+
+
+def check_vision_quota(user_id: int) -> tuple[bool, int, int, int]:
+    """
+    Check whether a user can make a vision scan.
+
+    Returns (allowed, retry_after_seconds, scans_remaining, scans_limit).
+    Checks hourly limit first (tighter), then daily.
+    """
+    key = f"v:{user_id}"
+    hourly_ok, hourly_retry = _vision_hourly_limiter.is_allowed(key)
+    if not hourly_ok:
+        # Don't burn the daily slot either
+        remaining = 0
+        return False, hourly_retry, 0, 15
+
+    daily_ok, daily_retry = _vision_daily_limiter.is_allowed(key)
+    if not daily_ok:
+        remaining = 0
+        return False, daily_retry, 0, 50
+
+    h_status = _vision_hourly_limiter.status(key)
+    return True, 0, h_status["remaining"], 15
+
+
+def vision_quota_status(user_id: int) -> dict:
+    """Read-only quota info for a user (does NOT consume a slot)."""
+    key = f"v:{user_id}"
+    h = _vision_hourly_limiter.status(key)
+    d = _vision_daily_limiter.status(key)
+    return {
+        "scans_remaining_hour":  h["remaining"],
+        "scans_limit_hour":      h["limit"],
+        "scans_remaining_day":   d["remaining"],
+        "scans_limit_day":       d["limit"],
+        "retry_after_seconds":   max(h["retry_after_seconds"], d["retry_after_seconds"]),
+        "quota_ok":              h["remaining"] > 0 and d["remaining"] > 0,
+    }
 
 
 def _get_client_ip(request: Request) -> str:

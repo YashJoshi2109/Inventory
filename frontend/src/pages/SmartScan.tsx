@@ -26,6 +26,7 @@ import {
   Tag,
   Upload,
   X,
+  Zap,
 } from "lucide-react";
 import type { SmartScanPrefill } from "@/pages/Scan";
 import { useAuthStore } from "@/store/auth";
@@ -72,12 +73,56 @@ interface VisionStatus {
   last_error: string | null;
   checked_at: string | null;
   last_success_at: string | null;
+  user_scans_remaining: number;
+  user_scans_limit: number;
+  user_scans_remaining_day: number;
+  user_scans_limit_day: number;
+  user_retry_after_seconds: number;
+}
+
+interface QuotaError {
+  code: string;
+  message: string;
+  retry_after_seconds: number;
+  scans_remaining: number;
+  scans_limit: number;
 }
 
 type AnalysisType = "full" | "classify" | "ocr" | "count" | "audit";
-type PageMode = "camera" | "preview" | "analyzing" | "results";
+type PageMode = "camera" | "preview" | "analyzing" | "results" | "quota_exceeded";
 
 // ─── API Helper ───────────────────────────────────────────────────────────────
+
+/** Resize and compress a Blob to ≤1280px JPEG at 0.78 quality before upload. */
+async function compressForUpload(blob: Blob): Promise<Blob> {
+  return new Promise((resolve) => {
+    const img = new Image();
+    const url = URL.createObjectURL(blob);
+    img.onload = () => {
+      URL.revokeObjectURL(url);
+      const MAX = 1280;
+      let { width, height } = img;
+      if (width > MAX || height > MAX) {
+        const ratio = Math.min(MAX / width, MAX / height);
+        width = Math.round(width * ratio);
+        height = Math.round(height * ratio);
+      }
+      const canvas = document.createElement("canvas");
+      canvas.width = width;
+      canvas.height = height;
+      const ctx = canvas.getContext("2d");
+      if (!ctx) { resolve(blob); return; }
+      ctx.drawImage(img, 0, 0, width, height);
+      canvas.toBlob(
+        (compressed) => resolve(compressed ?? blob),
+        "image/jpeg",
+        0.78
+      );
+    };
+    img.onerror = () => { URL.revokeObjectURL(url); resolve(blob); };
+    img.src = url;
+  });
+}
 
 async function analyzeImage(
   image: Blob,
@@ -86,8 +131,9 @@ async function analyzeImage(
 ): Promise<VisionAnalysisResult> {
   const BASE_URL = (import.meta.env.VITE_API_URL as string | undefined) ?? "/api/v1";
   const token = useAuthStore.getState().accessToken;
+  const compressed = await compressForUpload(image);
   const form = new FormData();
-  form.append("image", image, "capture.jpg");
+  form.append("image", compressed, "capture.jpg");
   form.append("analysis_type", type);
   form.append("context", context);
   const response = await fetch(`${BASE_URL}/ai/vision/analyze`, {
@@ -96,15 +142,24 @@ async function analyzeImage(
     body: form,
   });
   if (!response.ok) {
-    let detail = "";
+    let detail: string | QuotaError = "";
     try {
-      const payload = await response.json() as { detail?: string };
+      const payload = await response.json() as { detail?: string | QuotaError };
       detail = payload.detail ?? "";
-    } catch {
-      // ignore parse failures
+    } catch { /* ignore */ }
+
+    if (response.status === 429 && typeof detail === "object" && detail.code) {
+      const err = new Error(detail.message || "Quota exceeded");
+      (err as Error & { quotaError: QuotaError }).quotaError = detail;
+      throw err;
     }
-    const message = detail || `Analysis failed: ${response.status}`;
-    throw new Error(message);
+    // Provider-level quota (no structured detail)
+    if (response.status === 429) {
+      const err = new Error(typeof detail === "string" ? detail : "Vision quota exceeded across all providers.");
+      (err as Error & { isProviderQuota: boolean }).isProviderQuota = true;
+      throw err;
+    }
+    throw new Error((typeof detail === "string" ? detail : detail.message) || `Analysis failed: ${response.status}`);
   }
   return response.json() as Promise<VisionAnalysisResult>;
 }
@@ -342,6 +397,8 @@ export function SmartScan() {
   const [cameraFacing, setCameraFacing] = useState<"environment" | "user">("environment");
   const [showRawAnalysis, setShowRawAnalysis] = useState(false);
   const [reviewItem, setReviewItem] = useState<DetectedItem | null>(null);
+  const [quotaError, setQuotaError] = useState<QuotaError | null>(null);
+  const [retryCountdown, setRetryCountdown] = useState<number>(0);
 
   useEffect(() => {
     if (!accessToken) return;
@@ -444,6 +501,22 @@ export function SmartScan() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [mode, cameraFacing]);
 
+  // ── Quota countdown timer ─────────────────────────────────────────────────
+
+  useEffect(() => {
+    if (retryCountdown <= 0) return;
+    const id = setInterval(() => {
+      setRetryCountdown((c) => {
+        if (c <= 1) {
+          clearInterval(id);
+          return 0;
+        }
+        return c - 1;
+      });
+    }, 1000);
+    return () => clearInterval(id);
+  }, [retryCountdown]);
+
   // ── Capture from video ────────────────────────────────────────────────────
 
   const captureFromCamera = useCallback(() => {
@@ -451,11 +524,20 @@ export function SmartScan() {
     const canvas = canvasRef.current;
     if (!video || !canvas) return;
 
-    canvas.width = video.videoWidth || 1280;
-    canvas.height = video.videoHeight || 720;
+    // Cap at 1280px on the longest side to keep upload small
+    const MAX = 1280;
+    let w = video.videoWidth || 1280;
+    let h = video.videoHeight || 720;
+    if (w > MAX || h > MAX) {
+      const ratio = Math.min(MAX / w, MAX / h);
+      w = Math.round(w * ratio);
+      h = Math.round(h * ratio);
+    }
+    canvas.width = w;
+    canvas.height = h;
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
-    ctx.drawImage(video, 0, 0);
+    ctx.drawImage(video, 0, 0, w, h);
 
     canvas.toBlob(
       (blob) => {
@@ -469,7 +551,7 @@ export function SmartScan() {
         setMode("preview");
       },
       "image/jpeg",
-      0.92
+      0.80
     );
   }, []);
 
@@ -492,16 +574,37 @@ export function SmartScan() {
     setMode("analyzing");
     setError(null);
     setResults(null);
+    setQuotaError(null);
 
     try {
       const result = await analyzeImage(capturedImage, analysisType, "");
       setResults(result);
       setMode("results");
     } catch (err) {
-      const msg = err instanceof Error ? err.message : "Analysis failed";
-      setError(msg);
-      toast.error(msg);
-      setMode("preview");
+      const typedErr = err as Error & { quotaError?: QuotaError; isProviderQuota?: boolean };
+
+      if (typedErr.quotaError) {
+        // Per-user quota hit
+        setQuotaError(typedErr.quotaError);
+        setRetryCountdown(typedErr.quotaError.retry_after_seconds);
+        setMode("quota_exceeded");
+      } else if (typedErr.isProviderQuota) {
+        // Provider-level quota exhausted
+        setQuotaError({
+          code: "PROVIDER_QUOTA",
+          message: "All AI vision providers are out of quota. Please try again later or add items manually.",
+          retry_after_seconds: 3600,
+          scans_remaining: 0,
+          scans_limit: 0,
+        });
+        setRetryCountdown(3600);
+        setMode("quota_exceeded");
+      } else {
+        const msg = typedErr.message || "Analysis failed";
+        setError(msg);
+        toast.error(msg);
+        setMode("preview");
+      }
     }
   }, [capturedImage, analysisType]);
 
@@ -513,6 +616,8 @@ export function SmartScan() {
     setCapturedPreview(null);
     setResults(null);
     setError(null);
+    setQuotaError(null);
+    setRetryCountdown(0);
     setShowRawAnalysis(false);
     setMode("camera");
   }, [capturedPreview]);
@@ -566,20 +671,28 @@ export function SmartScan() {
         </div>
 
         <div className="flex items-center gap-2">
-          {visionStatus && (
-            <div
-              className="hidden sm:flex items-center gap-1.5 px-2.5 py-1 rounded-xl text-[11px] font-medium"
-              style={{
-                background: visionStatus.quota_limited ? "rgba(248,113,113,0.1)" : "rgba(52,211,153,0.1)",
-                border: visionStatus.quota_limited ? "1px solid rgba(248,113,113,0.28)" : "1px solid rgba(52,211,153,0.28)",
-                color: visionStatus.quota_limited ? "#f87171" : "#34d399",
-              }}
-              title={`Model: ${visionStatus.last_model_used ?? visionStatus.primary_model}`}
-            >
-              <span className={clsx("w-1.5 h-1.5 rounded-full", visionStatus.quota_limited ? "bg-red-400" : "bg-emerald-400")} />
-              {visionStatus.quota_limited ? "Vision quota limited" : "Vision ready"}
-            </div>
-          )}
+          {visionStatus && (() => {
+            const remaining = visionStatus.user_scans_remaining ?? 0;
+            const limit = visionStatus.user_scans_limit ?? 15;
+            const pct = limit > 0 ? remaining / limit : 1;
+            const isLow = pct < 0.34;
+            const isEmpty = remaining === 0;
+            const dotColor = isEmpty ? "#f87171" : isLow ? "#fbbf24" : "#34d399";
+            return (
+              <div
+                className="flex items-center gap-1.5 px-2.5 py-1 rounded-xl text-[11px] font-medium"
+                style={{
+                  background: isEmpty ? "rgba(248,113,113,0.1)" : isLow ? "rgba(251,191,36,0.1)" : "rgba(52,211,153,0.1)",
+                  border: `1px solid ${dotColor}45`,
+                  color: dotColor,
+                }}
+                title={`${remaining}/${limit} scans remaining this hour · ${visionStatus.user_scans_remaining_day} today · Model: ${visionStatus.last_model_used ?? visionStatus.primary_model}`}
+              >
+                <span className="w-1.5 h-1.5 rounded-full shrink-0" style={{ background: dotColor }} />
+                {isEmpty ? "Quota full" : `${remaining}/${limit} scans`}
+              </div>
+            );
+          })()}
           <button
             type="button"
             className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-medium text-slate-400 hover:text-white transition-colors"
@@ -791,6 +904,108 @@ export function SmartScan() {
                 <Upload size={18} />
                 {cameraAvailable ? "Upload" : "Choose Image"}
               </button>
+            </div>
+          </div>
+        )}
+
+        {/* ── Quota Exceeded screen ─────────────────────────────────────── */}
+        {mode === "quota_exceeded" && quotaError && (
+          <div className="flex-1 flex flex-col items-center justify-center gap-6 py-8">
+            {/* Icon */}
+            <div className="relative">
+              <div
+                className="w-24 h-24 rounded-3xl flex items-center justify-center"
+                style={{
+                  background: "linear-gradient(135deg, rgba(251,191,36,0.15), rgba(239,68,68,0.1))",
+                  border: "1px solid rgba(251,191,36,0.25)",
+                  boxShadow: "0 0 40px rgba(251,191,36,0.12)",
+                }}
+              >
+                <Zap size={40} className="text-amber-400" />
+              </div>
+              {/* Pulse rings */}
+              <div className="absolute inset-0 rounded-3xl animate-ping opacity-20"
+                style={{ border: "2px solid #fbbf24" }} />
+            </div>
+
+            {/* Text */}
+            <div className="text-center max-w-xs px-2">
+              <h2 className="text-xl font-bold text-white mb-2">
+                {quotaError.code === "PROVIDER_QUOTA" ? "All Providers Quota Full" : "Hourly Scan Limit Reached"}
+              </h2>
+              <p className="text-sm text-slate-400 leading-relaxed">{quotaError.message}</p>
+            </div>
+
+            {/* Countdown */}
+            {retryCountdown > 0 && (
+              <div
+                className="flex flex-col items-center gap-1 px-8 py-4 rounded-2xl"
+                style={{ background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.08)" }}
+              >
+                <p className="text-[11px] text-slate-500 uppercase tracking-widest font-semibold">Retry available in</p>
+                <p className="text-3xl font-black text-amber-400 tabular-nums">
+                  {retryCountdown >= 3600
+                    ? `${Math.floor(retryCountdown / 3600)}h ${Math.floor((retryCountdown % 3600) / 60)}m`
+                    : retryCountdown >= 60
+                    ? `${Math.floor(retryCountdown / 60)}m ${retryCountdown % 60}s`
+                    : `${retryCountdown}s`}
+                </p>
+              </div>
+            )}
+
+            {/* Actions */}
+            <div className="flex flex-col gap-3 w-full max-w-xs">
+              {/* Add Manually — primary CTA */}
+              <button
+                type="button"
+                onClick={() => navigate("/scan", { state: { prefill: null } })}
+                className="w-full flex items-center justify-center gap-2 py-4 rounded-2xl font-bold text-sm transition-all hover:scale-[1.02] active:scale-[0.98]"
+                style={{
+                  background: "linear-gradient(135deg,#7c3aed,#a855f7)",
+                  boxShadow: "0 4px 24px rgba(139,92,246,0.35)",
+                  color: "white",
+                }}
+              >
+                <PackagePlus size={17} />
+                Add Item Manually
+              </button>
+
+              {/* Try again (if countdown done) / Go to camera */}
+              {retryCountdown === 0 ? (
+                <button
+                  type="button"
+                  onClick={resetToCamera}
+                  className="w-full flex items-center justify-center gap-2 py-3.5 rounded-2xl font-semibold text-sm transition-all hover:scale-[1.02] active:scale-[0.98]"
+                  style={{
+                    background: "rgba(34,211,238,0.1)",
+                    border: "1px solid rgba(34,211,238,0.28)",
+                    color: "#22d3ee",
+                  }}
+                >
+                  <RefreshCw size={15} />
+                  Try Again
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  onClick={resetToCamera}
+                  className="w-full flex items-center justify-center gap-2 py-3 rounded-2xl text-xs font-medium text-slate-500 hover:text-slate-300 transition-colors"
+                >
+                  <Camera size={13} />
+                  Back to Camera
+                </button>
+              )}
+            </div>
+
+            {/* Tip */}
+            <div
+              className="flex items-start gap-2 px-4 py-3 rounded-2xl max-w-xs"
+              style={{ background: "rgba(34,211,238,0.05)", border: "1px solid rgba(34,211,238,0.1)" }}
+            >
+              <Info size={13} className="text-cyan-400 shrink-0 mt-0.5" />
+              <p className="text-[11px] text-slate-400">
+                You can still <span className="text-cyan-300 font-semibold">add items manually</span> — scan a shelf QR to place them directly into inventory without AI analysis.
+              </p>
             </div>
           </div>
         )}

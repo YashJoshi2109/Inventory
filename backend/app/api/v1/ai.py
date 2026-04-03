@@ -19,7 +19,7 @@ from app.ai.demand_forecaster import forecast as run_forecast
 from app.ai.nlp_search import get_global_index, global_search, rebuild_global_index
 from app.api.v1.auth import CurrentUser, require_roles
 from app.core.database import DbSession
-from app.core.rate_limit import _chat_limiter, _get_client_ip
+from app.core.rate_limit import _chat_limiter, _get_client_ip, check_vision_quota, vision_quota_status as _vision_quota_status
 from app.core.config import settings
 from app.models.user import RoleName
 from app.repositories.item_repo import ItemRepository
@@ -70,6 +70,12 @@ class VisionQuotaStatus(BaseModel):
     last_error: str | None
     checked_at: str | None
     last_success_at: str | None
+    # Per-user quota (hourly window)
+    user_scans_remaining: int
+    user_scans_limit: int
+    user_scans_remaining_day: int
+    user_scans_limit_day: int
+    user_retry_after_seconds: int
 
 
 _vision_health: dict[str, str | bool | None] = {
@@ -101,9 +107,10 @@ async def chat_rate_limit(
 
 
 @router.get("/vision/status", response_model=VisionQuotaStatus)
-async def vision_quota_status(
+async def get_vision_quota_status(
     current_user: CurrentUser,
 ) -> VisionQuotaStatus:
+    uq = _vision_quota_status(current_user.id)
     return VisionQuotaStatus(
         primary_model=settings.GEMINI_VISION_MODEL,
         fallback_models=settings.GEMINI_VISION_FALLBACK_MODELS,
@@ -112,6 +119,11 @@ async def vision_quota_status(
         last_error=_vision_health.get("last_error"),  # type: ignore[arg-type]
         checked_at=_vision_health.get("checked_at"),  # type: ignore[arg-type]
         last_success_at=_vision_health.get("last_success_at"),  # type: ignore[arg-type]
+        user_scans_remaining=uq["scans_remaining_hour"],
+        user_scans_limit=uq["scans_limit_hour"],
+        user_scans_remaining_day=uq["scans_remaining_day"],
+        user_scans_limit_day=uq["scans_limit_day"],
+        user_retry_after_seconds=uq["retry_after_seconds"],
     )
 
 
@@ -317,6 +329,21 @@ async def analyze_vision(
     if not settings.GEMINI_API_KEY and not settings.OPENROUTER_API_KEY:
         raise HTTPException(status_code=503, detail="No vision AI provider configured (set GEMINI_API_KEY or OPENROUTER_API_KEY)")
 
+    # ── Per-user rate limit (15 scans/hour, 50 scans/day) ─────────────────────
+    allowed, retry_after, remaining, limit = check_vision_quota(current_user.id)
+    if not allowed:
+        raise HTTPException(
+            status_code=429,
+            detail={
+                "code": "VISION_USER_QUOTA",
+                "message": f"Scan limit reached ({limit}/hr). Try again in {retry_after}s.",
+                "retry_after_seconds": retry_after,
+                "scans_remaining": 0,
+                "scans_limit": limit,
+            },
+            headers={"Retry-After": str(retry_after)},
+        )
+
     from google import genai
     from google.genai import types as genai_types
 
@@ -326,7 +353,33 @@ async def analyze_vision(
     if not image_bytes:
         raise HTTPException(status_code=400, detail="Uploaded image is empty")
 
-    mime_type = image.content_type or "image/jpeg"
+    # Reject images > 5 MB before doing any work
+    if len(image_bytes) > 5 * 1024 * 1024:
+        raise HTTPException(
+            status_code=413,
+            detail="Image too large (max 5 MB). Please reduce the image size before uploading.",
+        )
+
+    # Resize to ≤1024px on the longest side and re-encode as JPEG ~80% quality.
+    # This cuts memory usage from several MB to ~80-120 KB — critical on 512 MB instances.
+    try:
+        from io import BytesIO
+        from PIL import Image as _PilImage
+
+        with _PilImage.open(BytesIO(image_bytes)) as img:
+            img = img.convert("RGB")
+            max_dim = 1024
+            if img.width > max_dim or img.height > max_dim:
+                img.thumbnail((max_dim, max_dim), _PilImage.LANCZOS)
+            buf = BytesIO()
+            img.save(buf, format="JPEG", quality=80, optimize=True)
+            image_bytes = buf.getvalue()
+        mime_type = "image/jpeg"
+    except Exception:
+        # If Pillow fails for any reason, continue with original bytes
+        mime_type = image.content_type or "image/jpeg"
+    else:
+        del buf  # free the BytesIO buffer
 
     prompt_key = analysis_type if analysis_type in _VISION_PROMPTS else "full"
     prompt_text = _VISION_PROMPTS[prompt_key]
@@ -357,6 +410,7 @@ async def analyze_vision(
                         prompt_text,
                     ],
                 )
+                del image_bytes  # free immediately after handing to Gemini SDK
                 now = datetime.now(timezone.utc).isoformat()
                 _vision_health["last_model_used"] = model_name
                 _vision_health["quota_limited"] = False
@@ -390,6 +444,7 @@ async def analyze_vision(
         import base64 as _b64
         from openai import AsyncOpenAI as _AsyncOpenAI
         b64_image = _b64.b64encode(image_bytes).decode()
+        del image_bytes  # free raw bytes — b64 string is the only copy needed now
         _or_client = _AsyncOpenAI(
             api_key=settings.OPENROUTER_API_KEY,
             base_url="https://openrouter.ai/api/v1",
