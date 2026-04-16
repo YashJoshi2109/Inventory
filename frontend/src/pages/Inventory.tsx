@@ -12,7 +12,7 @@ import { EmptyState } from "@/components/ui/EmptyState";
 import { Input } from "@/components/ui/Input";
 import { Modal } from "@/components/ui/Modal";
 import {
-  Search, Plus, QrCode,
+  Search, Plus, QrCode, Printer,
   ChevronLeft, ChevronRight, Package, FolderPlus,
 } from "lucide-react";
 import { clsx } from "clsx";
@@ -35,6 +35,10 @@ export function Inventory() {
   const [page, setPage] = useState(1);
   const [showAddModal, setShowAddModal] = useState(false);
   const [showAddCategoryModal, setShowAddCategoryModal] = useState(false);
+  const [showPrintModal, setShowPrintModal] = useState(false);
+  type PrintScope = "current" | "all" | "category" | "low" | "out";
+  const [printScope, setPrintScope] = useState<PrintScope>("current");
+  const [printCategoryId, setPrintCategoryId] = useState<string>("");
   const [newItem, setNewItem] = useState({
     sku: "",
     name: "",
@@ -130,6 +134,93 @@ export function Inventory() {
     },
   });
 
+  // ── Bulk-print QR labels for the selected scope ───────────────────────────
+  /**
+   * Translate a scope choice into the filter params the /print-bulk endpoint accepts.
+   * - current:  whatever the user is viewing now (q + status + categoryId)
+   * - all:      no filters — entire active inventory
+   * - category: just the category picked in the modal
+   * - low/out:  status-only filter
+   */
+  const scopeToParams = (scope: PrintScope): { q?: string; category_id?: number; status?: string } => {
+    switch (scope) {
+      case "current":
+        return {
+          q: q || undefined,
+          status: status || undefined,
+          category_id: categoryId ? Number(categoryId) : undefined,
+        };
+      case "all":
+        return {};
+      case "category":
+        return { category_id: printCategoryId ? Number(printCategoryId) : undefined };
+      case "low":
+        return { status: "LOW" };
+      case "out":
+        return { status: "OUT" };
+    }
+  };
+
+  const bulkPrintMutation = useMutation({
+    mutationFn: (scope: PrintScope) => itemsApi.printBulkLabels(scopeToParams(scope)),
+    onSuccess: ({ blob, count }) => {
+      triggerHaptic("success");
+      // Try new-tab preview first (best UX for Cmd/Ctrl+P). Fall back to download
+      // if the popup blocker bites — programmatic open after await loses user-gesture.
+      const url = URL.createObjectURL(blob);
+      const win = window.open(url, "_blank", "noopener,noreferrer");
+      if (!win) {
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = `sear-labels-bulk-${Date.now()}.pdf`;
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+      }
+      // Give the new tab time to load the blob before we revoke.
+      setTimeout(() => URL.revokeObjectURL(url), 60_000);
+      toast.success(`${count} label${count === 1 ? "" : "s"} generated`);
+      setShowPrintModal(false);
+    },
+    onError: (err: unknown) => {
+      triggerHaptic("error");
+      const msg = (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail;
+      toast.error(typeof msg === "string" ? msg : "Failed to generate labels");
+    },
+  });
+
+  /** Rough page estimate for the confirm dialog — Avery 5160 = 30 labels/sheet. */
+  const scopeItemEstimate = (scope: PrintScope): number | null => {
+    if (scope === "current") return data?.total ?? null;
+    // "all" / "category" / "low" / "out" — we don't precompute; backend caps at 2000.
+    return null;
+  };
+
+  const handleConfirmPrint = () => {
+    // Guard: category scope requires a category pick.
+    if (printScope === "category" && !printCategoryId) {
+      toast.error("Pick a category first");
+      return;
+    }
+    const est = scopeItemEstimate(printScope);
+    if (est !== null && est > 60) {
+      const pages = Math.ceil(est / 30);
+      const ok = window.confirm(
+        `Print ${est.toLocaleString()} label${est === 1 ? "" : "s"} (~${pages} page${pages === 1 ? "" : "s"})?`,
+      );
+      if (!ok) return;
+    }
+    bulkPrintMutation.mutate(printScope);
+  };
+
+  const openPrintModal = () => {
+    // Default scope = "current" if any filter is active, else "all".
+    const hasFilter = Boolean(q || status || categoryId);
+    setPrintScope(hasFilter ? "current" : "all");
+    setPrintCategoryId(categoryId ?? "");
+    setShowPrintModal(true);
+  };
+
   return (
     <div className="p-4 lg:p-6 pb-24 lg:pb-6 space-y-4 animate-fade-in">
       {/* Search + filters */}
@@ -145,9 +236,21 @@ export function Inventory() {
         </div>
         <div className="flex gap-2 shrink-0">
           {canManage && (
-            <Button variant="secondary" leftIcon={<FolderPlus size={15} />} size="md" onClick={() => setShowAddCategoryModal(true)}>
-              Category
-            </Button>
+            <>
+              <Button
+                variant="secondary"
+                leftIcon={<Printer size={15} />}
+                size="md"
+                onClick={openPrintModal}
+                loading={bulkPrintMutation.isPending}
+                title="Bulk-print QR labels (current view, whole inventory, by category, or by stock status)"
+              >
+                Print Labels
+              </Button>
+              <Button variant="secondary" leftIcon={<FolderPlus size={15} />} size="md" onClick={() => setShowAddCategoryModal(true)}>
+                Category
+              </Button>
+            </>
           )}
           <Button variant="primary" leftIcon={<Plus size={15} />} size="md" onClick={() => setShowAddModal(true)}>
             Add Item
@@ -265,6 +368,110 @@ export function Inventory() {
           )}
         </>
       )}
+
+      {/* ── Bulk QR print scope picker ── */}
+      <Modal
+        open={showPrintModal}
+        onClose={() => setShowPrintModal(false)}
+        title="Print QR Labels"
+        footer={(
+          <div className="flex justify-end gap-2">
+            <Button variant="secondary" onClick={() => setShowPrintModal(false)}>Cancel</Button>
+            <Button
+              variant="primary"
+              leftIcon={<Printer size={15} />}
+              loading={bulkPrintMutation.isPending}
+              disabled={printScope === "category" && !printCategoryId}
+              onClick={handleConfirmPrint}
+            >
+              Generate PDF
+            </Button>
+          </div>
+        )}
+      >
+        <div className="p-5 space-y-3">
+          <p className="text-xs text-slate-400">
+            Pick what to print. Labels use the Avery 5160 layout (30 per sheet).
+          </p>
+
+          {[
+            {
+              id: "current" as const,
+              label: "Current view",
+              desc: data
+                ? `${data.total.toLocaleString()} item${data.total === 1 ? "" : "s"} matching active search / filters`
+                : "Whatever the table is showing right now",
+              disabled: !data || data.total === 0,
+            },
+            {
+              id: "all" as const,
+              label: "Entire inventory",
+              desc: "All active items, no filters (capped at 2000)",
+            },
+            {
+              id: "category" as const,
+              label: "By category",
+              desc: "Only items in a specific category",
+            },
+            {
+              id: "low" as const,
+              label: "Low stock only",
+              desc: "Items at or below reorder level",
+            },
+            {
+              id: "out" as const,
+              label: "Out of stock only",
+              desc: "Items with zero on hand",
+            },
+          ].map((opt) => {
+            const selected = printScope === opt.id;
+            const isDisabled = "disabled" in opt && opt.disabled;
+            return (
+              <button
+                key={opt.id}
+                type="button"
+                disabled={isDisabled}
+                onClick={() => setPrintScope(opt.id)}
+                className={clsx(
+                  "w-full text-left px-4 py-3 rounded-xl border transition-colors",
+                  selected
+                    ? "bg-brand-600/15 border-brand-500 text-white"
+                    : "bg-surface-card border-surface-border text-slate-300 hover:border-brand-500/50",
+                  isDisabled && "opacity-50 cursor-not-allowed",
+                )}
+              >
+                <div className="flex items-center justify-between gap-3">
+                  <div className="min-w-0">
+                    <p className="text-sm font-semibold">{opt.label}</p>
+                    <p className="text-xs text-slate-500 mt-0.5">{opt.desc}</p>
+                  </div>
+                  <span
+                    className={clsx(
+                      "w-4 h-4 rounded-full border-2 shrink-0",
+                      selected ? "border-brand-400 bg-brand-500" : "border-slate-600",
+                    )}
+                  />
+                </div>
+
+                {/* Inline category picker — only shown under the "By category" option */}
+                {opt.id === "category" && selected && (
+                  <select
+                    value={printCategoryId}
+                    onChange={(e) => setPrintCategoryId(e.target.value)}
+                    onClick={(e) => e.stopPropagation()}
+                    className="mt-3 w-full px-3 py-2 rounded-lg text-sm bg-surface-base border border-surface-border text-slate-200 focus:outline-none focus:ring-2 focus:ring-brand-500"
+                  >
+                    <option value="">— Choose a category —</option>
+                    {(categories ?? []).map((c) => (
+                      <option key={c.id} value={c.id}>{c.name}</option>
+                    ))}
+                  </select>
+                )}
+              </button>
+            );
+          })}
+        </div>
+      </Modal>
 
       <Modal
         open={showAddModal}

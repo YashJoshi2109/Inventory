@@ -671,6 +671,275 @@ async def list_categories(db: AsyncSession) -> dict:
     }
 
 
+# ── Category CRUD ────────────────────────────────────────────────────────────
+
+async def create_category(
+    db: AsyncSession,
+    name: str,
+    item_type: str = "CONSUMABLE",
+    description: str | None = None,
+    color: str | None = None,
+    icon: str | None = None,
+) -> dict:
+    """Create a new item category. Name must be unique (case-insensitive)."""
+    from app.repositories.item_repo import CategoryRepository
+    repo = CategoryRepository(db)
+    existing = await repo.get_by_name(name)
+    if existing:
+        return {"error": f"Category '{name}' already exists (id={existing.id})"}
+    cat = Category(
+        name=name.strip(),
+        item_type=item_type,
+        description=description,
+        color=color,
+        icon=icon,
+    )
+    db.add(cat)
+    await db.flush()
+    return {
+        "success": True,
+        "id": cat.id,
+        "name": cat.name,
+        "item_type": cat.item_type,
+        "message": f"Created category '{cat.name}' (id={cat.id}).",
+    }
+
+
+async def update_category(
+    db: AsyncSession,
+    category_id_or_name: str,
+    name: str | None = None,
+    item_type: str | None = None,
+    description: str | None = None,
+    color: str | None = None,
+    icon: str | None = None,
+) -> dict:
+    """Update fields on an existing category by ID or name."""
+    from app.repositories.item_repo import CategoryRepository
+    repo = CategoryRepository(db)
+    cat: Category | None = None
+    if category_id_or_name.isdigit():
+        cat = await repo.get_by_id(int(category_id_or_name))
+    if cat is None:
+        cat = await repo.get_by_name(category_id_or_name)
+    if cat is None:
+        return {"error": f"Category '{category_id_or_name}' not found"}
+
+    changes: list[str] = []
+    if name is not None:
+        cat.name = name.strip(); changes.append(f"name→{cat.name}")
+    if item_type is not None:
+        cat.item_type = item_type; changes.append(f"item_type→{item_type}")
+    if description is not None:
+        cat.description = description; changes.append("description updated")
+    if color is not None:
+        cat.color = color; changes.append(f"color→{color}")
+    if icon is not None:
+        cat.icon = icon; changes.append(f"icon→{icon}")
+
+    await db.flush()
+    return {
+        "success": True,
+        "id": cat.id,
+        "name": cat.name,
+        "changes": changes,
+        "message": f"Updated category '{cat.name}': {', '.join(changes) or 'no changes'}.",
+    }
+
+
+async def delete_category(
+    db: AsyncSession,
+    category_id_or_name: str,
+) -> dict:
+    """Permanently delete a category. Items in this category will have their category_id set to NULL."""
+    from app.repositories.item_repo import CategoryRepository
+    repo = CategoryRepository(db)
+    cat: Category | None = None
+    if category_id_or_name.isdigit():
+        cat = await repo.get_by_id(int(category_id_or_name))
+    if cat is None:
+        cat = await repo.get_by_name(category_id_or_name)
+    if cat is None:
+        return {"error": f"Category '{category_id_or_name}' not found"}
+
+    # Count items that will be orphaned so caller can warn the user.
+    item_count = await db.scalar(
+        select(func.count(Item.id)).where(Item.category_id == cat.id)
+    )
+    name, cat_id = cat.name, cat.id
+    await db.delete(cat)
+    await db.flush()
+    return {
+        "success": True,
+        "id": cat_id,
+        "name": name,
+        "orphaned_items": int(item_count or 0),
+        "message": (
+            f"Deleted category '{name}' (id={cat_id}). "
+            f"{item_count or 0} item(s) had their category cleared (FK was ON DELETE SET NULL)."
+        ),
+    }
+
+
+# ── Location CRUD ────────────────────────────────────────────────────────────
+
+async def create_location(
+    db: AsyncSession,
+    code: str,
+    name: str,
+    area_id: int | None = None,
+    area_code: str | None = None,
+    description: str | None = None,
+    shelf: str | None = None,
+    bin_label: str | None = None,
+    capacity: int | None = None,
+) -> dict:
+    """
+    Create a new physical location (shelf/bin/rack). Must belong to an existing area —
+    pass either area_id or area_code. A QR label is auto-generated.
+    """
+    from app.models.location import LocationBarcode
+    from app.repositories.location_repo import AreaRepository, LocationRepository
+    from app.services.barcode_service import render_qr_png
+
+    loc_repo = LocationRepository(db)
+    if await loc_repo.get_by_code(code):
+        return {"error": f"Location code '{code}' already exists"}
+
+    area_repo = AreaRepository(db)
+    area = None
+    if area_id is not None:
+        area = await area_repo.get_by_id(area_id)
+    elif area_code:
+        area = await area_repo.get_by_code(area_code)
+    if area is None:
+        return {"error": "Area not found — pass a valid area_id or area_code"}
+
+    loc = Location(
+        area_id=area.id,
+        code=code.strip(),
+        name=name.strip(),
+        description=description,
+        shelf=shelf,
+        bin_label=bin_label,
+        capacity=capacity,
+    )
+    db.add(loc)
+    await db.flush()
+
+    # Mirror the REST endpoint — create the matching QR barcode row.
+    barcode_val = f"LOC:{loc.code.upper()}"
+    qr_bytes = render_qr_png(barcode_val)
+    db.add(LocationBarcode(
+        location_id=loc.id,
+        barcode_value=barcode_val,
+        barcode_type="qr",
+        qr_image=qr_bytes,
+    ))
+    await db.flush()
+
+    return {
+        "success": True,
+        "id": loc.id,
+        "code": loc.code,
+        "name": loc.name,
+        "area_id": area.id,
+        "area_code": area.code,
+        "message": f"Created location '{loc.name}' (code={loc.code}, id={loc.id}) in area {area.code}.",
+    }
+
+
+async def update_location(
+    db: AsyncSession,
+    location_id_or_code: str,
+    name: str | None = None,
+    description: str | None = None,
+    shelf: str | None = None,
+    bin_label: str | None = None,
+    capacity: int | None = None,
+    is_active: bool | None = None,
+) -> dict:
+    """Update fields on an existing location by ID or code."""
+    from app.repositories.location_repo import LocationRepository
+    repo = LocationRepository(db)
+    loc: Location | None = None
+    if location_id_or_code.isdigit():
+        loc = await repo.get_by_id(int(location_id_or_code))
+    if loc is None:
+        loc = await repo.get_by_code(location_id_or_code)
+    if loc is None:
+        return {"error": f"Location '{location_id_or_code}' not found"}
+
+    changes: list[str] = []
+    if name is not None:
+        loc.name = name.strip(); changes.append(f"name→{loc.name}")
+    if description is not None:
+        loc.description = description; changes.append("description updated")
+    if shelf is not None:
+        loc.shelf = shelf; changes.append(f"shelf→{shelf}")
+    if bin_label is not None:
+        loc.bin_label = bin_label; changes.append(f"bin_label→{bin_label}")
+    if capacity is not None:
+        loc.capacity = capacity; changes.append(f"capacity→{capacity}")
+    if is_active is not None:
+        loc.is_active = is_active; changes.append(f"is_active→{is_active}")
+
+    await db.flush()
+    return {
+        "success": True,
+        "id": loc.id,
+        "code": loc.code,
+        "changes": changes,
+        "message": f"Updated location '{loc.code}': {', '.join(changes) or 'no changes'}.",
+    }
+
+
+async def delete_location(
+    db: AsyncSession,
+    location_id_or_code: str,
+    hard_delete: bool = False,
+) -> dict:
+    """
+    Deactivate (soft, default) or permanently delete a location. Hard-delete is
+    blocked if any stock is currently stored at this location — move it first.
+    """
+    from app.repositories.location_repo import LocationRepository
+    repo = LocationRepository(db)
+    loc: Location | None = None
+    if location_id_or_code.isdigit():
+        loc = await repo.get_by_id(int(location_id_or_code))
+    if loc is None:
+        loc = await repo.get_by_code(location_id_or_code)
+    if loc is None:
+        return {"error": f"Location '{location_id_or_code}' not found"}
+
+    if hard_delete:
+        stock_total = await db.scalar(
+            select(func.coalesce(func.sum(StockLevel.quantity), 0))
+            .where(StockLevel.location_id == loc.id)
+        )
+        if stock_total and stock_total > 0:
+            return {
+                "error": (
+                    f"Cannot hard-delete location '{loc.code}' — {stock_total} unit(s) are stored here. "
+                    "Transfer or remove the stock first, or use soft-delete (hard_delete=false)."
+                ),
+            }
+        code, name = loc.code, loc.name
+        await db.delete(loc)
+        await db.flush()
+        return {"success": True, "message": f"Permanently deleted location '{name}' (code={code})."}
+
+    loc.is_active = False
+    await db.flush()
+    return {
+        "success": True,
+        "id": loc.id,
+        "code": loc.code,
+        "message": f"Deactivated location '{loc.name}' (code={loc.code}). History preserved.",
+    }
+
+
 async def rag_search_docs(
     db: AsyncSession,
     query: str,
@@ -1003,6 +1272,115 @@ TOOL_SCHEMAS: list[dict[str, Any]] = [
             },
         },
     },
+    # ── Category CRUD ──
+    {
+        "type": "function",
+        "function": {
+            "name": "create_category",
+            "description": "Create a new item category. Always confirm the name with the user first. Name must be unique.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "name": {"type": "string", "description": "Category name (e.g. 'Chemicals', 'PPE')"},
+                    "item_type": {"type": "string", "description": "CONSUMABLE / EQUIPMENT / etc.", "default": "CONSUMABLE"},
+                    "description": {"type": "string", "description": "Optional description"},
+                    "color": {"type": "string", "description": "Hex color for UI badges (e.g. #22d3ee)"},
+                    "icon": {"type": "string", "description": "lucide-react icon name"},
+                },
+                "required": ["name"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "update_category",
+            "description": "Rename or edit metadata on an existing category.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "category_id_or_name": {"type": "string", "description": "Category ID or current name"},
+                    "name": {"type": "string"},
+                    "item_type": {"type": "string"},
+                    "description": {"type": "string"},
+                    "color": {"type": "string"},
+                    "icon": {"type": "string"},
+                },
+                "required": ["category_id_or_name"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "delete_category",
+            "description": "Permanently delete a category. Items using it will have their category cleared (set to NULL). Confirm with the user before calling.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "category_id_or_name": {"type": "string", "description": "Category ID or name"},
+                },
+                "required": ["category_id_or_name"],
+            },
+        },
+    },
+    # ── Location CRUD ──
+    {
+        "type": "function",
+        "function": {
+            "name": "create_location",
+            "description": "Create a new physical location (shelf/bin/rack). Must belong to an existing area — pass area_id or area_code. A QR label is auto-generated. Confirm with the user before calling.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "code": {"type": "string", "description": "Unique location code (e.g. 'LAB-A-S01-B03')"},
+                    "name": {"type": "string", "description": "Human-readable name"},
+                    "area_id": {"type": "integer", "description": "Parent area ID"},
+                    "area_code": {"type": "string", "description": "Parent area code (use instead of area_id)"},
+                    "description": {"type": "string"},
+                    "shelf": {"type": "string", "description": "Shelf label (e.g. 'S01')"},
+                    "bin_label": {"type": "string", "description": "Bin label (e.g. 'B03')"},
+                    "capacity": {"type": "integer", "description": "Max units this location holds"},
+                },
+                "required": ["code", "name"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "update_location",
+            "description": "Update fields on an existing location by ID or code.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "location_id_or_code": {"type": "string", "description": "Location ID or code"},
+                    "name": {"type": "string"},
+                    "description": {"type": "string"},
+                    "shelf": {"type": "string"},
+                    "bin_label": {"type": "string"},
+                    "capacity": {"type": "integer"},
+                    "is_active": {"type": "boolean", "description": "false = deactivate, true = reactivate"},
+                },
+                "required": ["location_id_or_code"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "delete_location",
+            "description": "Deactivate (soft, default) or permanently delete a location. Hard-delete refuses if stock is still stored there. Confirm with the user before calling.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "location_id_or_code": {"type": "string", "description": "Location ID or code"},
+                    "hard_delete": {"type": "boolean", "default": False},
+                },
+                "required": ["location_id_or_code"],
+            },
+        },
+    },
 ]
 
 
@@ -1015,6 +1393,12 @@ WRITE_TOOLS = {
     "create_item",
     "update_item",
     "delete_item",
+    "create_category",
+    "update_category",
+    "delete_category",
+    "create_location",
+    "update_location",
+    "delete_location",
 }
 
 
@@ -1026,7 +1410,22 @@ async def dispatch_tool(
     actor_roles: list[str],
     role_names: list[str],
 ) -> dict[str, Any]:
-    """Route a tool call to its implementation. Raises ValueError on missing tool."""
+    """Route a tool call to its implementation. Raises ValueError on missing tool.
+
+    Enforces a per-user sliding-window rate limit on WRITE_TOOLS so a runaway
+    LLM loop can't spam the DB. Read-only tools are unrestricted (the chat
+    endpoint itself is already IP-rate-limited).
+    """
+    if name in WRITE_TOOLS:
+        from app.core.rate_limit import check_copilot_write_quota
+        allowed, retry_after, msg = check_copilot_write_quota(actor_id)
+        if not allowed:
+            return {
+                "error": msg,
+                "retry_after_seconds": retry_after,
+                "rate_limited": True,
+            }
+
     if name == "search_inventory":
         return await search_inventory(db, **args)
     if name == "get_item_details":
@@ -1059,4 +1458,16 @@ async def dispatch_tool(
         return await update_item(db, **args)
     if name == "delete_item":
         return await delete_item(db, **args)
+    if name == "create_category":
+        return await create_category(db, **args)
+    if name == "update_category":
+        return await update_category(db, **args)
+    if name == "delete_category":
+        return await delete_category(db, **args)
+    if name == "create_location":
+        return await create_location(db, **args)
+    if name == "update_location":
+        return await update_location(db, **args)
+    if name == "delete_location":
+        return await delete_location(db, **args)
     raise ValueError(f"Unknown tool: {name}")

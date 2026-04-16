@@ -86,13 +86,13 @@ Location queries (IMPORTANT):
 - Location codes follow patterns like A1, A-01, B2, SHELF-A1, RACK-B, BIN-01.
 - If `get_location_contents` returns not-found, try `list_locations` to show available locations.
 
-CRUD operations:
-- To CREATE an item: call `list_categories` first (to know available category IDs), then `create_item`. Confirm SKU and name with the user first.
-- To UPDATE an item: use `update_item`. Call `list_categories` first if changing category. Confirm which fields are being changed.
-- To DELETE/deactivate an item: use `delete_item`. Soft-delete by default; warn before hard-delete.
-- To ADD STOCK: call `search_inventory` to get item_id, call `list_locations` to get location_id, then call `perform_stock_in`.
-- To REMOVE STOCK: call `search_inventory` to get item_id, call `get_item_details` to see which locations have stock, then `perform_stock_out`.
-- To TRANSFER: confirm item and both locations via search first, then `perform_transfer`.
+CRUD operations (full coverage — items, categories, locations, stock):
+- Items: `create_item` / `update_item` / `delete_item`. For create/update, call `list_categories` first if a category_id is needed.
+- Categories: `create_category` / `update_category` / `delete_category`. Names must be unique. Deleting a category clears the FK on its items (they become uncategorized).
+- Locations: `create_location` / `update_location` / `delete_location`. A new location needs a parent `area_id` or `area_code` — call `list_locations` first to see what areas exist. Hard-delete is blocked when stock is still stored at the location.
+- Stock movements: `perform_stock_in` / `perform_stock_out` / `perform_transfer`. Always resolve item_id + location_id via `search_inventory` and `list_locations` first.
+- Always confirm destructive actions (delete, hard_delete) before calling.
+- All write tools are rate-limited per user (30/min, 200/hour). If you get `rate_limited: true`, stop and tell the user to retry later.
 
 Formatting rules:
 - Use bullet points for lists of items or steps.
@@ -141,7 +141,31 @@ async def run_copilot(
         s = AsyncSessionLocal()
         return s, True
 
-    # ── Primary: Gemini ────────────────────────────────────────────────────
+    # ── Provider order ─────────────────────────────────────────────────────
+    # Preferred chain: OpenRouter (primary) → Gemini → OpenAI (last).
+    # Rationale: OpenRouter gives us multi-model routing and avoids Gemini
+    # free-tier's aggressive 429s. OpenAI is kept last as a reliable safety net.
+    # If no OPENROUTER_API_KEY is configured, we fall through to Gemini as
+    # primary (legacy behavior) and then _openai_compat_fallback → OpenAI.
+    if settings.OPENROUTER_API_KEY:
+        try:
+            buffer: list[str] = []
+            async for chunk in _run_openai_compat_loop(
+                client=_get_openrouter_client(),
+                model=settings.OPENROUTER_MODEL,
+                messages=messages,
+                get_db=_get_db,
+                actor_id=actor_id,
+                actor_roles=actor_roles,
+            ):
+                buffer.append(chunk)
+            for chunk in buffer:
+                yield chunk
+            return
+        except Exception as exc:
+            log.warning("OpenRouter primary error (%s): falling through to Gemini/OpenAI", type(exc).__name__)
+
+    # ── Secondary: Gemini (legacy primary path) ────────────────────────────
     if settings.GEMINI_API_KEY:
         try:
             from google.genai import types
