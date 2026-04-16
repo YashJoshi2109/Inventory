@@ -70,6 +70,27 @@ export const itemsApi = {
     return data;
   },
 
+  /**
+   * Bulk-print Avery 5160 QR labels for every active item matching the filters.
+   * Mirrors the /items filter semantics — pass the same q/status/category the
+   * Inventory page is currently showing so WYSIWYG.
+   */
+  printBulkLabels: async (params: {
+    q?: string;
+    category_id?: number;
+    status?: string;
+  }): Promise<{ blob: Blob; count: number; matched: number }> => {
+    const response = await apiClient.get("/barcodes/labels/print-bulk", {
+      params,
+      responseType: "blob",
+    });
+    return {
+      blob: response.data,
+      count: Number(response.headers["x-labels-count"] ?? 0),
+      matched: Number(response.headers["x-items-matched"] ?? 0),
+    };
+  },
+
   downloadBarcodePng: async (id: number): Promise<Blob> => {
     const { data } = await apiClient.get(`/barcodes/item/${id}/png`, { responseType: "blob" });
     return data;

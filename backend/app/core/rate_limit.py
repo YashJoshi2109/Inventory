@@ -78,6 +78,45 @@ _global_limiter = SlidingWindowRateLimiter(limit=300, window_seconds=60)
 _vision_hourly_limiter = SlidingWindowRateLimiter(limit=15, window_seconds=3600)
 _vision_daily_limiter  = SlidingWindowRateLimiter(limit=50, window_seconds=86400)
 
+# Copilot WRITE tools (create/update/delete + stock in/out/transfer): keyed on
+# user_id. Tighter than chat messages because each call mutates the DB and is
+# triggered by an LLM, which can loop if the model misbehaves.
+# 30 writes/min + 200 writes/hour is comfortable for lab work but blocks runaway.
+_copilot_write_minute_limiter = SlidingWindowRateLimiter(limit=30,  window_seconds=60)
+_copilot_write_hour_limiter   = SlidingWindowRateLimiter(limit=200, window_seconds=3600)
+
+
+def check_copilot_write_quota(user_id: int) -> tuple[bool, int, str]:
+    """
+    Check whether a user can invoke another LLM-driven write tool.
+
+    Returns (allowed, retry_after_seconds, human_msg). Checks the per-minute
+    window first (burst guard) then the per-hour window (sustained guard).
+    Consumes a slot only when both pass.
+    """
+    key = f"cw:{user_id}"
+    ok_min, retry_min = _copilot_write_minute_limiter.is_allowed(key)
+    if not ok_min:
+        return False, retry_min, f"Copilot write limit: 30/min. Retry in {retry_min}s."
+    ok_hr, retry_hr = _copilot_write_hour_limiter.is_allowed(key)
+    if not ok_hr:
+        return False, retry_hr, f"Copilot write limit: 200/hour. Retry in {retry_hr}s."
+    return True, 0, ""
+
+
+def copilot_write_status(user_id: int) -> dict:
+    """Read-only view of a user's copilot-write quota."""
+    key = f"cw:{user_id}"
+    m = _copilot_write_minute_limiter.status(key)
+    h = _copilot_write_hour_limiter.status(key)
+    return {
+        "writes_remaining_minute": m["remaining"],
+        "writes_limit_minute":     m["limit"],
+        "writes_remaining_hour":   h["remaining"],
+        "writes_limit_hour":       h["limit"],
+        "retry_after_seconds":     max(m["retry_after_seconds"], h["retry_after_seconds"]),
+    }
+
 
 def check_vision_quota(user_id: int) -> tuple[bool, int, int, int]:
     """
