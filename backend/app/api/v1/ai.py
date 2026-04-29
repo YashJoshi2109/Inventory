@@ -138,14 +138,19 @@ async def nlp_search(
     if not hits:
         return SearchResponse(query=q, hits=[], total=0)
 
-    # Enrich with DB data
+    # Enrich with DB data — batch fetch items + stock totals to avoid N+1
     item_repo = ItemRepository(session)
     stock_repo = StockLevelRepository(session)
+
+    hit_item_ids = [hit.item_id for hit in hits]
+    stock_totals = await stock_repo.get_totals_for_items(hit_item_ids)
+
     enriched = []
     for hit in hits:
         item = await item_repo.get_with_details(hit.item_id)
         if item:
-            total_qty = await stock_repo.get_total_for_item(item.id)
+            from decimal import Decimal
+            total_qty = stock_totals.get(item.id, Decimal("0"))
             enriched.append({
                 "id": item.id,
                 "sku": item.sku,

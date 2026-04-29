@@ -54,6 +54,18 @@ class LocationRepository(BaseRepository[Location]):
         )
         return result.scalar_one_or_none()
 
+    async def get_all_with_area(self, area_id: int | None = None) -> list[Location]:
+        """Fetch all locations (or filtered by area) with area eager-loaded — single query."""
+        q = (
+            select(Location)
+            .options(joinedload(Location.area), selectinload(Location.barcodes))
+            .order_by(Location.code)
+        )
+        if area_id is not None:
+            q = q.where(Location.area_id == area_id)
+        result = await self.session.execute(q)
+        return list(result.scalars().unique().all())
+
     async def get_by_area(self, area_id: int) -> list[Location]:
         result = await self.session.execute(
             select(Location)
