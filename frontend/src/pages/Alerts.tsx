@@ -4,6 +4,7 @@ import { Link } from "react-router-dom";
 import { transactionsApi } from "@/api/transactions";
 import { roleRequestApi } from "@/api/auth";
 import { useAuthStore } from "@/store/auth";
+import { SearchAutocomplete } from "@/components/ui/SearchAutocomplete";
 import { Button } from "@/components/ui/Button";
 import { SkeletonCard, Skeleton } from "@/components/ui/Skeleton";
 import {
@@ -224,7 +225,9 @@ export function Alerts() {
   const showRoleRequests = activeTab === "all" || activeTab === "role_requests";
 
   return (
-    <div className="p-4 lg:p-6 pb-24 lg:pb-6 space-y-5 animate-fade-in max-w-4xl">
+    <div className="p-4 lg:p-6 pb-24 lg:pb-6 animate-fade-in">
+    <div className="grid grid-cols-1 xl:grid-cols-[1fr_300px] gap-5 max-w-6xl">
+    <div className="space-y-5 min-w-0">
 
       {/* ── Header ── */}
       <div
@@ -319,23 +322,14 @@ export function Alerts() {
       {/* ── Search + Tabs ── */}
       <div className="flex flex-col sm:flex-row gap-3 items-start sm:items-center">
         {/* Search */}
-        <div className="relative flex-1 w-full sm:max-w-xs">
-          <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2" style={{ color: "var(--text-muted)" }} />
-          <input
+        <div className="flex-1 w-full sm:max-w-xs">
+          <SearchAutocomplete
             value={search}
-            onChange={(e) => setSearch(e.target.value)}
+            onChange={setSearch}
+            onSelect={(hit) => setSearch(hit.name)}
             placeholder="Search alerts..."
-            className="w-full pl-8 pr-8 py-2 rounded-xl text-sm placeholder-slate-500 focus:outline-none transition-colors"
-            style={{ background: "var(--bg-input)", border: "1px solid var(--border-card)", color: "var(--text-primary)" }}
+            minChars={3}
           />
-          {search && (
-            <button
-              onClick={() => setSearch("")}
-              className="absolute right-2.5 top-1/2 -translate-y-1/2 transition-colors" style={{ color: "var(--text-muted)" }}
-            >
-              <X size={12} />
-            </button>
-          )}
         </div>
 
         {/* Tabs */}
@@ -455,6 +449,109 @@ export function Alerts() {
           )}
         </div>
       )}
+    </div>{/* end left column */}
+
+    {/* ── Right sidebar ── */}
+    <div className="space-y-4 hidden xl:block">
+
+      {/* Alert Summary */}
+      <div className="rounded-2xl p-4 space-y-3"
+        style={{ background: "var(--bg-card)", border: "1px solid var(--border-card)" }}>
+        <p className="text-xs font-bold uppercase tracking-wider" style={{ color: "var(--text-muted)" }}>Summary</p>
+        {[
+          { label: "Total Active", value: activeAlerts.length, color: "var(--accent)" },
+          { label: "Critical", value: criticalCount, color: "var(--accent-danger)" },
+          { label: "Warnings", value: warningCount, color: "var(--accent-warning)" },
+          { label: "Info", value: activeAlerts.filter(a => a.severity === "info").length, color: "var(--accent-cyan)" },
+          { label: "Resolved Total", value: resolvedAlerts.length, color: "var(--accent-success)" },
+        ].map(({ label, value, color }) => (
+          <div key={label} className="flex items-center justify-between">
+            <span className="text-xs" style={{ color: "var(--text-secondary)" }}>{label}</span>
+            <span className="text-sm font-bold" style={{ color }}>{value}</span>
+          </div>
+        ))}
+        <div className="pt-2" style={{ borderTop: "1px solid var(--border-subtle)" }}>
+          <div className="flex gap-1 h-2 rounded-full overflow-hidden">
+            {criticalCount > 0 && <div className="rounded-full" style={{ flex: criticalCount, background: "var(--accent-danger)" }} />}
+            {warningCount > 0 && <div className="rounded-full" style={{ flex: warningCount, background: "var(--accent-warning)" }} />}
+            {activeAlerts.filter(a => a.severity === "info").length > 0 && (
+              <div className="rounded-full" style={{ flex: activeAlerts.filter(a => a.severity === "info").length, background: "var(--accent-cyan)" }} />
+            )}
+            {activeAlerts.length === 0 && <div className="rounded-full flex-1" style={{ background: "var(--accent-success)" }} />}
+          </div>
+        </div>
+      </div>
+
+      {/* Alert Types breakdown */}
+      {activeAlerts.length > 0 && (
+        <div className="rounded-2xl p-4 space-y-2.5"
+          style={{ background: "var(--bg-card)", border: "1px solid var(--border-card)" }}>
+          <p className="text-xs font-bold uppercase tracking-wider mb-3" style={{ color: "var(--text-muted)" }}>By Type</p>
+          {Object.entries(
+            activeAlerts.reduce((acc, a) => {
+              acc[a.alert_type] = (acc[a.alert_type] ?? 0) + 1;
+              return acc;
+            }, {} as Record<string, number>)
+          ).sort((a, b) => b[1] - a[1]).map(([type, count]) => {
+            const max = activeAlerts.length;
+            return (
+              <div key={type} className="flex items-center gap-2">
+                <span className="text-xs flex-1 capitalize" style={{ color: "var(--text-secondary)" }}>
+                  {type.replace(/_/g, " ")}
+                </span>
+                <div className="w-16 h-1.5 rounded-full overflow-hidden" style={{ background: "var(--border-card)" }}>
+                  <div className="h-full rounded-full" style={{ width: `${(count / max) * 100}%`, background: "var(--accent)" }} />
+                </div>
+                <span className="text-xs font-bold w-4 text-right" style={{ color: "var(--accent)" }}>{count}</span>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {/* Severity Guide */}
+      <div className="rounded-2xl p-4 space-y-2.5"
+        style={{ background: "var(--bg-card)", border: "1px solid var(--border-card)" }}>
+        <p className="text-xs font-bold uppercase tracking-wider mb-3" style={{ color: "var(--text-muted)" }}>Severity Guide</p>
+        {[
+          { label: "Critical", desc: "Immediate action required", color: "var(--accent-danger)" },
+          { label: "Warning", desc: "Review within 24 hours", color: "var(--accent-warning)" },
+          { label: "Info", desc: "Low priority, informational", color: "var(--accent-cyan)" },
+        ].map(({ label, desc, color }) => (
+          <div key={label} className="flex items-start gap-2.5">
+            <div className="w-2 h-2 rounded-full mt-1 shrink-0" style={{ background: color }} />
+            <div>
+              <p className="text-xs font-semibold" style={{ color: "var(--text-primary)" }}>{label}</p>
+              <p className="text-[10px]" style={{ color: "var(--text-muted)" }}>{desc}</p>
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {/* Recently resolved */}
+      {resolvedAlerts.length > 0 && (
+        <div className="rounded-2xl p-4"
+          style={{ background: "var(--bg-card)", border: "1px solid var(--border-card)" }}>
+          <p className="text-xs font-bold uppercase tracking-wider mb-3" style={{ color: "var(--text-muted)" }}>
+            Recently Resolved
+          </p>
+          <div className="space-y-2">
+            {resolvedAlerts.slice(0, 3).map(a => (
+              <div key={a.id} className="flex items-start gap-2">
+                <CheckCircle2 size={12} className="mt-0.5 shrink-0" style={{ color: "var(--accent-success)" }} />
+                <div className="min-w-0">
+                  <p className="text-xs truncate" style={{ color: "var(--text-secondary)" }}>{a.item_name ?? a.message}</p>
+                  <p className="text-[10px]" style={{ color: "var(--text-muted)" }}>
+                    {formatDistanceToNow(new Date(a.created_at), { addSuffix: true })}
+                  </p>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>{/* end right sidebar */}
+    </div>{/* end grid */}
     </div>
   );
 }

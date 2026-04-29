@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useSearchParams, Link } from "react-router-dom";
+import { useSearchParams, Link, useNavigate } from "react-router-dom";
 import toast from "react-hot-toast";
 import { itemsApi } from "@/api/items";
 import { Card } from "@/components/ui/Card";
@@ -11,6 +11,7 @@ import { SkeletonCard } from "@/components/ui/Skeleton";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { Input } from "@/components/ui/Input";
 import { Modal } from "@/components/ui/Modal";
+import { SearchAutocomplete } from "@/components/ui/SearchAutocomplete";
 import {
   Search, Plus, QrCode, Printer,
   ChevronLeft, ChevronRight, Package, FolderPlus,
@@ -31,7 +32,9 @@ export function Inventory() {
   const { triggerHaptic } = useHaptic();
   const { hasRole } = useAuthStore();
   const canManage = hasRole("admin", "manager");
+  const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
+  const [searchValue, setSearchValue] = useState("");
   const [page, setPage] = useState(1);
   const [showAddModal, setShowAddModal] = useState(false);
   const [showAddCategoryModal, setShowAddCategoryModal] = useState(false);
@@ -226,13 +229,12 @@ export function Inventory() {
       {/* Search + filters */}
       <div className="flex flex-col sm:flex-row gap-3">
         <div className="relative flex-1">
-          <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
-          <input
-            defaultValue={q}
-            onChange={(e) => setFilter("q", e.target.value)}
+          <SearchAutocomplete
+            value={searchValue || q}
+            onChange={(val) => { setSearchValue(val); setFilter("q", val); }}
+            onSelect={(hit) => navigate(`/inventory/${hit.id}`)}
             placeholder="Search by name, SKU, supplier…"
-            className="w-full pl-9 pr-4 py-2.5 text-sm rounded-lg placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-brand-500"
-            style={{ background: "var(--bg-input)", border: "1px solid var(--border-card)", color: "var(--text-primary)" }}
+            minChars={3}
           />
         </div>
         <div className="flex gap-2 shrink-0">

@@ -310,7 +310,9 @@ export function Import() {
 
   // ── Upload mode ───────────────────────────────────────────────────────────
   return (
-    <div className="p-4 lg:p-6 pb-24 lg:pb-6 space-y-6 animate-fade-in max-w-2xl">
+    <div className="p-4 lg:p-6 pb-24 lg:pb-6 animate-fade-in">
+    <div className="grid grid-cols-1 xl:grid-cols-[1fr_320px] gap-6 max-w-6xl">
+    <div className="space-y-6 min-w-0">
 
       {/* Header */}
       <div className="flex items-center justify-between gap-3">
@@ -432,6 +434,38 @@ export function Import() {
         </CardContent>
       </Card>
 
+    </div>{/* end left column */}
+
+    {/* ── Right column ── */}
+    <div className="space-y-4">
+      {/* Import stats */}
+      {jobs && jobs.length > 0 && (() => {
+        const totalRows = jobs.reduce((s, j) => s + j.total_rows, 0);
+        const imported = jobs.reduce((s, j) => s + j.imported_rows, 0);
+        const errors = jobs.reduce((s, j) => s + j.error_rows, 0);
+        const successRate = totalRows > 0 ? Math.round((imported / totalRows) * 100) : 0;
+        return (
+          <div className="rounded-2xl p-4 space-y-3"
+            style={{ background: "var(--bg-card)", border: "1px solid var(--border-card)" }}>
+            <p className="text-xs font-bold uppercase tracking-wider" style={{ color: "var(--text-muted)" }}>
+              Import Stats
+            </p>
+            {[
+              { label: "Total Runs", value: jobs.length, color: "var(--accent)" },
+              { label: "Rows Imported", value: imported.toLocaleString(), color: "var(--accent-success)" },
+              { label: "Rows Updated", value: jobs.reduce((s, j) => s + j.skipped_rows, 0).toLocaleString(), color: "var(--accent-cyan)" },
+              { label: "Errors", value: errors, color: errors > 0 ? "var(--accent-danger)" : "var(--text-muted)" },
+              { label: "Success Rate", value: `${successRate}%`, color: successRate >= 90 ? "var(--accent-success)" : "var(--accent-warning)" },
+            ].map(({ label, value, color }) => (
+              <div key={label} className="flex items-center justify-between">
+                <span className="text-xs" style={{ color: "var(--text-secondary)" }}>{label}</span>
+                <span className="text-sm font-bold" style={{ color }}>{value}</span>
+              </div>
+            ))}
+          </div>
+        );
+      })()}
+
       {/* Import history */}
       <Card>
         <CardHeader>
@@ -468,6 +502,28 @@ export function Import() {
           )}
         </CardContent>
       </Card>
+
+      {/* Tips card */}
+      <div className="rounded-2xl p-4 space-y-3"
+        style={{ background: "var(--bg-card)", border: "1px solid var(--border-card)" }}>
+        <p className="text-xs font-bold uppercase tracking-wider" style={{ color: "var(--text-muted)" }}>Pro Tips</p>
+        {[
+          { tip: "SKU is the unique key — duplicates update existing items, never create doubles." },
+          { tip: "CSV files get a live preview. Edit cells before confirming import." },
+          { tip: "Add a Transactions sheet in Excel to bulk-import stock history." },
+          { tip: "Categories and bin locations are auto-created if they don't exist." },
+        ].map(({ tip }, i) => (
+          <div key={i} className="flex items-start gap-2">
+            <div className="w-4 h-4 rounded-full flex items-center justify-center shrink-0 mt-0.5 text-[9px] font-bold"
+              style={{ background: "rgba(var(--accent-rgb), 0.12)", color: "var(--accent)" }}>
+              {i + 1}
+            </div>
+            <p className="text-xs" style={{ color: "var(--text-secondary)" }}>{tip}</p>
+          </div>
+        ))}
+      </div>
+    </div>{/* end right column */}
+    </div>{/* end grid */}
     </div>
   );
 }
