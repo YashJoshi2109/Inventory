@@ -8,60 +8,58 @@
   :root {
     color-scheme: light;
 
-    /* ── Liquid Glass Light Theme ──────────────────────────────────── */
-    /* Background: rich gradient mesh — NOT flat white */
-    --bg-page: #d8e4f7;
-    /* Cards: translucent frosted glass — NOT opaque white */
-    --bg-card: rgba(255, 255, 255, 0.52);
-    --bg-card-solid: rgba(255, 255, 255, 0.80);
-    --bg-sidebar: rgba(255, 255, 255, 0.76);
-    --bg-topbar: rgba(240, 246, 255, 0.72);
-    --bg-mobile-nav: rgba(255, 255, 255, 0.90);
-    --bg-input: rgba(255, 255, 255, 0.60);
-    --bg-hover: rgba(37, 99, 235, 0.07);
+    /* ── Liquid Glass Light Theme — Deep Sapphire Mesh ────────────── */
+    --bg-page: #c8d8f0;
+    /* Cards: frosted white glass — opaque enough to stand out */
+    --bg-card: rgba(255, 255, 255, 0.72);
+    --bg-card-solid: rgba(255, 255, 255, 0.95);
+    --bg-sidebar: rgba(255, 255, 255, 0.88);
+    --bg-topbar: rgba(248, 251, 255, 0.85);
+    --bg-mobile-nav: rgba(255, 255, 255, 0.95);
+    --bg-input: rgba(255, 255, 255, 0.80);
+    --bg-hover: rgba(37, 99, 235, 0.08);
 
-    /* High-contrast text on glass */
-    --text-primary: #07102A;
-    --text-secondary: #2D4060;
-    --text-muted: #6278A0;
+    /* Strong contrast text */
+    --text-primary: #050E24;
+    --text-secondary: #1E3360;
+    --text-muted: #536080;
 
-    /* Glass borders — visible on both glass and opaque light backgrounds */
-    --border-subtle: rgba(37, 99, 235, 0.10);
-    --border-card: rgba(37, 99, 235, 0.18);
-    /* Bright inner edge for glass shimmer effect */
-    --border-glass-top: rgba(255, 255, 255, 0.85);
+    /* Glass borders */
+    --border-subtle: rgba(37, 99, 235, 0.12);
+    --border-card: rgba(37, 99, 235, 0.16);
+    --border-glass-top: rgba(255, 255, 255, 0.95);
 
-    --accent: #2563EB;
-    --accent-hover: #1D4ED8;
-    --accent-rgb: 37, 99, 235;
+    --accent: #1D4ED8;
+    --accent-hover: #1E40AF;
+    --accent-rgb: 29, 78, 216;
     --accent-2: #EA6C00;
     --accent-2-rgb: 234, 108, 0;
-    --accent-success: #059669;
-    --accent-success-rgb: 5, 150, 105;
+    --accent-success: #047857;
+    --accent-success-rgb: 4, 120, 87;
     --accent-danger: #DC2626;
     --accent-danger-rgb: 220, 38, 38;
-    --accent-warning: #D97706;
-    --accent-warning-rgb: 217, 119, 6;
-    --accent-violet: #7C3AED;
-    --accent-violet-rgb: 124, 58, 237;
-    --accent-cyan: #0891B2;
-    --accent-cyan-rgb: 8, 145, 178;
+    --accent-warning: #B45309;
+    --accent-warning-rgb: 180, 83, 9;
+    --accent-violet: #6D28D9;
+    --accent-violet-rgb: 109, 40, 217;
+    --accent-cyan: #0E7490;
+    --accent-cyan-rgb: 14, 116, 144;
 
-    /* Layered liquid glass shadows */
+    /* More pronounced card shadows for depth against vivid background */
     --shadow-card:
-      0 1px 0 rgba(255, 255, 255, 0.92) inset,
-      0 -1px 0 rgba(180, 200, 255, 0.25) inset,
-      0 2px 8px rgba(10, 20, 80, 0.08),
-      0 8px 32px rgba(37, 99, 235, 0.10);
+      0 1px 0 rgba(255, 255, 255, 0.96) inset,
+      0 -1px 0 rgba(160, 190, 255, 0.20) inset,
+      0 2px 6px rgba(10, 20, 80, 0.06),
+      0 8px 24px rgba(29, 78, 216, 0.12);
     --shadow-elevation:
-      0 1px 0 rgba(255, 255, 255, 0.90) inset,
-      0 4px 12px rgba(10, 20, 80, 0.10),
-      0 20px 60px rgba(37, 99, 235, 0.16);
-    --shadow-glow: 0 0 32px rgba(37, 99, 235, 0.28);
+      0 1px 0 rgba(255, 255, 255, 0.95) inset,
+      0 4px 16px rgba(10, 20, 80, 0.12),
+      0 20px 60px rgba(29, 78, 216, 0.18);
+    --shadow-glow: 0 0 32px rgba(29, 78, 216, 0.32);
 
-    --grid-line: rgba(37, 99, 235, 0.06);
-    --scrollbar-thumb: rgba(37, 99, 235, 0.22);
-    --scrollbar-thumb-hover: rgba(37, 99, 235, 0.44);
+    --grid-line: rgba(29, 78, 216, 0.055);
+    --scrollbar-thumb: rgba(29, 78, 216, 0.24);
+    --scrollbar-thumb-hover: rgba(29, 78, 216, 0.46);
   }
 
   [data-theme="dark"] {
@@ -117,19 +115,20 @@
     transition: background-color 0.3s ease, color 0.3s ease;
   }
 
-  /* Light mode: liquid glass gradient mesh background */
+  /* Light mode: deep sapphire gradient mesh — cards stand out clearly */
   :root body {
-    background-color: #d4e0f5;
+    background-color: #b8ccec;
     background-image:
-      radial-gradient(ellipse at 12% 12%, rgba(147, 197, 253, 0.55) 0%, transparent 52%),
-      radial-gradient(ellipse at 88% 80%, rgba(196, 181, 253, 0.48) 0%, transparent 52%),
-      radial-gradient(ellipse at 72% 8%,  rgba(110, 231, 183, 0.28) 0%, transparent 44%),
-      radial-gradient(ellipse at 28% 90%, rgba(251, 191, 36,  0.18) 0%, transparent 44%),
-      linear-gradient(150deg, #daeaff 0%, #e6eeff 45%, #ece4ff 100%),
+      radial-gradient(ellipse at 8%  10%,  rgba(59,  130, 246, 0.50) 0%, transparent 48%),
+      radial-gradient(ellipse at 92% 85%,  rgba(109, 40,  217, 0.38) 0%, transparent 50%),
+      radial-gradient(ellipse at 65% 5%,   rgba(16,  185, 129, 0.22) 0%, transparent 42%),
+      radial-gradient(ellipse at 20% 92%,  rgba(234, 108, 0,   0.18) 0%, transparent 40%),
+      radial-gradient(ellipse at 50% 50%,  rgba(29,  78,  216, 0.12) 0%, transparent 70%),
+      linear-gradient(145deg, #c2d6f4 0%, #cdd8f5 40%, #d4d0f5 100%),
       linear-gradient(var(--grid-line) 1px, transparent 1px),
       linear-gradient(90deg, var(--grid-line) 1px, transparent 1px);
     background-size:
-      100% 100%, 100% 100%, 100% 100%, 100% 100%, 100% 100%,
+      100% 100%, 100% 100%, 100% 100%, 100% 100%, 100% 100%, 100% 100%,
       44px 44px, 44px 44px;
   }
 

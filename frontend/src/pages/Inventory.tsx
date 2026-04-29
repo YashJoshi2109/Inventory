@@ -227,38 +227,39 @@ export function Inventory() {
   return (
     <div className="p-4 lg:p-6 pb-24 lg:pb-6 space-y-4 animate-fade-in">
       {/* Search + filters */}
-      <div className="flex flex-col sm:flex-row gap-3">
-        <div className="relative flex-1">
-          <SearchAutocomplete
-            value={searchValue || q}
-            onChange={(val) => { setSearchValue(val); setFilter("q", val); }}
-            onSelect={(hit) => navigate(`/inventory/${hit.id}`)}
-            placeholder="Search by name, SKU, supplier…"
-            minChars={3}
-          />
-        </div>
-        <div className="flex gap-2 shrink-0">
-          {canManage && (
-            <>
-              <Button
-                variant="secondary"
-                leftIcon={<Printer size={15} />}
-                size="md"
-                onClick={openPrintModal}
-                loading={bulkPrintMutation.isPending}
-                title="Bulk-print QR labels (current view, whole inventory, by category, or by stock status)"
-              >
-                Print Labels
-              </Button>
-              <Button variant="secondary" leftIcon={<FolderPlus size={15} />} size="md" onClick={() => setShowAddCategoryModal(true)}>
-                Category
-              </Button>
-            </>
-          )}
+      <div className="flex flex-col gap-3">
+        <div className="flex gap-2">
+          <div className="relative flex-1">
+            <SearchAutocomplete
+              value={searchValue || q}
+              onChange={(val) => { setSearchValue(val); setFilter("q", val); }}
+              onSelect={(hit) => navigate(`/inventory/${hit.id}`)}
+              placeholder="Search by name, SKU, supplier…"
+              minChars={3}
+            />
+          </div>
           <Button variant="primary" leftIcon={<Plus size={15} />} size="md" onClick={() => setShowAddModal(true)}>
-            Add Item
+            <span className="hidden sm:inline">Add Item</span>
+            <span className="sm:hidden">Add</span>
           </Button>
         </div>
+        {canManage && (
+          <div className="flex gap-2">
+            <Button
+              variant="secondary"
+              leftIcon={<Printer size={15} />}
+              size="sm"
+              onClick={openPrintModal}
+              loading={bulkPrintMutation.isPending}
+              title="Bulk-print QR labels"
+            >
+              Print Labels
+            </Button>
+            <Button variant="secondary" leftIcon={<FolderPlus size={15} />} size="sm" onClick={() => setShowAddCategoryModal(true)}>
+              Category
+            </Button>
+          </div>
+        )}
       </div>
 
       {/* Status tabs */}
@@ -645,35 +646,80 @@ function ItemRow({ item }: { item: ItemSummary }) {
 }
 
 function ItemCard({ item }: { item: ItemSummary }) {
+  const qtyColor =
+    item.status === "OUT"
+      ? "#ef4444"
+      : item.status === "LOW"
+      ? "#f59e0b"
+      : "var(--text-emerald, #10b981)";
+
   return (
     <Link to={`/inventory/${item.id}`}>
-      <Card className="p-4 active:scale-[0.99] transition-transform">
-        <div className="flex items-start justify-between gap-3">
-          <div className="flex-1 min-w-0">
-            <div className="flex items-center gap-2 mb-1">
-              <span className="font-mono text-xs text-brand-400">{item.sku}</span>
-              {item.category_name && (
-                <Badge variant="default" className="text-xs">{item.category_name}</Badge>
-              )}
-            </div>
-            <p className="text-sm font-medium truncate" style={{ color: "var(--text-primary)" }}>{item.name}</p>
-          </div>
+      <div
+        className="rounded-2xl p-4 active:scale-[0.985] transition-transform"
+        style={{
+          background: "var(--bg-card)",
+          border: "1px solid var(--border-card)",
+          boxShadow: "var(--shadow-card, 0 1px 8px rgba(0,0,0,0.06))",
+        }}
+      >
+        {/* Row 1: name + status badge */}
+        <div className="flex items-start justify-between gap-2">
+          <p
+            className="text-sm font-semibold leading-snug flex-1 min-w-0"
+            style={{ color: "var(--text-primary)" }}
+          >
+            {item.name}
+          </p>
           <StatusBadge status={item.status} />
         </div>
-        <div className="flex items-center gap-4 mt-3 text-xs" style={{ color: "var(--text-muted)" }}>
-          <span>
-            <span className={clsx(
-              "font-semibold text-sm mr-0.5",
-              item.status === "OUT" ? "text-red-400" : item.status === "LOW" ? "text-amber-400" : ""
-            )}>
+
+        {/* Row 2: SKU + category */}
+        <div className="flex items-center gap-2 mt-1.5 flex-wrap">
+          <span
+            className="font-mono text-[11px] px-1.5 py-0.5 rounded"
+            style={{
+              background: "rgba(var(--accent-rgb,37,99,235),0.08)",
+              color: "var(--accent)",
+            }}
+          >
+            {item.sku}
+          </span>
+          {item.category_name && (
+            <span
+              className="text-[11px] px-1.5 py-0.5 rounded"
+              style={{
+                background: "var(--bg-hover)",
+                color: "var(--text-secondary)",
+                border: "1px solid var(--border-subtle)",
+              }}
+            >
+              {item.category_name}
+            </span>
+          )}
+        </div>
+
+        {/* Row 3: stats */}
+        <div
+          className="flex items-center justify-between mt-3 pt-3"
+          style={{ borderTop: "1px solid var(--border-subtle)" }}
+        >
+          <div className="flex items-baseline gap-1">
+            <span className="text-base font-bold" style={{ color: qtyColor }}>
               {item.total_quantity}
             </span>
-            {item.unit} on hand
-          </span>
-          <span>Reorder at {item.reorder_level}</span>
-          <span>${Number(item.unit_cost).toFixed(2)}/unit</span>
+            <span className="text-xs" style={{ color: "var(--text-muted)" }}>
+              {item.unit}
+            </span>
+          </div>
+          <div className="text-xs" style={{ color: "var(--text-muted)" }}>
+            reorder {item.reorder_level}
+          </div>
+          <div className="text-xs font-medium" style={{ color: "var(--text-secondary)" }}>
+            ${Number(item.unit_cost).toFixed(2)}
+          </div>
         </div>
-      </Card>
+      </div>
     </Link>
   );
 }

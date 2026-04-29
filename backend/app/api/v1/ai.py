@@ -168,34 +168,64 @@ async def nlp_search(
     current_user: CurrentUser = None,
     limit: int = Query(default=10, ge=1, le=50),
 ) -> SearchResponse:
-    hits = global_search(q, top_k=limit)
-    if not hits:
-        return SearchResponse(query=q, hits=[], total=0)
+    from decimal import Decimal
 
-    # Enrich with DB data — batch fetch items + stock totals to avoid N+1
     item_repo = ItemRepository(session)
     stock_repo = StockLevelRepository(session)
 
-    hit_item_ids = [hit.item_id for hit in hits]
-    stock_totals = await stock_repo.get_totals_for_items(hit_item_ids)
+    # Phase 1: TF-IDF semantic search (raise threshold to avoid noise)
+    tfidf_hits = global_search(q, top_k=limit * 2)
+    good_hits = [h for h in tfidf_hits if h.score >= 0.08]
+    tfidf_score_map: dict[int, float] = {h.item_id: h.score for h in good_hits[:limit]}
 
-    enriched = []
-    for hit in hits:
-        item = await item_repo.get_with_details(hit.item_id)
+    seen_ids: set[int] = set(tfidf_score_map.keys())
+    enriched: list[dict] = []
+
+    # Phase 2: DB ILIKE fallback — always runs to augment TF-IDF
+    tokens = [t for t in q.split() if len(t) >= 2]
+    search_term = max(tokens, key=len) if tokens else q
+    db_items, _ = await item_repo.search(
+        query=search_term,
+        skip=0,
+        limit=limit,
+        is_active=True,
+    )
+    db_id_set = {i.id for i in db_items}
+
+    # Merge both result sets, then batch-fetch stock totals
+    all_item_ids = list(tfidf_score_map.keys()) + [i.id for i in db_items if i.id not in tfidf_score_map]
+    all_item_ids = all_item_ids[:limit]
+
+    stock_totals = await stock_repo.get_totals_for_items(all_item_ids)
+
+    # Fetch TF-IDF items (ordered by score desc)
+    for item_id, score in sorted(tfidf_score_map.items(), key=lambda x: -x[1]):
+        item = await item_repo.get_with_details(item_id)
         if item:
-            from decimal import Decimal
-            total_qty = stock_totals.get(item.id, Decimal("0"))
             enriched.append({
                 "id": item.id,
                 "sku": item.sku,
                 "name": item.name,
                 "category": item.category.name if item.category else None,
-                "total_quantity": float(total_qty),
+                "total_quantity": float(stock_totals.get(item.id, Decimal("0"))),
                 "unit": item.unit,
-                "score": hit.score,
+                "score": round(score, 4),
             })
 
-    return SearchResponse(query=q, hits=enriched, total=len(enriched))
+    # Append DB-only items
+    for item in db_items:
+        if item.id not in {e["id"] for e in enriched}:
+            enriched.append({
+                "id": item.id,
+                "sku": item.sku,
+                "name": item.name,
+                "category": item.category.name if item.category else None,
+                "total_quantity": float(stock_totals.get(item.id, Decimal("0"))),
+                "unit": item.unit,
+                "score": 0.5,
+            })
+
+    return SearchResponse(query=q, hits=enriched[:limit], total=len(enriched))
 
 
 @router.get("/forecast/{item_id}", response_model=ForecastResponse)
