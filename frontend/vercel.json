@@ -21,6 +21,7 @@
       "source": "/uploads/:path*/",
       "destination": "https://sierlab-inventory-backend.onrender.com/uploads/:path*/"
     },
+    { "source": "/api/ping", "destination": "https://sierlab-inventory-backend.onrender.com/ping" },
     { "source": "/(.*)", "destination": "/index.html" }
   ],
   "headers": [

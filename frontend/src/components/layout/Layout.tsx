@@ -6,6 +6,7 @@ import { TopBar } from "./TopBar";
 import { useOffline } from "@/hooks/useOffline";
 import { WifiOff, RefreshCw, Bot } from "lucide-react";
 import { clsx } from "clsx";
+import { useEffect } from "react";
 
 function CopilotFab() {
   const location = useLocation();
@@ -31,8 +32,19 @@ function CopilotFab() {
   );
 }
 
+const PING_URL = "/api/ping";
+const PING_INTERVAL_MS = 8 * 60 * 1000; // 8 min — Render free tier sleeps at 15 min
+
 export function Layout() {
   const { isOnline, pendingCount, isSyncing, syncNow } = useOffline();
+
+  // Keep Render backend warm while user is active.
+  useEffect(() => {
+    const doPing = () => fetch(PING_URL, { method: "GET" }).catch(() => {});
+    doPing(); // immediate on mount
+    const id = setInterval(doPing, PING_INTERVAL_MS);
+    return () => clearInterval(id);
+  }, []);
 
   return (
     <div
