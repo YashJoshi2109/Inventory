@@ -131,16 +131,18 @@ async def create_item(body: ItemCreate, session: DbSession, current_user: Curren
     if await repo.get_by_sku(body.sku):
         raise HTTPException(status_code=409, detail=f"SKU '{body.sku}' already exists")
 
-    from app.services.barcode_service import render_qr_png
+    from app.services.barcode_service import render_qr_png, generate_epc_serial
     item = Item(**body.model_dump())
     session.add(item)
     await session.flush()
 
-    qr_bytes = render_qr_png(item.sku)
+    # EPC serial = lab prefix + zero-padded item_id (matches physical label format)
+    epc = generate_epc_serial(item.id)
+    qr_bytes = render_qr_png(epc)   # QR encodes the EPC serial
     bc = ItemBarcode(
         item_id=item.id,
-        barcode_type="qr",
-        barcode_value=item.sku,
+        barcode_type="qr+code128",
+        barcode_value=epc,           # both QR and Code128 encode this value
         qr_image=qr_bytes,
         is_primary=True,
     )

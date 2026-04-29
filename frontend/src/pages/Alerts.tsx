@@ -232,18 +232,18 @@ export function Alerts() {
         style={{
           background: "linear-gradient(135deg, rgba(8,145,178,0.14) 0%, rgba(34,211,238,0.06) 45%, rgba(248,113,113,0.08) 100%)",
           border: "1px solid rgba(34,211,238,0.18)",
-          backdropFilter: "blur(12px)",
+          backdropFilter: "blur(24px) saturate(1.8)",
         }}
       >
         <div>
-          <h2 className="text-xl font-bold text-slate-100 flex items-center gap-2">
+          <h2 className="text-xl font-bold flex items-center gap-2" style={{ color: "var(--text-primary)" }}>
             <div className="w-8 h-8 rounded-xl flex items-center justify-center"
               style={{ background: "rgba(34,211,238,0.1)", border: "1px solid rgba(34,211,238,0.2)" }}>
               <Bell size={15} className="text-brand-400" />
             </div>
             Notifications &amp; Alerts
           </h2>
-          <p className="text-xs text-slate-500 mt-1 ml-10">
+          <p className="text-xs mt-1 ml-10" style={{ color: "var(--text-muted)" }}>
             {totalBadge === 0
               ? "All clear — no active alerts or pending requests"
               : `${totalBadge} item${totalBadge !== 1 ? "s" : ""} requiring attention`}
@@ -285,7 +285,7 @@ export function Alerts() {
           </div>
           <div className="flex-1 min-w-0">
             <p className="text-sm font-semibold text-purple-300">Manager role request pending</p>
-            <p className="text-xs text-slate-500 mt-0.5">
+            <p className="text-xs mt-0.5" style={{ color: "var(--text-muted)" }}>
               Your request is under review. You'll receive an email once a manager approves or
               declines it.{" "}
               <span className="text-slate-600">
@@ -325,7 +325,8 @@ export function Alerts() {
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             placeholder="Search alerts..."
-            className="w-full pl-8 pr-8 py-2 rounded-xl text-sm bg-white/[0.04] border border-white/[0.07] text-slate-200 placeholder-slate-600 focus:outline-none focus:border-brand-500/40 transition-colors"
+            className="w-full pl-8 pr-8 py-2 rounded-xl text-sm bg-white/[0.04] border border-white/[0.07] placeholder-slate-500 focus:outline-none focus:border-brand-500/40 transition-colors"
+            style={{ color: "var(--text-primary)" }}
           />
           {search && (
             <button
@@ -348,9 +349,10 @@ export function Alerts() {
                 onClick={() => setActiveTab(id)}
                 className={clsx(
                   "flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-all",
-                  activeTab === id ? "text-slate-100" : "text-slate-500 hover:text-slate-300"
+                  activeTab === id ? "" : "text-slate-500 hover:text-slate-300"
                 )}
                 style={activeTab === id ? {
+                  color: "var(--text-primary)",
                   background: "rgba(34,211,238,0.1)",
                   border: "1px solid rgba(34,211,238,0.2)",
                 } : { border: "1px solid transparent" }}
@@ -470,7 +472,7 @@ function EmptyState({ message }: { message: string }) {
         style={{ background: "rgba(52,211,153,0.1)", border: "1px solid rgba(52,211,153,0.18)" }}>
         <CheckCircle2 size={26} className="text-emerald-400" />
       </div>
-      <p className="text-slate-400 text-sm font-medium">{message}</p>
+      <p className="text-sm font-medium" style={{ color: "var(--text-secondary)" }}>{message}</p>
     </motion.div>
   );
 }
@@ -500,7 +502,7 @@ function InventoryAlertCard({
       transition={{ duration: 0.22, ease: "easeOut" }}
       className="relative rounded-2xl overflow-hidden group"
       style={{
-        background: resolved ? "rgba(255,255,255,0.02)" : `linear-gradient(180deg, ${config.bg}, rgba(7,15,31,0.25))`,
+        background: resolved ? "var(--bg-card)" : `linear-gradient(180deg, ${config.bg}, transparent)`,
         border: `1px solid ${resolved ? "rgba(255,255,255,0.04)" : config.border}`,
         boxShadow: resolved ? "none" : `0 4px 20px ${config.bg}`,
       }}
@@ -516,7 +518,7 @@ function InventoryAlertCard({
             background: resolved ? "rgba(255,255,255,0.03)" : config.badgeBg,
             border: `1px solid ${resolved ? "rgba(255,255,255,0.06)" : config.border}`,
           }}>
-          <SeverityIcon size={17} style={{ color: resolved ? "#334155" : config.color }} />
+          <SeverityIcon size={17} style={{ color: resolved ? "var(--text-muted)" : config.color }} />
         </div>
 
         {/* Body */}
@@ -525,7 +527,7 @@ function InventoryAlertCard({
             <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-lg"
               style={{
                 background: resolved ? "rgba(255,255,255,0.04)" : config.badgeBg,
-                color: resolved ? "#334155" : config.color,
+                color: resolved ? "var(--text-muted)" : config.color,
                 border: `1px solid ${resolved ? "transparent" : config.border}`,
               }}>
               {config.label}
@@ -540,7 +542,7 @@ function InventoryAlertCard({
               </span>
             )}
           </div>
-          <p className={clsx("text-sm leading-relaxed", resolved ? "text-slate-600" : "text-slate-200")}>
+          <p className="text-sm leading-relaxed" style={{ color: resolved ? "var(--text-muted)" : "var(--text-primary)" }}>
             {alert.message}
           </p>
           <div className="flex items-center gap-3 mt-2 flex-wrap">
@@ -619,7 +621,7 @@ function RoleRequestCard({
       transition={{ duration: 0.22, ease: "easeOut" }}
       className="relative rounded-2xl overflow-hidden group"
       style={{
-        background: "linear-gradient(180deg, rgba(167,139,250,0.07), rgba(7,15,31,0.25))",
+        background: "linear-gradient(180deg, rgba(167,139,250,0.07), transparent)",
         border: "1px solid rgba(167,139,250,0.2)",
         boxShadow: "0 4px 20px rgba(167,139,250,0.06)",
       }}
@@ -646,7 +648,7 @@ function RoleRequestCard({
               {formatDistanceToNow(new Date(request.created_at), { addSuffix: true })}
             </span>
           </div>
-          <p className="text-sm font-semibold text-slate-100">
+          <p className="text-sm font-semibold" style={{ color: "var(--text-primary)" }}>
             {request.full_name || request.username}
           </p>
           <div className="flex items-center gap-3 mt-1 flex-wrap">
@@ -656,11 +658,11 @@ function RoleRequestCard({
               </span>
             )}
             {request.user_email && (
-              <span className="text-[11px] text-slate-500">{request.user_email}</span>
+              <span className="text-[11px]" style={{ color: "var(--text-muted)" }}>{request.user_email}</span>
             )}
           </div>
           {request.message && (
-            <p className="text-xs text-slate-500 mt-2 italic">"{request.message}"</p>
+            <p className="text-xs mt-2 italic" style={{ color: "var(--text-muted)" }}>"{request.message}"</p>
           )}
 
           {/* Review note input (expandable) */}
@@ -676,7 +678,8 @@ function RoleRequestCard({
                   value={reviewNote}
                   onChange={(e) => setReviewNote(e.target.value)}
                   placeholder="Optional note to user (will be emailed)…"
-                  className="w-full px-3 py-2 rounded-xl text-xs bg-white/[0.04] border border-white/[0.08] text-slate-200 placeholder-slate-600 focus:outline-none focus:border-purple-500/40 transition-colors"
+                  className="w-full px-3 py-2 rounded-xl text-xs bg-white/[0.04] border border-white/[0.08] placeholder-slate-500 focus:outline-none focus:border-purple-500/40 transition-colors"
+                  style={{ color: "var(--text-primary)" }}
                 />
               </motion.div>
             )}

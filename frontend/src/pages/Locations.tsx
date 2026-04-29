@@ -103,8 +103,8 @@ export function Locations() {
             <MapPin size={16} className="text-brand-400" />
           </div>
           <div>
-            <h2 className="text-lg font-bold text-slate-100">Lab Locations</h2>
-            <p className="text-xs text-slate-500">
+            <h2 className="text-lg font-bold" style={{ color: "var(--text-primary)" }}>Lab Locations</h2>
+            <p className="text-xs" style={{ color: "var(--text-muted)" }}>
               {areas?.length ?? 0} areas · {areas?.reduce((s, a) => s + a.location_count, 0) ?? 0} racks
             </p>
           </div>
@@ -217,12 +217,13 @@ export function Locations() {
         )}
       >
         <div className="p-5 space-y-3">
-          <label className="block text-sm text-slate-300">
+          <label className="block text-sm" style={{ color: "var(--text-primary)" }}>
             Area
             <select
               value={newLocation.area_id}
               onChange={(e) => setNewLocation((p) => ({ ...p, area_id: e.target.value }))}
-              className="mt-1 w-full rounded-lg border border-surface-border bg-surface-card px-3 py-2 text-slate-200 focus:outline-none focus:ring-2 focus:ring-brand-500"
+              className="mt-1 w-full rounded-lg border border-surface-border bg-surface-card px-3 py-2 focus:outline-none focus:ring-2 focus:ring-brand-500"
+              style={{ color: "var(--text-primary)" }}
             >
               <option value="">Select area</option>
               {areas?.map((area) => (
@@ -256,7 +257,7 @@ export function Locations() {
               onChange={(e) => setNewLocation((p) => ({ ...p, bin_label: e.target.value }))}
             />
           </div>
-          <p className="text-xs text-slate-500">
+          <p className="text-xs" style={{ color: "var(--text-muted)" }}>
             A location barcode is auto-generated as <span className="font-mono">LOC:RACK_CODE</span>.
           </p>
         </div>
@@ -292,8 +293,8 @@ function AreaCard({ area }: { area: Area }) {
             <span className="font-mono text-xs text-brand-400">{area.code}</span>
             {!area.is_active && <Badge variant="warning" className="text-xs">Inactive</Badge>}
           </div>
-          <p className="text-sm font-medium text-slate-200">{area.name}</p>
-          {area.building && <p className="text-xs text-slate-500">{area.building}{area.floor ? ` · Floor ${area.floor}` : ""}</p>}
+          <p className="text-sm font-medium" style={{ color: "var(--text-primary)" }}>{area.name}</p>
+          {area.building && <p className="text-xs" style={{ color: "var(--text-muted)" }}>{area.building}{area.floor ? ` · Floor ${area.floor}` : ""}</p>}
         </div>
         <div className="flex items-center gap-2 shrink-0">
           <Badge variant="default">{area.location_count} bins</Badge>
@@ -310,17 +311,17 @@ function AreaCard({ area }: { area: Area }) {
               ))}
             </div>
           ) : locations.length === 0 ? (
-            <p className="text-center py-4 text-sm text-slate-500">No bins in this area</p>
+            <p className="text-center py-4 text-sm" style={{ color: "var(--text-muted)" }}>No bins in this area</p>
           ) : (
             <div className="divide-y divide-surface-border/40">
               {locations.map((loc) => (
                 <div key={loc.id} className="flex items-center gap-3 px-5 py-3">
                   <div className="flex-1">
                     <div className="flex items-center gap-2">
-                      <span className="font-mono text-xs text-slate-400">{loc.code}</span>
-                      {loc.shelf && <span className="text-xs text-slate-500">Shelf {loc.shelf}</span>}
+                      <span className="font-mono text-xs" style={{ color: "var(--text-secondary)" }}>{loc.code}</span>
+                      {loc.shelf && <span className="text-xs" style={{ color: "var(--text-muted)" }}>Shelf {loc.shelf}</span>}
                     </div>
-                    <p className="text-sm text-slate-300">{loc.name}</p>
+                    <p className="text-sm" style={{ color: "var(--text-primary)" }}>{loc.name}</p>
                   </div>
                   <button
                     onClick={async () => {
@@ -332,7 +333,7 @@ function AreaCard({ area }: { area: Area }) {
                         toast.error("Failed to load QR code");
                       }
                     }}
-                    className="p-1.5 rounded-lg hover:bg-surface-hover text-slate-400 hover:text-white transition-colors"
+                    className="p-1.5 rounded-lg hover:bg-surface-hover transition-colors" style={{ color: "var(--text-secondary)" }}
                     title="View QR label"
                   >
                     <QrCode size={15} />
@@ -350,7 +351,7 @@ function AreaCard({ area }: { area: Area }) {
           onClick={() => { URL.revokeObjectURL(qrModal.url); setQrModal(null); }}>
           <div
             className="relative flex flex-col items-center gap-5 p-6 rounded-2xl shadow-2xl w-full max-w-xs"
-            style={{ background: "rgba(10,18,35,0.98)", border: "1px solid rgba(255,255,255,0.1)" }}
+            style={{ background: "var(--bg-topbar)", border: "1px solid var(--border-card)" }}
             onClick={e => e.stopPropagation()}>
             {/* Close */}
             <button
@@ -361,16 +362,16 @@ function AreaCard({ area }: { area: Area }) {
 
             <div className="flex items-center gap-2">
               <QrCode size={15} className="text-brand-400" />
-              <p className="text-sm font-semibold text-slate-200">{qrModal.name}</p>
+              <p className="text-sm font-semibold" style={{ color: "var(--text-primary)" }}>{qrModal.name}</p>
             </div>
-            <p className="text-xs font-mono text-slate-500 -mt-3">{qrModal.code}</p>
+            <p className="text-xs font-mono -mt-3" style={{ color: "var(--text-muted)" }}>{qrModal.code}</p>
 
             {/* QR image — white background so it scans correctly */}
             <div className="p-4 bg-white rounded-xl shadow-lg">
               <img src={qrModal.url} alt={`QR ${qrModal.code}`} className="w-48 h-48 object-contain" />
             </div>
 
-            <p className="text-[11px] text-slate-500 text-center">Scan to identify this location</p>
+            <p className="text-[11px] text-center" style={{ color: "var(--text-muted)" }}>Scan to identify this location</p>
 
             <a
               href={qrModal.url}
@@ -416,18 +417,18 @@ function AreaMapSection({ area }: { area: Area }) {
 
   return (
     <div className="rounded-2xl overflow-hidden"
-      style={{ background: "rgba(255,255,255,0.015)", border: "1px solid rgba(255,255,255,0.07)" }}>
+      style={{ background: "var(--bg-card)", border: "1px solid var(--border-card)" }}>
 
       {/* Area header */}
       <div className="flex items-center gap-3 px-4 py-3"
-        style={{ borderBottom: "1px solid rgba(255,255,255,0.06)", background: "rgba(34,211,238,0.02)" }}>
+        style={{ borderBottom: "1px solid var(--border-card)", background: "rgba(34,211,238,0.02)" }}>
         <div className="w-8 h-8 rounded-xl flex items-center justify-center shrink-0"
           style={{ background: "rgba(34,211,238,0.1)", border: "1px solid rgba(34,211,238,0.18)" }}>
           <MapPin size={13} className="text-brand-400" />
         </div>
         <div className="flex-1 min-w-0">
-          <p className="text-sm font-semibold text-slate-200">{area.name}</p>
-          <p className="text-[10px] text-slate-500 font-mono">
+          <p className="text-sm font-semibold" style={{ color: "var(--text-primary)" }}>{area.name}</p>
+          <p className="text-[10px] font-mono" style={{ color: "var(--text-muted)" }}>
             {area.code}
             {area.building ? ` · ${area.building}` : ""}
             {area.floor ? ` F${area.floor}` : ""}
@@ -444,10 +445,10 @@ function AreaMapSection({ area }: { area: Area }) {
         {!locations ? (
           Array.from({ length: Math.min(area.location_count || 4, 10) }).map((_, i) => (
             <div key={i} className="h-16 rounded-xl animate-pulse"
-              style={{ background: "rgba(255,255,255,0.03)" }} />
+              style={{ background: "var(--bg-card)" }} />
           ))
         ) : locations.length === 0 ? (
-          <div className="col-span-full flex items-center justify-center py-6 text-xs text-slate-700">
+          <div className="col-span-full flex items-center justify-center py-6 text-xs" style={{ color: "var(--text-muted)" }}>
             No racks — add one above
           </div>
         ) : (

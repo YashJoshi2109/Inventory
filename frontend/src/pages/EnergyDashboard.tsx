@@ -74,7 +74,7 @@ function StatCard({
       style={{
         background: highlight
           ? `linear-gradient(135deg, ${accent}22, ${accent}10)`
-          : "rgba(255,255,255,0.03)",
+          : "var(--bg-card)",
         border: `1px solid ${accent}${highlight ? "40" : "18"}`,
         boxShadow: highlight ? `0 0 28px ${accent}20` : undefined,
       }}
@@ -96,7 +96,7 @@ function StatCard({
       </div>
 
       <div className="flex items-end gap-1">
-        <span className="text-2xl font-black text-white tabular-nums leading-none">
+        <span className="text-2xl font-black tabular-nums leading-none" style={{ color: "var(--text-primary)" }}>
           {value}
         </span>
         {unit && (
@@ -106,8 +106,8 @@ function StatCard({
         )}
       </div>
 
-      <div className="text-[11px] text-slate-400 font-medium">{label}</div>
-      {sub && <div className="text-[11px] text-slate-500">{sub}</div>}
+      <div className="text-[11px] font-medium" style={{ color: "var(--text-secondary)" }}>{label}</div>
+      {sub && <div className="text-[11px]" style={{ color: "var(--text-muted)" }}>{sub}</div>}
     </div>
   );
 }
@@ -143,7 +143,7 @@ function StatusDot({ on, label, color }: { on: boolean; label: string; color: st
       style={
         on
           ? { background: `${color}18`, color, border: `1px solid ${color}40` }
-          : { background: "rgba(255,255,255,0.04)", color: "#475569", border: "1px solid rgba(255,255,255,0.07)" }
+          : { background: "var(--bg-card)", color: "var(--text-muted)", border: "1px solid var(--border-card)" }
       }
     >
       <span className="w-1.5 h-1.5 rounded-full" style={{ background: on ? color : "#475569" }} />
@@ -164,20 +164,20 @@ function CustomTooltip({ active, payload, label }: {
     <div
       className="rounded-2xl p-3 text-xs space-y-1.5 min-w-[160px]"
       style={{
-        background: "rgba(6,8,20,0.95)",
-        border: "1px solid rgba(255,255,255,0.1)",
-        backdropFilter: "blur(12px)",
-        boxShadow: "0 8px 32px rgba(0,0,0,0.6)",
+        background: "var(--bg-topbar)",
+        border: "1px solid var(--border-card)",
+        backdropFilter: "blur(24px) saturate(1.8)",
+        boxShadow: "0 8px 32px rgba(0,0,0,0.3)",
       }}
     >
-      <p className="font-bold text-slate-300 mb-2">{label}</p>
+      <p className="font-bold mb-2" style={{ color: "var(--text-primary)" }}>{label}</p>
       {payload.map((p) => (
         <div key={p.name} className="flex items-center justify-between gap-4">
-          <span className="flex items-center gap-1.5 text-slate-400">
+          <span className="flex items-center gap-1.5" style={{ color: "var(--text-secondary)" }}>
             <span className="w-2 h-2 rounded-full" style={{ background: p.color }} />
             {p.name}
           </span>
-          <span className="font-bold text-white">{Math.round(p.value)} W</span>
+          <span className="font-bold" style={{ color: "var(--text-primary)" }}>{Math.round(p.value)} W</span>
         </div>
       ))}
     </div>
@@ -202,18 +202,18 @@ function ApplianceRow({
   return (
     <div
       className="flex items-center justify-between py-2.5 px-3 rounded-xl"
-      style={{ background: "rgba(255,255,255,0.02)", border: "1px solid rgba(255,255,255,0.04)" }}
+      style={{ background: "var(--bg-card)", border: "1px solid var(--border-card)" }}
     >
       <div className="flex items-center gap-2.5">
         <div
           className="w-7 h-7 rounded-lg flex items-center justify-center shrink-0"
-          style={{ background: "rgba(255,255,255,0.05)" }}
+          style={{ background: "var(--bg-card)" }}
         >
           <Icon size={13} style={{ color: iconColor ?? "#64748b" }} />
         </div>
         <div>
-          <p className="text-xs font-semibold text-white">{label}</p>
-          <p className="text-[10px] text-slate-500">{Math.round(watts)} W</p>
+          <p className="text-xs font-semibold" style={{ color: "var(--text-primary)" }}>{label}</p>
+          <p className="text-[10px]" style={{ color: "var(--text-muted)" }}>{Math.round(watts)} W</p>
         </div>
       </div>
       {status}
@@ -269,8 +269,8 @@ export function EnergyDashboard() {
       <div
         className="sticky top-0 z-10 flex items-center justify-between px-5 py-3.5 mb-5"
         style={{
-          background: "rgba(3,7,18,0.85)",
-          backdropFilter: "blur(16px)",
+          background: "var(--bg-topbar)",
+          backdropFilter: "blur(24px) saturate(1.8)",
           borderBottom: "1px solid rgba(255,230,0,0.1)",
         }}
       >
@@ -282,10 +282,10 @@ export function EnergyDashboard() {
             <Zap size={18} className="text-white" />
           </div>
           <div>
-            <h1 className="text-base font-black text-white tracking-tight">
+            <h1 className="text-base font-black tracking-tight" style={{ color: "var(--text-primary)" }}>
               Eco<span style={{ color: "#fbbf24" }}>Energy</span> Hub
             </h1>
-            <p className="text-[11px] text-slate-500">SEAR Lab · Real-time monitoring</p>
+            <p className="text-[11px]" style={{ color: "var(--text-muted)" }}>SEAR Lab · Real-time monitoring</p>
           </div>
         </div>
 
@@ -305,8 +305,8 @@ export function EnergyDashboard() {
 
           <button
             onClick={() => void refetch()}
-            className="w-8 h-8 rounded-xl flex items-center justify-center text-slate-400 hover:text-white transition-all hover:scale-110"
-            style={{ background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.08)" }}
+            className="w-8 h-8 rounded-xl flex items-center justify-center transition-all hover:scale-110"
+            style={{ background: "var(--bg-card)", border: "1px solid var(--border-card)", color: "var(--text-secondary)" }}
             title="Refresh"
           >
             <RefreshCw size={13} className={isLoading ? "animate-spin" : ""} />
@@ -405,15 +405,15 @@ export function EnergyDashboard() {
           {/* Chart */}
           <div
             className="rounded-2xl p-4"
-            style={{ background: "rgba(255,255,255,0.025)", border: "1px solid rgba(255,255,255,0.07)" }}
+            style={{ background: "var(--bg-card)", border: "1px solid var(--border-card)" }}
           >
             <div className="flex items-center justify-between mb-4">
-              <h2 className="text-sm font-bold text-white flex items-center gap-2">
+              <h2 className="text-sm font-bold flex items-center gap-2" style={{ color: "var(--text-primary)" }}>
                 <Activity size={14} className="text-brand-400" />
                 Energy Trends (24h)
               </h2>
               {/* Legend */}
-              <div className="flex items-center gap-3 text-[11px] text-slate-400">
+              <div className="flex items-center gap-3 text-[11px]" style={{ color: "var(--text-secondary)" }}>
                 {[
                   { label: "Solar", color: "#ffe600" },
                   { label: "HVAC",  color: "#0088ff" },
@@ -491,7 +491,7 @@ export function EnergyDashboard() {
             )}
 
             {!isLoading && chartData.length === 0 && (
-              <div className="h-64 flex items-center justify-center text-slate-600 text-sm">
+              <div className="h-64 flex items-center justify-center text-sm" style={{ color: "var(--text-muted)" }}>
                 No historical data yet
               </div>
             )}
@@ -503,9 +503,9 @@ export function EnergyDashboard() {
             {/* System Insights */}
             <div
               className="rounded-2xl p-4 flex-1"
-              style={{ background: "rgba(255,255,255,0.025)", border: "1px solid rgba(255,255,255,0.07)" }}
+              style={{ background: "var(--bg-card)", border: "1px solid var(--border-card)" }}
             >
-              <h3 className="text-sm font-bold text-white flex items-center gap-2 mb-3">
+              <h3 className="text-sm font-bold flex items-center gap-2 mb-3" style={{ color: "var(--text-primary)" }}>
                 <Brain size={14} className="text-purple-400" />
                 System Insights
               </h3>
@@ -521,10 +521,10 @@ export function EnergyDashboard() {
                     <Zap size={12} className="text-amber-400" />
                   </span>
                   <div>
-                    <p className="text-sm text-white font-semibold">
+                    <p className="text-sm font-semibold" style={{ color: "var(--text-primary)" }}>
                       {latest?.overall_recommendation ?? (isLoading ? "Loading…" : "System Optimal")}
                     </p>
-                    <p className="text-[11px] text-slate-500 mt-1">
+                    <p className="text-[11px] mt-1" style={{ color: "var(--text-muted)" }}>
                       {latest?.recommendation_reason ?? (isLoading ? "" : "Maintaining stable operation")}
                     </p>
                   </div>
@@ -534,14 +534,14 @@ export function EnergyDashboard() {
               {/* Health indicators (HWH) */}
               {latest && (latest.hwh_tank_health != null || latest.hwh_compressor_health != null) && (
                 <div className="mt-3 space-y-2">
-                  <p className="text-[10px] text-slate-500 uppercase tracking-wider font-semibold">Tank Health</p>
+                  <p className="text-[10px] uppercase tracking-wider font-semibold" style={{ color: "var(--text-muted)" }}>Tank Health</p>
                   {latest.hwh_tank_health != null && (
                     <div className="space-y-1">
                       <div className="flex justify-between text-[11px]">
-                        <span className="text-slate-400">Tank</span>
-                        <span className="text-white font-semibold">{fmt(latest.hwh_tank_health, 0)}%</span>
+                        <span style={{ color: "var(--text-secondary)" }}>Tank</span>
+                        <span className="font-semibold" style={{ color: "var(--text-primary)" }}>{fmt(latest.hwh_tank_health, 0)}%</span>
                       </div>
-                      <div className="h-1.5 rounded-full" style={{ background: "rgba(255,255,255,0.08)" }}>
+                      <div className="h-1.5 rounded-full" style={{ background: "var(--border-card)" }}>
                         <div
                           className="h-1.5 rounded-full transition-all"
                           style={{
@@ -555,10 +555,10 @@ export function EnergyDashboard() {
                   {latest.hwh_compressor_health != null && (
                     <div className="space-y-1">
                       <div className="flex justify-between text-[11px]">
-                        <span className="text-slate-400">Compressor</span>
-                        <span className="text-white font-semibold">{fmt(latest.hwh_compressor_health, 0)}%</span>
+                        <span style={{ color: "var(--text-secondary)" }}>Compressor</span>
+                        <span className="font-semibold" style={{ color: "var(--text-primary)" }}>{fmt(latest.hwh_compressor_health, 0)}%</span>
                       </div>
-                      <div className="h-1.5 rounded-full" style={{ background: "rgba(255,255,255,0.08)" }}>
+                      <div className="h-1.5 rounded-full" style={{ background: "var(--border-card)" }}>
                         <div
                           className="h-1.5 rounded-full transition-all"
                           style={{
@@ -576,9 +576,9 @@ export function EnergyDashboard() {
             {/* Appliance Status */}
             <div
               className="rounded-2xl p-4"
-              style={{ background: "rgba(255,255,255,0.025)", border: "1px solid rgba(255,255,255,0.07)" }}
+              style={{ background: "var(--bg-card)", border: "1px solid var(--border-card)" }}
             >
-              <h3 className="text-sm font-bold text-white flex items-center gap-2 mb-3">
+              <h3 className="text-sm font-bold flex items-center gap-2 mb-3" style={{ color: "var(--text-primary)" }}>
                 <Plug size={14} className="text-brand-400" />
                 Appliance Status
               </h3>
@@ -632,18 +632,18 @@ export function EnergyDashboard() {
         {stats && (
           <div
             className="grid grid-cols-3 gap-3 rounded-2xl p-4"
-            style={{ background: "rgba(255,255,255,0.025)", border: "1px solid rgba(255,255,255,0.07)" }}
+            style={{ background: "var(--bg-card)", border: "1px solid var(--border-card)" }}
           >
             <div className="text-center">
-              <p className="text-[10px] text-slate-500 uppercase tracking-wider mb-1">Solar Peak Today</p>
+              <p className="text-[10px] uppercase tracking-wider mb-1" style={{ color: "var(--text-muted)" }}>Solar Peak Today</p>
               <p className="text-lg font-black text-amber-400">{fmt(stats.solar_peak_today)} W</p>
             </div>
-            <div className="text-center" style={{ borderLeft: "1px solid rgba(255,255,255,0.06)", borderRight: "1px solid rgba(255,255,255,0.06)" }}>
-              <p className="text-[10px] text-slate-500 uppercase tracking-wider mb-1">Avg Consumption</p>
+            <div className="text-center" style={{ borderLeft: "1px solid var(--border-card)", borderRight: "1px solid var(--border-card)" }}>
+              <p className="text-[10px] uppercase tracking-wider mb-1" style={{ color: "var(--text-muted)" }}>Avg Consumption</p>
               <p className="text-lg font-black text-blue-400">{fmt(stats.total_consumption_avg)} W</p>
             </div>
             <div className="text-center">
-              <p className="text-[10px] text-slate-500 uppercase tracking-wider mb-1">Energy Status</p>
+              <p className="text-[10px] uppercase tracking-wider mb-1" style={{ color: "var(--text-muted)" }}>Energy Status</p>
               <div className="flex justify-center mt-1">
                 <SurplusBadge status={stats.savings_status} />
               </div>

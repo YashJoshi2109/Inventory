@@ -22,7 +22,7 @@ function applyThemeToDoc(theme: Theme) {
 export const useThemeStore = create<ThemeState>()(
   persist(
     (set, get) => ({
-      theme: "dark",
+      theme: "light",
       toggle: () =>
         set((state) => {
           const next: Theme = state.theme === "dark" ? "light" : "dark";

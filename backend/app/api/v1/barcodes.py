@@ -13,6 +13,7 @@ from app.repositories.location_repo import LocationRepository
 from app.repositories.transaction_repo import StockLevelRepository
 from app.services.barcode_service import (
     generate_label_sheet_pdf,
+    generate_epc_serial,
     render_qr_png,
     render_qr_svg,
 )
@@ -36,7 +37,9 @@ async def item_qr_png(item_id: int, session: DbSession, current_user: CurrentUse
     primary = next((b for b in item.barcodes if b.is_primary), None)
     if primary and primary.qr_image:
         return Response(content=primary.qr_image, media_type="image/png")
-    png_bytes = render_qr_png(item.sku)
+    # Fallback: generate QR from EPC serial (or barcode_value, or EPC from item_id)
+    barcode_value = (primary.barcode_value if primary else None) or generate_epc_serial(item.id)
+    png_bytes = render_qr_png(barcode_value)
     return Response(content=png_bytes, media_type="image/png")
 
 
@@ -108,10 +111,16 @@ async def location_qr_svg(location_id: int, session: DbSession, current_user: Cu
 def _item_to_label(item) -> dict:
     """Build a label dict from an Item ORM instance with loaded barcodes + category."""
     primary = next((b for b in item.barcodes if b.is_primary), None)
+    # Use stored EPC barcode_value; fall back to generating one from item_id
+    barcode_value = (
+        primary.barcode_value
+        if primary and primary.barcode_value
+        else generate_epc_serial(item.id)
+    )
     return {
-        "title": item.name[:30],
-        "barcode_value": primary.barcode_value if primary else item.sku,
-        "subtitle": f"{item.sku} | {item.category.name if item.category else ''}",
+        "title": item.name,
+        "sku": item.sku,
+        "barcode_value": barcode_value,
         "qr_blob": primary.qr_image if primary else None,
     }
 

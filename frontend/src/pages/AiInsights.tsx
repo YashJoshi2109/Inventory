@@ -35,19 +35,19 @@ export function AiInsights() {
           <BrainCircuit size={20} className="text-purple-400" />
         </div>
         <div>
-          <h2 className="text-lg font-semibold text-slate-100">AI Insights</h2>
-          <p className="text-xs text-slate-500">Intelligent search & demand forecasting</p>
+          <h2 className="text-lg font-semibold" style={{ color: "var(--text-primary)" }}>AI Insights</h2>
+          <p className="text-xs" style={{ color: "var(--text-muted)" }}>Intelligent search & demand forecasting</p>
         </div>
       </div>
 
       {/* NLP Search */}
       <Card>
         <CardHeader>
-          <h3 className="text-sm font-semibold text-slate-200 flex items-center gap-2">
+          <h3 className="text-sm font-semibold flex items-center gap-2" style={{ color: "var(--text-primary)" }}>
             <Search size={15} className="text-purple-400" />
             Natural Language Search
           </h3>
-          <p className="text-xs text-slate-500 mt-0.5">
+          <p className="text-xs mt-0.5" style={{ color: "var(--text-muted)" }}>
             Ask in plain English: "ethanol for cell culture", "PCR tubes", "low reorder reagents"
           </p>
         </CardHeader>
@@ -69,7 +69,7 @@ export function AiInsights() {
 
           {searchResults && searchResults.hits.length > 0 && (
             <div className="mt-4 space-y-2">
-              <p className="text-xs text-slate-500">{searchResults.total} matches</p>
+              <p className="text-xs" style={{ color: "var(--text-muted)" }}>{searchResults.total} matches</p>
               {(searchResults.hits as Array<{
                 id: number; sku: string; name: string; category: string | null;
                 total_quantity: number; unit: string; score: number;
@@ -84,11 +84,11 @@ export function AiInsights() {
                       <span className="font-mono text-xs text-brand-400">{hit.sku}</span>
                       {hit.category && <Badge variant="default" className="text-xs">{hit.category}</Badge>}
                     </div>
-                    <p className="text-sm text-slate-200">{hit.name}</p>
-                    <p className="text-xs text-slate-500">{hit.total_quantity} {hit.unit} on hand</p>
+                    <p className="text-sm" style={{ color: "var(--text-primary)" }}>{hit.name}</p>
+                    <p className="text-xs" style={{ color: "var(--text-muted)" }}>{hit.total_quantity} {hit.unit} on hand</p>
                   </div>
                   <div className="text-right">
-                    <div className="text-xs text-slate-400">Relevance</div>
+                    <div className="text-xs" style={{ color: "var(--text-secondary)" }}>Relevance</div>
                     <div className="text-sm font-medium text-purple-400">{(hit.score * 100).toFixed(0)}%</div>
                   </div>
                 </div>
@@ -106,7 +106,7 @@ export function AiInsights() {
       {forecastItemId && (
         <Card>
           <CardHeader>
-            <h3 className="text-sm font-semibold text-slate-200 flex items-center gap-2">
+            <h3 className="text-sm font-semibold flex items-center gap-2" style={{ color: "var(--text-primary)" }}>
               <TrendingDown size={15} className="text-blue-400" />
               Demand Forecast
             </h3>
@@ -129,8 +129,8 @@ export function AiInsights() {
               <div className="space-y-4">
                 <div className="flex items-center justify-between">
                   <div>
-                    <p className="text-sm font-semibold text-slate-200">{forecast.item_name}</p>
-                    <p className="text-xs text-slate-500 font-mono">{forecast.item_sku}</p>
+                    <p className="text-sm font-semibold" style={{ color: "var(--text-primary)" }}>{forecast.item_name}</p>
+                    <p className="text-xs font-mono" style={{ color: "var(--text-muted)" }}>{forecast.item_sku}</p>
                   </div>
                   <Badge variant="purple">
                     <Zap size={11} className="mr-1" />
@@ -146,8 +146,8 @@ export function AiInsights() {
                     { label: "Avg Daily Use", value: forecast.avg_daily_consumption.toFixed(2), suffix: "/day" },
                   ].map(({ label, value, suffix }) => (
                     <div key={label} className="bg-surface rounded-xl p-3">
-                      <p className="text-xs text-slate-500">{label}</p>
-                      <p className="text-lg font-bold text-white mt-0.5">{value} <span className="text-xs font-normal text-slate-400">{suffix}</span></p>
+                      <p className="text-xs" style={{ color: "var(--text-muted)" }}>{label}</p>
+                      <p className="text-lg font-bold mt-0.5" style={{ color: "var(--text-primary)" }}>{value} <span className="text-xs font-normal" style={{ color: "var(--text-secondary)" }}>{suffix}</span></p>
                     </div>
                   ))}
                 </div>
@@ -162,7 +162,7 @@ export function AiInsights() {
                   </div>
                 )}
 
-                <div className="flex items-center justify-between text-xs text-slate-500">
+                <div className="flex items-center justify-between text-xs" style={{ color: "var(--text-muted)" }}>
                   <span>Confidence: {(forecast.confidence * 100).toFixed(0)}%</span>
                   <div className="flex-1 mx-3 h-1.5 bg-surface rounded-full overflow-hidden">
                     <div
