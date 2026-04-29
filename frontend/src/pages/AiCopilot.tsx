@@ -620,7 +620,7 @@ export function AiCopilot() {
 
   const quotaAnchorRef = useRef<HTMLDivElement>(null);
   const [quotaCardOpen, setQuotaCardOpen] = useState(false);
-  const [quotaCardPos, setQuotaCardPos] = useState<{ top: number; left: number } | null>(null);
+  const [quotaCardPos, setQuotaCardPos] = useState<{ top: number; left: number; width: number } | null>(null);
 
   // Derived state that mirrors the ref (for rendering)
   const [activeSessionId, _setActiveSessionId] = useState<number | null>(null);
@@ -641,10 +641,10 @@ export function AiCopilot() {
     if (!el) return;
 
     const rect = el.getBoundingClientRect();
-    const width = 300; // card width
-    const left = Math.max(12, Math.min(window.innerWidth - width - 12, rect.right - width));
+    const cardWidth = Math.min(300, window.innerWidth - 24);
+    const left = Math.max(12, Math.min(window.innerWidth - cardWidth - 12, rect.right - cardWidth));
     const top = rect.bottom + 10;
-    setQuotaCardPos({ top, left });
+    setQuotaCardPos({ top, left, width: cardWidth });
     setQuotaCardOpen(true);
     if (forceRefetch) {
       // Fetch fresh quota only on click to avoid excessive network calls on hover.
@@ -1071,59 +1071,89 @@ export function AiCopilot() {
                       position: "fixed",
                       top: quotaCardPos.top,
                       left: quotaCardPos.left,
-                      width: 300,
+                      width: quotaCardPos.width,
+                      maxWidth: "calc(100vw - 24px)",
                       zIndex: 60,
                       background: "var(--bg-topbar)",
                       border: "1px solid var(--border-card)",
                       boxShadow: "0 18px 60px rgba(0,0,0,0.25)",
                       backdropFilter: "blur(24px) saturate(1.8)",
                       borderRadius: 16,
+                      overflow: "hidden",
                     }}
                   >
-                    <div style={{ padding: "14px 14px 10px 14px", borderBottom: "1px solid var(--border-card)" }}>
+                    {/* Header */}
+                    <div style={{ padding: "12px 14px 10px", borderBottom: "1px solid var(--border-card)" }}>
                       <div className="flex items-center gap-2">
-                        <Bot size={14} className="text-brand-400" />
-                        <div className="text-sm font-semibold" style={{ color: "var(--text-primary)" }}>
-                          AI Copilot quota
-                        </div>
-                        <div className="ml-auto text-[10px] font-semibold" style={{ color: "#22d3ee" }}>
-                          live
-                        </div>
+                        <Bot size={13} style={{ color: "#22d3ee", flexShrink: 0 }} />
+                        <span className="text-sm font-semibold" style={{ color: "var(--text-primary)" }}>
+                          AI Copilot Quota
+                        </span>
+                        <span
+                          className="ml-auto text-[9px] font-bold px-1.5 py-0.5 rounded-full"
+                          style={{ background: "rgba(34,211,238,0.12)", color: "#22d3ee", border: "1px solid rgba(34,211,238,0.25)" }}
+                        >
+                          LIVE
+                        </span>
                       </div>
-
-                      <div className="mt-2 text-[11px]" style={{ color: "var(--text-secondary)" }}>
+                      <div className="mt-1 text-[11px]" style={{ color: "var(--text-secondary)" }}>
                         Model:{" "}
-                        <span className="font-semibold" style={{ color: "var(--text-primary)" }}>{chatRateLimit.model ?? "Gemini"}</span>
+                        <span className="font-semibold" style={{ color: "var(--text-primary)" }}>
+                          {chatRateLimit.model ?? "Gemini"}
+                        </span>
                       </div>
                     </div>
 
-                    <div style={{ padding: 14, display: "flex", flexDirection: "column", gap: 10 }}>
-                      <div className="text-[12px]" style={{ color: "var(--text-secondary)" }}>
-                        Remaining: <span style={{ color: "#22d3ee", fontWeight: 700 }}>{chatRateLimit.remaining}</span> / {chatRateLimit.limit} per 60s
+                    {/* Body */}
+                    <div style={{ padding: "12px 14px 14px", display: "flex", flexDirection: "column", gap: 10 }}>
+                      {/* Remaining + progress */}
+                      <div>
+                        <div className="flex items-center justify-between mb-1.5">
+                          <span className="text-[11px]" style={{ color: "var(--text-secondary)" }}>Remaining</span>
+                          <span className="text-[11px] font-bold" style={{ color: "#22d3ee" }}>
+                            {chatRateLimit.remaining}
+                            <span className="font-normal" style={{ color: "var(--text-muted)" }}>
+                              {" "}/ {chatRateLimit.limit} per 60s
+                            </span>
+                          </span>
+                        </div>
+                        <div style={{ height: 7, background: "rgba(34,211,238,0.10)", borderRadius: 999, overflow: "hidden", border: "1px solid rgba(34,211,238,0.15)" }}>
+                          <div
+                            style={{
+                              width: `${Math.round((chatRateLimit.remaining / Math.max(1, chatRateLimit.limit)) * 100)}%`,
+                              height: "100%",
+                              background: chatRateLimit.remaining > chatRateLimit.limit * 0.3
+                                ? "linear-gradient(90deg,#0891b2,#22d3ee)"
+                                : "linear-gradient(90deg,#b45309,#f59e0b)",
+                              transition: "width 0.4s ease",
+                            }}
+                          />
+                        </div>
                       </div>
 
-                      <div style={{ height: 8, background: "rgba(34,211,238,0.12)", borderRadius: 999, overflow: "hidden", border: "1px solid rgba(34,211,238,0.18)" }}>
-                        <div
-                          style={{
-                            width: `${Math.round((chatRateLimit.used / Math.max(1, chatRateLimit.limit)) * 100)}%`,
-                            height: "100%",
-                            background: "linear-gradient(90deg,#0891b2,#22d3ee)",
-                          }}
-                        />
+                      {/* Stats row */}
+                      <div className="flex items-center justify-between">
+                        <div className="text-center" style={{ flex: 1 }}>
+                          <p className="text-base font-bold" style={{ color: "var(--text-primary)" }}>{chatRateLimit.used}</p>
+                          <p className="text-[10px]" style={{ color: "var(--text-muted)" }}>Used</p>
+                        </div>
+                        <div style={{ width: 1, height: 32, background: "var(--border-subtle)" }} />
+                        <div className="text-center" style={{ flex: 1 }}>
+                          <p className="text-base font-bold" style={{ color: chatRateLimit.retry_after_seconds > 0 ? "#f59e0b" : "#22d3ee" }}>
+                            {chatRateLimit.retry_after_seconds > 0 ? `${chatRateLimit.retry_after_seconds}s` : "now"}
+                          </p>
+                          <p className="text-[10px]" style={{ color: "var(--text-muted)" }}>Reset in</p>
+                        </div>
+                        <div style={{ width: 1, height: 32, background: "var(--border-subtle)" }} />
+                        <div className="text-center" style={{ flex: 1 }}>
+                          <p className="text-base font-bold" style={{ color: "var(--text-primary)" }}>{chatRateLimit.limit}</p>
+                          <p className="text-[10px]" style={{ color: "var(--text-muted)" }}>Limit/min</p>
+                        </div>
                       </div>
 
-                      <div className="text-[11px]" style={{ color: "var(--text-secondary)" }}>
-                        Used: <span style={{ color: "var(--text-primary)", fontWeight: 700 }}>{chatRateLimit.used}</span>
-                        {" · "}
-                        Next reset:{" "}
-                        <span style={{ color: "var(--text-primary)", fontWeight: 700 }}>
-                          {chatRateLimit.retry_after_seconds > 0 ? `${chatRateLimit.retry_after_seconds}s` : "now"}
-                        </span>
-                      </div>
-
-                      <div className="text-[10px]" style={{ color: "#64748b" }}>
-                        Quota is enforced per IP to keep the copilot responsive under load.
-                      </div>
+                      <p className="text-[10px] leading-snug" style={{ color: "var(--text-muted)", borderTop: "1px solid var(--border-subtle)", paddingTop: 8 }}>
+                        Enforced per IP to keep the copilot responsive under load.
+                      </p>
                     </div>
                   </div>
                 )}
