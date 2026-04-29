@@ -5,7 +5,7 @@ import toast from "react-hot-toast";
 import {
   FileSpreadsheet, CheckCircle2, XCircle, Clock, AlertTriangle,
   Upload, Download, ChevronDown, ChevronUp, RefreshCw, Eye, Edit3,
-  Table, ArrowLeft, Send, Plus, Trash2,
+  Table, ArrowLeft, Send, Plus, Trash2, ShieldCheck, Info, X,
 } from "lucide-react";
 import { Card, CardContent, CardHeader } from "@/components/ui/Card";
 import { Badge } from "@/components/ui/Badge";
@@ -60,6 +60,219 @@ function serializeCSV(rows: string[][]): string {
   ).join("\n");
 }
 
+// ── Column schema ─────────────────────────────────────────────────────────────
+
+const REQUIRED_COLUMNS = ["SKU", "Description"] as const;
+const OPTIONAL_COLUMNS = ["Category", "Unit Cost", "Reorder Level", "Lead Time (days)", "Loc1 Bin", "Loc2 Bin", "Loc3 Bin", "Barcode Text (SKU)"] as const;
+const ALL_EXPECTED_COLUMNS = [...REQUIRED_COLUMNS, ...OPTIONAL_COLUMNS];
+
+interface ValidationResult {
+  valid: boolean;
+  missingRequired: string[];
+  missingOptional: string[];
+  sanitizedCount: number;       // cells auto-filled with N/A
+  emptySkuRows: number[];       // 1-based data row numbers with empty SKU
+  dupSkus: string[];            // SKU values that appear more than once
+  totalRows: number;
+}
+
+/** Normalise a header string for comparison (trim + lowercase) */
+const normHeader = (s: string) => s.trim().toLowerCase();
+
+function validateHeaders(headers: string[]): { missingRequired: string[]; missingOptional: string[] } {
+  const normHeaders = headers.map(normHeader);
+  const missingRequired = REQUIRED_COLUMNS.filter(
+    col => !normHeaders.includes(normHeader(col))
+  );
+  const missingOptional = OPTIONAL_COLUMNS.filter(
+    col => !normHeaders.includes(normHeader(col))
+  );
+  return { missingRequired, missingOptional };
+}
+
+/**
+ * Sanitize rows in-place:
+ * - Trim whitespace
+ * - Replace blank / whitespace-only cells with "N/A"
+ * Returns count of cells that were filled with N/A.
+ */
+function sanitizeRows(rows: string[][]): number {
+  let count = 0;
+  // rows[0] is the header row — don't sanitize it
+  for (let ri = 1; ri < rows.length; ri++) {
+    for (let ci = 0; ci < rows[ri].length; ci++) {
+      const trimmed = (rows[ri][ci] ?? "").trim();
+      if (trimmed === "" || trimmed === "-" || trimmed === "N/a" || trimmed === "n/a") {
+        rows[ri][ci] = "N/A";
+        count++;
+      } else {
+        rows[ri][ci] = trimmed;
+      }
+    }
+  }
+  return count;
+}
+
+function validateRows(rows: string[][]): Pick<ValidationResult, "emptySkuRows" | "dupSkus"> {
+  if (rows.length < 2) return { emptySkuRows: [], dupSkus: [] };
+  const headers = rows[0].map(normHeader);
+  const skuIdx = headers.indexOf(normHeader("SKU"));
+  if (skuIdx === -1) return { emptySkuRows: [], dupSkus: [] };
+
+  const emptySkuRows: number[] = [];
+  const seen = new Map<string, number>();
+  const dupSkus: string[] = [];
+
+  for (let ri = 1; ri < rows.length; ri++) {
+    const sku = (rows[ri][skuIdx] ?? "").trim();
+    if (!sku || sku === "N/A") {
+      emptySkuRows.push(ri); // 1-based data row = ri
+    } else {
+      const prev = seen.get(sku.toUpperCase());
+      if (prev !== undefined) {
+        if (!dupSkus.includes(sku)) dupSkus.push(sku);
+      }
+      seen.set(sku.toUpperCase(), ri);
+    }
+  }
+  return { emptySkuRows, dupSkus };
+}
+
+// ── Confirmation modal ────────────────────────────────────────────────────────
+
+function ConfirmImportModal({
+  validation,
+  filename,
+  onConfirm,
+  onCancel,
+  loading,
+}: {
+  validation: ValidationResult;
+  filename: string;
+  onConfirm: () => void;
+  onCancel: () => void;
+  loading: boolean;
+}) {
+  const dataRows = validation.totalRows;
+  const hasIssues = validation.sanitizedCount > 0 || validation.emptySkuRows.length > 0 || validation.dupSkus.length > 0;
+  const isBlocked = validation.emptySkuRows.length > 0;
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4"
+      style={{ background: "rgba(0,0,0,0.5)", backdropFilter: "blur(4px)" }}>
+      <div className="w-full max-w-md rounded-2xl overflow-hidden"
+        style={{ background: "var(--bg-card-solid)", border: "1px solid var(--border-card)", boxShadow: "0 24px 64px rgba(0,0,0,0.3)" }}>
+
+        {/* Header */}
+        <div className="flex items-center justify-between px-5 py-4"
+          style={{ borderBottom: "1px solid var(--border-card)" }}>
+          <div className="flex items-center gap-2.5">
+            <ShieldCheck size={18} style={{ color: "var(--accent-success)" }} />
+            <h2 className="text-base font-bold" style={{ color: "var(--text-primary)" }}>
+              Confirm Import
+            </h2>
+          </div>
+          <button onClick={onCancel} className="p-1.5 rounded-lg transition-colors"
+            style={{ color: "var(--text-muted)" }}
+            onMouseEnter={e => (e.currentTarget.style.background = "var(--bg-hover)")}
+            onMouseLeave={e => (e.currentTarget.style.background = "transparent")}>
+            <X size={16} />
+          </button>
+        </div>
+
+        {/* Body */}
+        <div className="px-5 py-4 space-y-3">
+          {/* Summary */}
+          <div className="rounded-xl p-3 space-y-2"
+            style={{ background: "var(--bg-card)", border: "1px solid var(--border-card)" }}>
+            <p className="text-xs font-semibold uppercase tracking-wide" style={{ color: "var(--text-muted)" }}>
+              Import Summary
+            </p>
+            <div className="space-y-1.5">
+              {[
+                { label: "File", value: filename, color: "var(--text-primary)" },
+                { label: "Data rows", value: dataRows, color: "var(--accent)" },
+                { label: "Sanitized cells (→ N/A)", value: validation.sanitizedCount, color: validation.sanitizedCount > 0 ? "var(--accent-warning)" : "var(--accent-success)" },
+              ].map(({ label, value, color }) => (
+                <div key={label} className="flex items-center justify-between text-xs">
+                  <span style={{ color: "var(--text-secondary)" }}>{label}</span>
+                  <span className="font-bold" style={{ color }}>{value}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* Warnings / Issues */}
+          {hasIssues && (
+            <div className="space-y-2">
+              {validation.sanitizedCount > 0 && (
+                <div className="flex items-start gap-2 rounded-xl px-3 py-2.5 text-xs"
+                  style={{ background: "rgba(var(--accent-warning-rgb), 0.08)", border: "1px solid rgba(var(--accent-warning-rgb), 0.25)" }}>
+                  <Info size={13} className="shrink-0 mt-0.5" style={{ color: "var(--accent-warning)" }} />
+                  <span style={{ color: "var(--text-secondary)" }}>
+                    <strong style={{ color: "var(--accent-warning)" }}>{validation.sanitizedCount} empty cell{validation.sanitizedCount !== 1 ? "s" : ""}</strong> were auto-filled with <code style={{ color: "var(--accent)" }}>N/A</code> before upload.
+                  </span>
+                </div>
+              )}
+              {validation.dupSkus.length > 0 && (
+                <div className="flex items-start gap-2 rounded-xl px-3 py-2.5 text-xs"
+                  style={{ background: "rgba(var(--accent-warning-rgb), 0.08)", border: "1px solid rgba(var(--accent-warning-rgb), 0.25)" }}>
+                  <AlertTriangle size={13} className="shrink-0 mt-0.5" style={{ color: "var(--accent-warning)" }} />
+                  <span style={{ color: "var(--text-secondary)" }}>
+                    <strong style={{ color: "var(--accent-warning)" }}>Duplicate SKUs:</strong>{" "}
+                    {validation.dupSkus.slice(0, 5).join(", ")}
+                    {validation.dupSkus.length > 5 && ` + ${validation.dupSkus.length - 5} more`}.
+                    {" "}Last occurrence will win.
+                  </span>
+                </div>
+              )}
+              {isBlocked && (
+                <div className="flex items-start gap-2 rounded-xl px-3 py-2.5 text-xs"
+                  style={{ background: "rgba(var(--accent-danger-rgb), 0.08)", border: "1px solid rgba(var(--accent-danger-rgb), 0.28)" }}>
+                  <XCircle size={13} className="shrink-0 mt-0.5" style={{ color: "var(--accent-danger)" }} />
+                  <span style={{ color: "var(--text-secondary)" }}>
+                    <strong style={{ color: "var(--accent-danger)" }}>{validation.emptySkuRows.length} row{validation.emptySkuRows.length !== 1 ? "s" : ""}</strong> still have no SKU (shown with red border in preview). Fix or delete them before importing.
+                  </span>
+                </div>
+              )}
+            </div>
+          )}
+
+          {!hasIssues && (
+            <div className="flex items-center gap-2 rounded-xl px-3 py-2.5 text-xs"
+              style={{ background: "rgba(var(--accent-success-rgb), 0.08)", border: "1px solid rgba(var(--accent-success-rgb), 0.22)" }}>
+              <CheckCircle2 size={13} style={{ color: "var(--accent-success)" }} />
+              <span style={{ color: "var(--text-secondary)" }}>All rows look good — no issues found.</span>
+            </div>
+          )}
+
+          <p className="text-xs" style={{ color: "var(--text-muted)" }}>
+            Duplicate SKUs will <strong>update</strong> existing items. New SKUs will be created. This action cannot be undone.
+          </p>
+        </div>
+
+        {/* Actions */}
+        <div className="flex items-center gap-2.5 px-5 py-4"
+          style={{ borderTop: "1px solid var(--border-card)" }}>
+          <Button variant="secondary" size="sm" onClick={onCancel} className="flex-1">
+            Cancel
+          </Button>
+          <Button
+            variant="primary"
+            size="sm"
+            className="flex-1"
+            leftIcon={loading ? <RefreshCw size={13} className="animate-spin" /> : <Send size={13} />}
+            onClick={onConfirm}
+            disabled={loading || isBlocked}
+          >
+            {loading ? "Importing…" : isBlocked ? "Fix Issues First" : `Import ${dataRows} Rows`}
+          </Button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ── Template CSV ─────────────────────────────────────────────────────────────
 const TEMPLATE_ITEMS_CSV = `SKU,Description,Category,Unit Cost,Reorder Level,Lead Time (days),Loc1 Bin,Loc2 Bin,Loc3 Bin,Barcode Text (SKU)
 CHEM-001,Sodium Chloride 500g,Chemicals,12.50,5,7,SHELF-A1,,,CHEM-001
@@ -83,6 +296,8 @@ export function Import() {
   const [dragging, setDragging] = useState(false);
   const [preview, setPreview] = useState<{ filename: string; rows: string[][] } | null>(null);
   const [editedRows, setEditedRows] = useState<string[][]>([]);
+  const [validation, setValidation] = useState<ValidationResult | null>(null);
+  const [showConfirm, setShowConfirm] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
   const queryClient = useQueryClient();
 
@@ -122,15 +337,50 @@ export function Import() {
       toast.error("Only .xlsx, .xls, and .csv files are supported");
       return;
     }
-    // CSV → parse and show preview
+    // CSV → parse, validate, sanitize, then show preview
     if (file.name.toLowerCase().endsWith(".csv")) {
       const reader = new FileReader();
       reader.onload = (e) => {
         const text = e.target?.result as string;
-        const rows = parseCSV(text);
-        if (rows.length === 0) { toast.error("CSV file is empty"); return; }
-        setPreview({ filename: file.name, rows: rows.slice(0, MAX_PREVIEW_ROWS + 1) });
-        setEditedRows(rows.slice(0, MAX_PREVIEW_ROWS + 1).map(r => [...r]));
+        const allRows = parseCSV(text);
+        if (allRows.length === 0) { toast.error("CSV file is empty"); return; }
+
+        const rows = allRows.slice(0, MAX_PREVIEW_ROWS + 1).map(r => [...r]);
+        const headers = rows[0] ?? [];
+
+        // 1. Validate column headers
+        const { missingRequired, missingOptional } = validateHeaders(headers);
+        if (missingRequired.length > 0) {
+          toast.error(`Missing required columns: ${missingRequired.join(", ")}. Download the template for the correct format.`, { duration: 7000 });
+          return;
+        }
+
+        // 2. Sanitize: fill empty cells with N/A (mutates rows)
+        const sanitizedCount = sanitizeRows(rows);
+
+        // 3. Validate row data
+        const { emptySkuRows, dupSkus } = validateRows(rows);
+
+        const vr: ValidationResult = {
+          valid: missingRequired.length === 0 && emptySkuRows.length === 0,
+          missingRequired,
+          missingOptional,
+          sanitizedCount,
+          emptySkuRows,
+          dupSkus,
+          totalRows: rows.length - 1, // exclude header
+        };
+
+        setValidation(vr);
+        setPreview({ filename: file.name, rows });
+        setEditedRows(rows);
+
+        if (missingOptional.length > 0) {
+          toast(`Missing optional columns: ${missingOptional.slice(0,3).join(", ")}${missingOptional.length > 3 ? "…" : ""}. Defaults will be used.`, { icon: "ℹ️", duration: 5000 });
+        }
+        if (sanitizedCount > 0) {
+          toast(`${sanitizedCount} empty cell${sanitizedCount !== 1 ? "s" : ""} auto-filled with N/A.`, { icon: "🔧", duration: 4000 });
+        }
       };
       reader.readAsText(file);
     } else {
@@ -147,17 +397,44 @@ export function Import() {
 
   const hasProcessing = jobs?.some((j) => j.status === "processing" || j.status === "pending");
 
-  const confirmImport = () => {
+  /** Re-validate edited rows (called when user clicks Import button) */
+  const requestImport = () => {
+    if (!preview || !editedRows.length) return;
+
+    // Re-run sanitize + validate on current edited state
+    const rows = editedRows.map(r => [...r]);
+    const sanitizedCount = sanitizeRows(rows);
+    const { emptySkuRows, dupSkus } = validateRows(rows);
+    const { missingRequired, missingOptional } = validateHeaders(rows[0] ?? []);
+
+    const vr: ValidationResult = {
+      valid: missingRequired.length === 0 && emptySkuRows.length === 0,
+      missingRequired,
+      missingOptional,
+      sanitizedCount,
+      emptySkuRows,
+      dupSkus,
+      totalRows: rows.length - 1,
+    };
+    setEditedRows(rows); // update with re-sanitized values
+    setValidation(vr);
+    setShowConfirm(true);
+  };
+
+  const doUpload = () => {
     if (!preview || !editedRows.length) return;
     const csvText = serializeCSV(editedRows);
     const blob = new Blob([csvText], { type: "text/csv" });
     const file = new File([blob], preview.filename, { type: "text/csv" });
     uploadMutation.mutate(file);
+    setShowConfirm(false);
   };
 
   const cancelPreview = () => {
     setPreview(null);
     setEditedRows([]);
+    setValidation(null);
+    setShowConfirm(false);
     if (fileRef.current) fileRef.current.value = "";
   };
 
@@ -185,11 +462,26 @@ export function Import() {
     const headers = editedRows[0] ?? [];
     const dataRows = editedRows.slice(1);
     const isTruncated = preview.rows.length > MAX_PREVIEW_ROWS;
+    const skuColIdx = headers.map(h => h.trim().toLowerCase()).indexOf("sku");
+    const emptySkuSet = new Set(validation?.emptySkuRows ?? []);
+    const hasBlockers = (validation?.emptySkuRows.length ?? 0) > 0;
 
     return (
       <div className="p-4 lg:p-6 pb-24 lg:pb-6 space-y-4 animate-fade-in">
+
+        {/* Confirmation modal */}
+        {showConfirm && validation && (
+          <ConfirmImportModal
+            validation={validation}
+            filename={preview.filename}
+            onConfirm={doUpload}
+            onCancel={() => setShowConfirm(false)}
+            loading={uploadMutation.isPending}
+          />
+        )}
+
         {/* Header */}
-        <div className="flex items-center justify-between gap-3">
+        <div className="flex items-center justify-between gap-3 flex-wrap gap-y-2">
           <div className="flex items-center gap-3">
             <button
               onClick={cancelPreview}
@@ -216,20 +508,76 @@ export function Import() {
             <Button
               variant="primary"
               size="sm"
-              leftIcon={uploadMutation.isPending ? <RefreshCw size={13} className="animate-spin" /> : <Send size={13} />}
-              onClick={confirmImport}
+              leftIcon={<ShieldCheck size={13} />}
+              onClick={requestImport}
               disabled={uploadMutation.isPending}
             >
-              {uploadMutation.isPending ? "Importing…" : "Import"}
+              Review &amp; Import
             </Button>
           </div>
         </div>
 
-        {/* Tip */}
+        {/* Validation banner */}
+        {validation && (
+          <div className="space-y-2">
+            {/* All-clear */}
+            {!hasBlockers && validation.sanitizedCount === 0 && validation.dupSkus.length === 0 && (
+              <div className="flex items-center gap-2 rounded-xl px-3 py-2.5 text-xs"
+                style={{ background: "rgba(var(--accent-success-rgb), 0.08)", border: "1px solid rgba(var(--accent-success-rgb), 0.22)" }}>
+                <CheckCircle2 size={13} style={{ color: "var(--accent-success)" }} />
+                <span style={{ color: "var(--text-secondary)" }}>
+                  All <strong>{dataRows.length}</strong> rows validated — no issues found. Ready to import.
+                </span>
+              </div>
+            )}
+            {/* Sanitized */}
+            {validation.sanitizedCount > 0 && (
+              <div className="flex items-center gap-2 rounded-xl px-3 py-2.5 text-xs"
+                style={{ background: "rgba(var(--accent-warning-rgb), 0.08)", border: "1px solid rgba(var(--accent-warning-rgb), 0.22)" }}>
+                <Info size={13} className="shrink-0" style={{ color: "var(--accent-warning)" }} />
+                <span style={{ color: "var(--text-secondary)" }}>
+                  <strong style={{ color: "var(--accent-warning)" }}>{validation.sanitizedCount} empty cell{validation.sanitizedCount !== 1 ? "s" : ""}</strong> auto-filled with <code style={{ color: "var(--accent)" }}>N/A</code>. Review and edit if needed.
+                </span>
+              </div>
+            )}
+            {/* Dup SKUs */}
+            {validation.dupSkus.length > 0 && (
+              <div className="flex items-center gap-2 rounded-xl px-3 py-2.5 text-xs"
+                style={{ background: "rgba(var(--accent-warning-rgb), 0.08)", border: "1px solid rgba(var(--accent-warning-rgb), 0.22)" }}>
+                <AlertTriangle size={13} className="shrink-0" style={{ color: "var(--accent-warning)" }} />
+                <span style={{ color: "var(--text-secondary)" }}>
+                  Duplicate SKUs detected: <strong style={{ color: "var(--accent-warning)" }}>{validation.dupSkus.slice(0,4).join(", ")}{validation.dupSkus.length > 4 ? "…" : ""}</strong> — last row wins on import.
+                </span>
+              </div>
+            )}
+            {/* Empty SKU rows — blocker */}
+            {hasBlockers && (
+              <div className="flex items-center gap-2 rounded-xl px-3 py-2.5 text-xs"
+                style={{ background: "rgba(var(--accent-danger-rgb), 0.08)", border: "1px solid rgba(var(--accent-danger-rgb), 0.28)" }}>
+                <XCircle size={13} className="shrink-0" style={{ color: "var(--accent-danger)" }} />
+                <span style={{ color: "var(--text-secondary)" }}>
+                  <strong style={{ color: "var(--accent-danger)" }}>{validation.emptySkuRows.length} row{validation.emptySkuRows.length !== 1 ? "s" : ""} missing SKU</strong> (highlighted in red). Add a SKU or delete the row before importing.
+                </span>
+              </div>
+            )}
+            {/* Missing optional columns */}
+            {validation.missingOptional.length > 0 && (
+              <div className="flex items-center gap-2 rounded-xl px-3 py-2.5 text-xs"
+                style={{ background: "rgba(var(--accent-rgb), 0.05)", border: "1px solid rgba(var(--accent-rgb), 0.15)" }}>
+                <Info size={13} className="shrink-0" style={{ color: "var(--accent)" }} />
+                <span style={{ color: "var(--text-secondary)" }}>
+                  Optional columns not found: <span style={{ color: "var(--accent)" }}>{validation.missingOptional.join(", ")}</span> — defaults will be used.
+                </span>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Edit tip */}
         <div className="flex items-start gap-2 rounded-xl px-3 py-2.5 text-xs"
           style={{ background: "rgba(var(--accent-rgb), 0.06)", border: "1px solid rgba(var(--accent-rgb), 0.18)", color: "var(--text-secondary)" }}>
           <Edit3 size={13} className="shrink-0 mt-0.5" style={{ color: "var(--accent)" }} />
-          Click any cell to edit. Changes stay in preview until you click Import. Rows marked with × will be removed.
+          Click any cell to edit. Red rows have no SKU and must be fixed or removed. Click Review &amp; Import when ready.
         </div>
 
         {/* Table */}
@@ -239,67 +587,87 @@ export function Import() {
               <thead style={{ position: "sticky", top: 0, zIndex: 2 }}>
                 <tr style={{ background: "var(--bg-card)", borderBottom: "2px solid var(--border-card)" }}>
                   <th className="px-2 py-2 text-center w-8" style={{ color: "var(--text-muted)" }}>#</th>
-                  {headers.map((h, ci) => (
-                    <th key={ci} className="px-3 py-2 text-left font-semibold whitespace-nowrap"
-                      style={{ color: "var(--accent)", minWidth: 120 }}>
-                      <input
-                        value={h}
-                        onChange={(e) => updateCell(0, ci, e.target.value)}
-                        className="w-full bg-transparent outline-none font-semibold"
-                        style={{ color: "var(--accent)" }}
-                      />
-                    </th>
-                  ))}
+                  {headers.map((h, ci) => {
+                    const isRequired = REQUIRED_COLUMNS.map(c => c.toLowerCase()).includes(h.trim().toLowerCase());
+                    return (
+                      <th key={ci} className="px-3 py-2 text-left font-semibold whitespace-nowrap"
+                        style={{ minWidth: 120 }}>
+                        <div className="flex items-center gap-1">
+                          <input
+                            value={h}
+                            onChange={(e) => updateCell(0, ci, e.target.value)}
+                            className="w-full bg-transparent outline-none font-semibold"
+                            style={{ color: isRequired ? "var(--accent)" : "var(--text-secondary)" }}
+                          />
+                          {isRequired && (
+                            <span className="text-[9px] font-bold shrink-0" style={{ color: "var(--accent-danger)" }} title="Required column">*</span>
+                          )}
+                        </div>
+                      </th>
+                    );
+                  })}
                   <th className="px-2 py-2 w-8" />
                 </tr>
               </thead>
               <tbody>
-                {dataRows.map((row, ri) => (
-                  <tr
-                    key={ri}
-                    style={{
-                      borderBottom: "1px solid var(--border-subtle)",
-                      background: ri % 2 === 0 ? "transparent" : "rgba(var(--accent-rgb), 0.02)",
-                    }}
-                  >
-                    <td className="px-2 py-1.5 text-center text-xs" style={{ color: "var(--text-muted)" }}>
-                      {ri + 1}
-                    </td>
-                    {row.map((cell, ci) => (
-                      <td key={ci} className="px-1 py-1">
-                        <input
-                          value={cell}
-                          onChange={(e) => updateCell(ri + 1, ci, e.target.value)}
-                          className="w-full rounded-lg px-2 py-1 text-xs outline-none transition-colors"
-                          style={{
-                            background: "transparent",
-                            color: "var(--text-primary)",
-                            border: "1px solid transparent",
-                            minWidth: 100,
-                          }}
-                          onFocus={(e) => {
-                            (e.target as HTMLInputElement).style.borderColor = "var(--accent)";
-                            (e.target as HTMLInputElement).style.background = "var(--bg-card)";
-                          }}
-                          onBlur={(e) => {
-                            (e.target as HTMLInputElement).style.borderColor = "transparent";
-                            (e.target as HTMLInputElement).style.background = "transparent";
-                          }}
-                        />
+                {dataRows.map((row, ri) => {
+                  const actualRowIdx = ri + 1; // index into editedRows
+                  const isMissingSku = emptySkuSet.has(actualRowIdx);
+                  return (
+                    <tr
+                      key={ri}
+                      style={{
+                        borderBottom: "1px solid var(--border-subtle)",
+                        background: isMissingSku
+                          ? "rgba(var(--accent-danger-rgb), 0.05)"
+                          : ri % 2 === 0 ? "transparent" : "rgba(var(--accent-rgb), 0.02)",
+                        outline: isMissingSku ? "1px solid rgba(var(--accent-danger-rgb), 0.35)" : "none",
+                      }}
+                    >
+                      <td className="px-2 py-1.5 text-center text-xs" style={{ color: isMissingSku ? "var(--accent-danger)" : "var(--text-muted)" }}>
+                        {isMissingSku ? "!" : ri + 1}
                       </td>
-                    ))}
-                    <td className="px-2 py-1 text-center">
-                      <button
-                        onClick={() => deleteRow(ri + 1)}
-                        className="p-1 rounded transition-colors"
-                        style={{ color: "var(--text-muted)" }}
-                        title="Delete row"
-                      >
-                        <Trash2 size={12} />
-                      </button>
-                    </td>
-                  </tr>
-                ))}
+                      {row.map((cell, ci) => {
+                        const isNa = cell === "N/A";
+                        const isSkuCell = ci === skuColIdx;
+                        return (
+                          <td key={ci} className="px-1 py-1">
+                            <input
+                              value={cell}
+                              onChange={(e) => updateCell(actualRowIdx, ci, e.target.value)}
+                              className="w-full rounded-lg px-2 py-1 text-xs outline-none transition-colors"
+                              style={{
+                                background: "transparent",
+                                color: isNa ? "var(--text-muted)" : isSkuCell ? "var(--accent)" : "var(--text-primary)",
+                                border: "1px solid transparent",
+                                minWidth: 100,
+                                fontStyle: isNa ? "italic" : "normal",
+                              }}
+                              onFocus={(e) => {
+                                (e.target as HTMLInputElement).style.borderColor = isSkuCell && isMissingSku ? "var(--accent-danger)" : "var(--accent)";
+                                (e.target as HTMLInputElement).style.background = "var(--bg-card)";
+                              }}
+                              onBlur={(e) => {
+                                (e.target as HTMLInputElement).style.borderColor = "transparent";
+                                (e.target as HTMLInputElement).style.background = "transparent";
+                              }}
+                            />
+                          </td>
+                        );
+                      })}
+                      <td className="px-2 py-1 text-center">
+                        <button
+                          onClick={() => deleteRow(ri + 1)}
+                          className="p-1 rounded transition-colors"
+                          style={{ color: isMissingSku ? "var(--accent-danger)" : "var(--text-muted)" }}
+                          title="Delete row"
+                        >
+                          <Trash2 size={12} />
+                        </button>
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>

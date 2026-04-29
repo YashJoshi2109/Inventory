@@ -7,6 +7,43 @@ from app.models.transaction import ImportJob
 from app.services.import_service import ImportService
 from app.schemas.common import OrmBase
 
+# Columns the backend requires before accepting a CSV / Excel import.
+_REQUIRED_COLS = {"sku", "description"}
+_OPTIONAL_COLS = {"category", "unit cost", "reorder level", "lead time (days)",
+                  "loc1 bin", "loc2 bin", "loc3 bin", "barcode text (sku)"}
+
+
+def _validate_and_sanitize_df(df):
+    """
+    Validate columns and sanitize values.
+    - Ensures required columns are present (case-insensitive).
+    - Fills NaN / blank / dash cells with 'N/A'.
+    - Raises HTTPException 422 on missing required columns.
+    Returns the sanitised DataFrame.
+    """
+    import pandas as pd
+
+    # Normalise column names for comparison only
+    norm = {c.strip().lower(): c for c in df.columns}
+
+    missing_required = _REQUIRED_COLS - set(norm.keys())
+    if missing_required:
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                f"Missing required column(s): {', '.join(sorted(missing_required))}. "
+                "Download the import template for the correct format."
+            ),
+        )
+
+    # Sanitize: replace NaN, empty strings, whitespace-only, and bare dashes with N/A
+    for col in df.columns:
+        df[col] = df[col].fillna("N/A")
+        df[col] = df[col].astype(str).str.strip()
+        df[col] = df[col].replace({"": "N/A", "-": "N/A", "nan": "N/A", "NaN": "N/A"})
+
+    return df
+
 router = APIRouter(prefix="/imports", tags=["imports"])
 
 
@@ -61,14 +98,23 @@ async def import_csv(
 
     try:
         df = pd.read_csv(io.BytesIO(content))
-        # Normalise CSV to xlsx-like bytes and delegate to Excel importer
+    except Exception as e:
+        raise HTTPException(status_code=422, detail=f"CSV parse error: {e}") from e
+
+    # Server-side validation & sanitization (defence-in-depth on top of frontend checks)
+    df = _validate_and_sanitize_df(df)
+
+    try:
+        # Convert sanitised DataFrame to Excel bytes and delegate to shared importer
         buf = io.BytesIO()
         with pd.ExcelWriter(buf, engine="openpyxl") as writer:
             df.to_excel(writer, sheet_name="Items_Master", index=False)
         svc = ImportService(session)
         job = await svc.import_excel(buf.getvalue(), file.filename, current_user.id)
+    except HTTPException:
+        raise
     except Exception as e:
-        raise HTTPException(status_code=422, detail=f"CSV parse error: {e}") from e
+        raise HTTPException(status_code=422, detail=f"Import processing error: {e}") from e
 
     return ImportJobRead.model_validate(job)
 
