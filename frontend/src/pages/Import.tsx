@@ -73,8 +73,8 @@ export function Import() {
       {/* Upload zone */}
       <Card>
         <CardHeader>
-          <h3 className="text-sm font-semibold text-slate-200">Import Inventory Data</h3>
-          <p className="text-xs text-slate-500 mt-0.5">
+          <h3 className="text-sm font-semibold" style={{ color: "var(--text-primary)" }}>Import Inventory Data</h3>
+          <p className="text-xs mt-0.5" style={{ color: "var(--text-muted)" }}>
             Supports the legacy Lab_Inventory_Barcode_System.xlsx format and generic CSV
           </p>
         </CardHeader>
@@ -95,10 +95,10 @@ export function Import() {
               size={40}
               className={clsx("mx-auto mb-3", dragging ? "text-brand-400" : "text-slate-500")}
             />
-            <p className="text-sm font-medium text-slate-300">
+            <p className="text-sm font-medium" style={{ color: "var(--text-primary)" }}>
               {uploadMutation.isPending ? "Uploading…" : "Drop file here or click to browse"}
             </p>
-            <p className="text-xs text-slate-500 mt-1">.xlsx, .xls, or .csv up to 50 MB</p>
+            <p className="text-xs mt-1" style={{ color: "var(--text-muted)" }}>.xlsx, .xls, or .csv up to 50 MB</p>
           </div>
           <input
             ref={fileRef}
@@ -113,17 +113,17 @@ export function Import() {
       {/* Migration guide */}
       <Card>
         <CardHeader>
-          <h3 className="text-sm font-semibold text-slate-200">Migration Guide</h3>
+          <h3 className="text-sm font-semibold" style={{ color: "var(--text-primary)" }}>Migration Guide</h3>
         </CardHeader>
-        <CardContent className="space-y-3 text-sm text-slate-400">
+        <CardContent className="space-y-3 text-sm" style={{ color: "var(--text-secondary)" }}>
           <div className="space-y-2">
-            <p className="font-medium text-slate-300">Supported Excel sheets:</p>
+            <p className="font-medium" style={{ color: "var(--text-primary)" }}>Supported Excel sheets:</p>
             <ul className="space-y-1 text-xs list-disc list-inside ml-2">
               <li><span className="font-mono text-brand-400">Items_Master</span> — SKU, Description, Category, Unit Cost, Reorder Level, Loc Bins</li>
               <li><span className="font-mono text-brand-400">Transactions</span> — Date, Type (IN/OUT), SKU, Qty, Location, Notes</li>
             </ul>
           </div>
-          <p className="text-xs text-slate-500">
+          <p className="text-xs" style={{ color: "var(--text-muted)" }}>
             Items with duplicate SKUs are updated rather than duplicated. Locations are auto-created from bin labels.
             Transaction history is preserved and imported into the TimescaleDB audit ledger.
           </p>
@@ -134,7 +134,7 @@ export function Import() {
       {jobs && jobs.length > 0 && (
         <Card>
           <CardHeader>
-            <h3 className="text-sm font-semibold text-slate-200">Recent Imports</h3>
+            <h3 className="text-sm font-semibold" style={{ color: "var(--text-primary)" }}>Recent Imports</h3>
           </CardHeader>
           <div className="divide-y divide-surface-border/50">
             {jobs.map((job) => (
@@ -161,8 +161,8 @@ function ImportJobRow({ job }: { job: ImportJob }) {
     <div className="flex items-center gap-3 px-5 py-4">
       <StatusIcon size={18} className={clsx("shrink-0", statusConfig.color)} />
       <div className="flex-1 min-w-0">
-        <p className="text-sm font-medium text-slate-200 truncate">{job.filename}</p>
-        <p className="text-xs text-slate-500 mt-0.5">
+        <p className="text-sm font-medium truncate" style={{ color: "var(--text-primary)" }}>{job.filename}</p>
+        <p className="text-xs mt-0.5" style={{ color: "var(--text-muted)" }}>
           {job.imported_rows} imported · {job.skipped_rows} skipped · {job.error_rows} errors
         </p>
       </div>

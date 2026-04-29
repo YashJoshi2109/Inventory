@@ -553,7 +553,7 @@ export function Inventory3DPanel({action,phaseLabel,focusedLocationCode}:{
       <div className="relative flex-1 min-h-0">
         {isLoading&&(
           <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 z-20"
-            style={{background:"rgba(255,255,255,0.8)", backdropFilter:"blur(4px)"}}>
+            style={{background:"rgba(255,255,255,0.8)", backdropFilter:"blur(24px) saturate(1.8)"}}>
             <Loader2 size={26} className="animate-spin text-brand-500"/>
             <p className="text-sm text-slate-600 font-medium">Syncing inventory…</p>
           </div>

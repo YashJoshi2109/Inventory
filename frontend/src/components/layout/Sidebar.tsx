@@ -10,20 +10,31 @@ import { useQuery } from "@tanstack/react-query";
 import { transactionsApi } from "@/api/transactions";
 import { roleRequestApi } from "@/api/auth";
 
-const navItems = [
+type NavItem = {
+  to: string;
+  label: string;
+  icon: React.ElementType;
+  highlight?: boolean;
+  highlight2?: boolean;
+  highlight3?: boolean;
+  roles?: string[];
+  group?: string;
+};
+
+const navItems: NavItem[] = [
   { to: "/dashboard",    label: "Dashboard",    icon: LayoutDashboard },
   { to: "/inventory",    label: "Inventory",    icon: Package },
-  { to: "/scan",         label: "Scan",         icon: QrCode, highlight: true },
-  { to: "/locations",    label: "Locations",    icon: MapPin },
-  { to: "/transactions", label: "Transactions", icon: ClipboardList },
-  { to: "/alerts",       label: "Alerts",       icon: Bell },
-  { to: "/import",       label: "Import",       icon: Upload, roles: ["admin", "manager"] },
-  { to: "/copilot",      label: "AI Copilot",   icon: Bot, highlight2: true },
-  { to: "/smart-scan",   label: "Smart Scan",   icon: Camera, highlight: true },
+  { to: "/scan",         label: "Scan",         icon: QrCode,        highlight: true,  group: "Tools" },
+  { to: "/smart-scan",   label: "Smart Scan",   icon: Camera,        highlight: true },
+  { to: "/copilot",      label: "AI Copilot",   icon: Bot,           highlight2: true },
   { to: "/ai",           label: "AI Insights",  icon: BrainCircuit },
-  { to: "/users",        label: "Users",        icon: Users, roles: ["admin", "manager"] },
-  { to: "/energy",      label: "Energy Hub",   icon: Zap, highlight3: true },
-  { to: "/settings",    label: "Settings",     icon: Settings },
+  { to: "/transactions", label: "Transactions", icon: ClipboardList, group: "Manage" },
+  { to: "/alerts",       label: "Alerts",       icon: Bell },
+  { to: "/locations",    label: "Locations",    icon: MapPin },
+  { to: "/import",       label: "Import",       icon: Upload,        roles: ["admin", "manager"] },
+  { to: "/energy",       label: "Energy Hub",   icon: Zap,           highlight3: true },
+  { to: "/users",        label: "Users",        icon: Users,         roles: ["admin", "manager"], group: "Admin" },
+  { to: "/settings",     label: "Settings",     icon: Settings },
 ];
 
 export function Sidebar() {
@@ -45,119 +56,184 @@ export function Sidebar() {
     (alerts?.filter((a) => !a.is_resolved).length ?? 0) +
     (hasRole("admin", "manager") ? roleRequests.length : 0);
 
+  const renderedGroups = new Set<string>();
+
   return (
     <aside
       className="hidden lg:flex flex-col w-64 shrink-0 relative"
       style={{
         background: "var(--bg-sidebar)",
-        backdropFilter: "blur(20px)",
+        backdropFilter: "blur(24px) saturate(1.8)",
         borderRight: "1px solid var(--border-subtle)",
         transition: "background 0.25s ease",
       }}
     >
-      {/* Subtle top glow */}
+      {/* Logo area */}
       <div
-        className="absolute top-0 left-0 right-0 h-px"
-        style={{ background: "linear-gradient(90deg, transparent, rgba(34,211,238,0.3), transparent)" }}
-      />
-
-      {/* Logo */}
-      <div className="flex items-center gap-3 px-5 py-5" style={{ borderBottom: "1px solid var(--border-subtle)" }}>
+        className="flex items-center gap-3 px-5 shrink-0"
+        style={{
+          height: 64,
+          borderBottom: "1px solid var(--border-subtle)",
+        }}
+      >
         <div
-          className="w-9 h-9 rounded-xl flex items-center justify-center animate-glow-pulse"
+          className="w-9 h-9 rounded-2xl flex items-center justify-center animate-glow-pulse shrink-0"
           style={{
-            background: "linear-gradient(135deg, #0891b2, #06b6d4)",
-            boxShadow: "0 0 20px rgba(34,211,238,0.3)",
+            background: "linear-gradient(135deg, var(--accent), #1d4ed8)",
+            boxShadow: "0 0 16px rgba(37,99,235,0.35)",
           }}
         >
           <Beaker size={18} className="text-white" />
         </div>
         <div>
-          <p className="text-sm font-bold tracking-tight" style={{ color: "var(--text-primary)" }}>SEAR Lab</p>
-          <p className="text-[11px] text-slate-500">Inventory v1.0</p>
+          <p
+            style={{
+              fontFamily: "'Syne', sans-serif",
+              fontWeight: 700,
+              fontSize: 15,
+              color: "var(--text-primary)",
+              lineHeight: 1.2,
+            }}
+          >
+            SEAR Lab
+          </p>
+          <p style={{ fontSize: 11, color: "var(--text-muted)" }}>
+            Inventory v1.0
+          </p>
         </div>
       </div>
 
       {/* Navigation */}
-      <nav className="flex-1 px-3 py-4 space-y-0.5 overflow-y-auto scrollbar-none">
-        {(navItems as Array<{ to: string; label: string; icon: React.ElementType; highlight?: boolean; highlight2?: boolean; highlight3?: boolean; roles?: string[] }>).map(({ to, label, icon: Icon, highlight, highlight2, highlight3, roles }) => {
+      <nav className="flex-1 px-3 py-4 overflow-y-auto scrollbar-none" style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+        {navItems.map(({ to, label, icon: Icon, highlight, highlight2, highlight3, roles, group }) => {
           if (roles && !hasRole(...roles)) return null;
-          return (
+
+          // Render section label once per group
+          let groupLabel: React.ReactNode = null;
+          if (group && !renderedGroups.has(group)) {
+            // For Admin, only show if user has the role
+            if (group === "Admin" && !hasRole("admin", "manager")) {
+              // skip label too
+            } else {
+              renderedGroups.add(group);
+              groupLabel = (
+                <div
+                  key={`group-${group}`}
+                  style={{
+                    fontSize: 10,
+                    fontWeight: 600,
+                    letterSpacing: "0.12em",
+                    textTransform: "uppercase",
+                    color: "var(--text-muted)",
+                    paddingLeft: 12,
+                    paddingTop: 12,
+                    paddingBottom: 4,
+                  }}
+                >
+                  {group}
+                </div>
+              );
+            }
+          }
+
+          const item = (
             <NavLink
               key={to}
               to={to}
-              className={({ isActive }) =>
-                clsx(
-                  "flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-all duration-150 relative group",
-                  isActive && highlight
-                    ? "text-white"
-                    : isActive && highlight2
-                    ? "text-purple-200"
-                    : isActive && highlight3
-                    ? "text-amber-200"
-                    : isActive
-                    ? "text-brand-300"
-                    : "text-slate-500 hover:text-slate-200",
-                )
-              }
-              style={({ isActive }) =>
-                isActive && highlight
-                  ? {
-                      background: "linear-gradient(135deg, rgba(8,145,178,0.4), rgba(34,211,238,0.2))",
-                      border: "1px solid rgba(34,211,238,0.3)",
-                      boxShadow: "0 0 15px rgba(34,211,238,0.15), inset 0 1px 0 rgba(255,255,255,0.08)",
-                    }
-                  : isActive && highlight2
-                  ? {
-                      background: "linear-gradient(135deg, rgba(139,92,246,0.25), rgba(167,139,250,0.12))",
-                      border: "1px solid rgba(167,139,250,0.3)",
-                      boxShadow: "0 0 15px rgba(167,139,250,0.12)",
-                    }
-                  : isActive && highlight3
-                  ? {
-                      background: "linear-gradient(135deg, rgba(217,119,6,0.25), rgba(251,191,36,0.12))",
-                      border: "1px solid rgba(251,191,36,0.35)",
-                      boxShadow: "0 0 15px rgba(251,191,36,0.12)",
-                    }
-                  : isActive
-                  ? {
-                      background: "rgba(34,211,238,0.08)",
-                      border: "1px solid rgba(34,211,238,0.15)",
-                    }
-                  : {
-                      border: "1px solid transparent",
-                    }
-              }
+              className="flex items-center gap-3 text-sm font-medium transition-all duration-150 relative"
+              style={({ isActive }) => ({
+                padding: "8px 12px",
+                borderRadius: 10,
+                textDecoration: "none",
+                color: isActive
+                  ? "var(--accent)"
+                  : "var(--text-secondary)",
+                background: isActive
+                  ? `rgba(var(--accent-rgb, 37,99,235), 0.08)`
+                  : "transparent",
+              })}
             >
               {({ isActive }) => (
                 <>
+                  {/* Left border indicator for active state */}
+                  {isActive && (
+                    <span
+                      style={{
+                        position: "absolute",
+                        left: 0,
+                        top: "20%",
+                        height: "60%",
+                        width: 3,
+                        borderRadius: "0 3px 3px 0",
+                        background: "var(--accent)",
+                      }}
+                    />
+                  )}
+
                   <Icon
                     size={17}
-                    className={clsx(
-                      isActive && highlight
-                        ? "text-white"
-                        : isActive && highlight2
-                        ? "text-purple-300"
-                        : isActive && highlight3
-                        ? "text-amber-300"
-                        : isActive
-                        ? "text-brand-400"
-                        : "text-slate-500 group-hover:text-slate-300 transition-colors",
-                    )}
+                    style={{
+                      opacity: isActive ? 1 : 0.55,
+                      color: isActive
+                        ? highlight2
+                          ? "#8b5cf6"
+                          : highlight3
+                          ? "#f59e0b"
+                          : "var(--accent)"
+                        : "var(--text-secondary)",
+                      flexShrink: 0,
+                      transition: "color 0.15s, opacity 0.15s",
+                    }}
                   />
-                  <span className="flex-1">{label}</span>
+
+                  <span
+                    className="flex-1 truncate"
+                    style={{
+                      color: isActive
+                        ? highlight2
+                          ? "#7c3aed"
+                          : highlight3
+                          ? "#d97706"
+                          : "var(--accent)"
+                        : "var(--text-secondary)",
+                      transition: "color 0.15s",
+                    }}
+                  >
+                    {label}
+                  </span>
+
+                  {/* AI Copilot pill */}
                   {label === "AI Copilot" && (
                     <span
-                      className="text-[9px] font-bold px-1.5 py-0.5 rounded-full uppercase tracking-wide"
-                      style={{ background: "rgba(167,139,250,0.15)", color: "#a78bfa", border: "1px solid rgba(167,139,250,0.25)" }}
+                      style={{
+                        fontSize: 9,
+                        fontWeight: 700,
+                        padding: "2px 6px",
+                        borderRadius: 999,
+                        textTransform: "uppercase",
+                        letterSpacing: "0.06em",
+                        background: "rgba(139,92,246,0.13)",
+                        color: "#8b5cf6",
+                        border: "1px solid rgba(139,92,246,0.25)",
+                      }}
                     >
                       New
                     </span>
                   )}
+
+                  {/* Alerts badge */}
                   {label === "Alerts" && alertCount > 0 && (
                     <span
-                      className="text-[10px] font-bold px-1.5 py-0.5 rounded-full min-w-[20px] text-center"
-                      style={{ background: "rgba(239,68,68,0.9)", color: "white" }}
+                      style={{
+                        fontSize: 10,
+                        fontWeight: 700,
+                        padding: "2px 6px",
+                        borderRadius: 999,
+                        minWidth: 20,
+                        textAlign: "center",
+                        background: "#ef4444",
+                        color: "white",
+                      }}
                     >
                       {alertCount > 9 ? "9+" : alertCount}
                     </span>
@@ -166,10 +242,12 @@ export function Sidebar() {
               )}
             </NavLink>
           );
+
+          return groupLabel ? [groupLabel, item] : item;
         })}
       </nav>
 
-      {/* User info */}
+      {/* User card */}
       <UserCard />
     </aside>
   );
@@ -180,27 +258,51 @@ function UserCard() {
   if (!user) return null;
 
   return (
-    <div className="px-3 py-3" style={{ borderTop: "1px solid var(--border-subtle)" }}>
+    <div
+      className="px-3 py-3 shrink-0"
+      style={{ borderTop: "1px solid var(--border-subtle)" }}
+    >
       <div
-        className="flex items-center gap-3 px-3 py-2.5 rounded-xl"
-        style={{ background: "rgba(128,128,128,0.04)", border: "1px solid var(--border-card)" }}
+        className="flex items-center gap-3 px-3 py-2.5 rounded-xl group"
+        style={{
+          background: "rgba(128,128,128,0.04)",
+          border: "1px solid var(--border-card)",
+        }}
       >
+        {/* Avatar */}
         <div
           className="w-8 h-8 rounded-xl flex items-center justify-center text-sm font-bold text-white shrink-0"
-          style={{ background: "linear-gradient(135deg, #0891b2, #22d3ee)" }}
+          style={{
+            background: "linear-gradient(135deg, var(--accent), #1d4ed8)",
+          }}
         >
           {user.full_name[0]?.toUpperCase()}
         </div>
+
+        {/* Name + role */}
         <div className="flex-1 min-w-0">
-          <p className="text-sm font-semibold truncate" style={{ color: "var(--text-primary)" }}>{user.full_name}</p>
-          <p className="text-[11px] text-slate-500 truncate capitalize">
+          <p
+            className="text-sm font-semibold truncate"
+            style={{ color: "var(--text-primary)" }}
+          >
+            {user.full_name}
+          </p>
+          <p
+            className="text-[11px] truncate capitalize"
+            style={{ color: "var(--text-muted)" }}
+          >
             {user.roles[0]?.name ?? "viewer"}
           </p>
         </div>
+
+        {/* Logout */}
         <button
           onClick={logout}
-          className="text-slate-600 hover:text-red-400 transition-colors"
           title="Sign out"
+          className="transition-colors"
+          style={{ color: "var(--text-muted)" }}
+          onMouseEnter={(e) => (e.currentTarget.style.color = "#ef4444")}
+          onMouseLeave={(e) => (e.currentTarget.style.color = "var(--text-muted)")}
         >
           <LogOut size={14} />
         </button>

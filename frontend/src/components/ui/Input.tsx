@@ -10,18 +10,29 @@ interface InputProps extends InputHTMLAttributes<HTMLInputElement> {
 }
 
 export const Input = forwardRef<HTMLInputElement, InputProps>(
-  ({ label, error, hint, leftIcon, rightIcon, className, id, ...props }, ref) => {
+  ({ label, error, hint, leftIcon, rightIcon, className, id, style, ...props }, ref) => {
     const inputId = id ?? label?.toLowerCase().replace(/\s+/g, "-");
     return (
-      <div className="flex flex-col gap-1">
+      <div className="flex flex-col gap-1.5">
         {label && (
-          <label htmlFor={inputId} className="text-sm font-medium text-slate-300">
+          <label
+            htmlFor={inputId}
+            style={{
+              fontSize: "13px",
+              fontWeight: 600,
+              fontFamily: "'Outfit', sans-serif",
+              color: "var(--text-secondary)",
+            }}
+          >
             {label}
           </label>
         )}
         <div className="relative">
           {leftIcon && (
-            <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400">
+            <span
+              className="absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none"
+              style={{ color: "var(--text-muted)" }}
+            >
               {leftIcon}
             </span>
           )}
@@ -29,35 +40,79 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(
             ref={ref}
             id={inputId}
             className={clsx(
-              "w-full rounded-xl text-slate-100 placeholder-slate-600",
-              "px-3 py-2.5 text-sm",
-              "focus:outline-none focus:ring-2 focus:ring-brand-500/50 focus:border-brand-500/40",
+              "w-full transition-all duration-150",
+              "focus:outline-none",
               "disabled:opacity-50 disabled:cursor-not-allowed",
-              "transition-all duration-150",
-              error
-                ? "border-red-500/60 focus:ring-red-500/50"
-                : "hover:border-white/15",
               leftIcon && "pl-10",
               rightIcon && "pr-10",
               className,
             )}
             style={{
-              background: "rgba(255,255,255,0.04)",
-              border: error ? "1px solid rgba(239,68,68,0.4)" : "1px solid rgba(255,255,255,0.09)",
+              background: "var(--bg-input)",
+              border: error
+                ? "1px solid var(--accent-danger)"
+                : "1px solid var(--border-subtle)",
+              borderRadius: "12px",
+              color: "var(--text-primary)",
+              fontFamily: "'Outfit', sans-serif",
+              fontSize: "14px",
+              padding: leftIcon ? "10px 12px 10px 40px" : rightIcon ? "10px 40px 10px 12px" : "10px 12px",
+              boxShadow: "none",
+              // Focus styles applied via inline style trick — handled by CSS classes below
+              ...style,
+            }}
+            onFocus={(e) => {
+              e.currentTarget.style.borderColor = error
+                ? "var(--accent-danger)"
+                : "var(--accent)";
+              e.currentTarget.style.boxShadow = error
+                ? "0 0 0 3px rgba(220,38,38,0.12)"
+                : "0 0 0 3px rgba(var(--accent-rgb, 37,99,235), 0.12)";
+              props.onFocus?.(e);
+            }}
+            onBlur={(e) => {
+              e.currentTarget.style.borderColor = error
+                ? "var(--accent-danger)"
+                : "var(--border-subtle)";
+              e.currentTarget.style.boxShadow = "none";
+              props.onBlur?.(e);
             }}
             {...props}
           />
           {rightIcon && (
-            <span className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400">
+            <span
+              className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none"
+              style={{ color: "var(--text-muted)" }}
+            >
               {rightIcon}
             </span>
           )}
         </div>
-        {error && <p className="text-xs text-red-400">{error}</p>}
-        {hint && !error && <p className="text-xs text-slate-500">{hint}</p>}
+        {error && (
+          <p
+            style={{
+              fontSize: "12px",
+              color: "var(--accent-danger)",
+              fontFamily: "'Outfit', sans-serif",
+            }}
+          >
+            {error}
+          </p>
+        )}
+        {hint && !error && (
+          <p
+            style={{
+              fontSize: "12px",
+              color: "var(--text-muted)",
+              fontFamily: "'Outfit', sans-serif",
+            }}
+          >
+            {hint}
+          </p>
+        )}
       </div>
     );
-  }
+  },
 );
 
 Input.displayName = "Input";

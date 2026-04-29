@@ -67,33 +67,39 @@ function StockLevelPicker({
 }) {
   return (
     <div className="space-y-3">
-      <p className="text-sm text-slate-400">{label}</p>
+      <p className="text-sm" style={{ color: "var(--text-muted)" }}>{label}</p>
       <div className="space-y-2 max-h-[300px] overflow-y-auto pr-1">
         {levels.filter(l => l.quantity > 0).length === 0 ? (
-          <div className="py-8 text-center border border-dashed border-slate-800 rounded-xl">
-            <Package className="mx-auto text-slate-700 mb-2" size={24} />
-            <p className="text-xs text-slate-600">No stock found in any location</p>
+          <div className="py-8 text-center rounded-xl" style={{ border: "1px dashed var(--border-card)" }}>
+            <Package className="mx-auto mb-2" size={24} style={{ color: "var(--text-muted)" }} />
+            <p className="text-xs" style={{ color: "var(--text-muted)" }}>No stock found in any location</p>
           </div>
         ) : (
           levels.filter(l => l.quantity > 0).map((level) => (
             <button
               key={level.location_id}
               onClick={() => onSelect(level)}
-              className="w-full flex items-center justify-between p-4 rounded-xl transition-all hover:bg-white/5 border border-white/5 hover:border-white/10"
-              style={{ background: "rgba(255,255,255,0.02)" }}
+              className="w-full flex items-center justify-between p-4 rounded-xl transition-all"
+              style={{
+                background: "rgba(255,255,255,0.32)",
+                backdropFilter: "blur(12px)",
+                border: "1px solid var(--border-card)",
+                boxShadow: "0 1px 0 rgba(255,255,255,0.80) inset",
+              }}
             >
               <div className="flex items-center gap-3">
-                <div className="w-8 h-8 rounded-lg bg-brand-400/10 flex items-center justify-center border border-brand-400/20">
-                  <MapPin size={14} className="text-brand-400" />
+                <div className="w-8 h-8 rounded-lg flex items-center justify-center"
+                  style={{ background: "rgba(37,99,235,0.10)", border: "1px solid rgba(37,99,235,0.22)" }}>
+                  <MapPin size={14} style={{ color: "var(--accent)" }} />
                 </div>
                 <div className="text-left">
-                  <p className="text-sm font-bold text-white">{level.location_name}</p>
-                  <p className="text-[10px] text-slate-500 font-mono italic">Rack ID: {level.location_id}</p>
+                  <p className="text-sm font-bold" style={{ color: "var(--text-primary)" }}>{level.location_name}</p>
+                  <p className="text-[10px] font-mono italic" style={{ color: "var(--text-muted)" }}>Rack ID: {level.location_id}</p>
                 </div>
               </div>
               <div className="text-right">
-                <p className="text-base font-black text-brand-400">{level.quantity}</p>
-                <p className="text-[9px] text-slate-500 uppercase tracking-tighter">Available</p>
+                <p className="text-base font-black" style={{ color: "var(--accent)" }}>{level.quantity}</p>
+                <p className="text-[9px] uppercase tracking-tighter" style={{ color: "var(--text-muted)" }}>Available</p>
               </div>
             </button>
           ))
@@ -102,7 +108,12 @@ function StockLevelPicker({
       {onScanInstead && (
         <button
           onClick={onScanInstead}
-          className="w-full flex items-center justify-center gap-2 py-3 rounded-xl border border-white/10 text-xs text-slate-400 hover:text-white hover:bg-white/5 transition-all"
+          className="w-full flex items-center justify-center gap-2 py-3 rounded-xl text-xs transition-all"
+          style={{
+            border: "1px solid var(--border-card)",
+            background: "rgba(255,255,255,0.25)",
+            color: "var(--text-muted)",
+          }}
         >
           <QrCode size={14} /> Scan different rack QR
         </button>
@@ -124,7 +135,7 @@ const MODES: Array<{
   id: ScanMode;
   label: string;
   icon: IconComponent;
-  color: string;
+  accentHex: string;
   borderColor: string;
   bgColor: string;
   glowColor: string;
@@ -134,40 +145,40 @@ const MODES: Array<{
     id: "add",
     label: "Add",
     icon: ArrowUpRight,
-    color: "text-emerald-400",
-    borderColor: "rgba(52,211,153,0.25)",
-    bgColor: "rgba(52,211,153,0.06)",
-    glowColor: "rgba(52,211,153,0.15)",
+    accentHex: "#059669",
+    borderColor: "rgba(5,150,105,0.30)",
+    bgColor: "rgba(5,150,105,0.10)",
+    glowColor: "rgba(5,150,105,0.20)",
     desc: "Add stock to a rack",
   },
   {
     id: "remove",
     label: "Remove",
     icon: ArrowDownRight,
-    color: "text-red-400",
-    borderColor: "rgba(239,68,68,0.25)",
-    bgColor: "rgba(239,68,68,0.06)",
-    glowColor: "rgba(239,68,68,0.15)",
+    accentHex: "#DC2626",
+    borderColor: "rgba(220,38,38,0.30)",
+    bgColor: "rgba(220,38,38,0.10)",
+    glowColor: "rgba(220,38,38,0.20)",
     desc: "Remove items from inventory",
   },
   {
     id: "transfer",
     label: "Transfer",
     icon: ArrowLeftRight,
-    color: "text-brand-400",
-    borderColor: "rgba(34,211,238,0.25)",
-    bgColor: "rgba(34,211,238,0.06)",
-    glowColor: "rgba(34,211,238,0.15)",
+    accentHex: "#2563EB",
+    borderColor: "rgba(37,99,235,0.30)",
+    bgColor: "rgba(37,99,235,0.10)",
+    glowColor: "rgba(37,99,235,0.20)",
     desc: "Move between racks",
   },
   {
     id: "modify",
     label: "Modify",
     icon: Settings2,
-    color: "text-purple-400",
-    borderColor: "rgba(168,85,247,0.25)",
-    bgColor: "rgba(168,85,247,0.06)",
-    glowColor: "rgba(168,85,247,0.15)",
+    accentHex: "#7C3AED",
+    borderColor: "rgba(124,58,237,0.30)",
+    bgColor: "rgba(124,58,237,0.10)",
+    glowColor: "rgba(124,58,237,0.20)",
     desc: "Edit item details",
   },
 ];
@@ -180,28 +191,38 @@ function ModeSelector({ onSelect }: { onSelect: (m: ScanMode) => void }) {
           <button
             key={m.id}
             onClick={() => onSelect(m.id as ScanMode)}
-            className="group relative flex flex-col items-center justify-center gap-3 rounded-2xl border transition-all duration-300 overflow-hidden hover:scale-[1.03] active:scale-[0.97] md:flex-1 py-6 md:py-8"
+            className="group relative flex flex-col items-center justify-center gap-3 rounded-2xl transition-all duration-300 overflow-hidden hover:scale-[1.03] active:scale-[0.97] md:flex-1 py-6 md:py-8"
             style={{
-              borderColor: m.borderColor,
-              background: m.bgColor,
-              boxShadow: `0 8px 32px -8px ${m.glowColor}, inset 0 1px 0 rgba(255,255,255,0.06)`,
+              background: `linear-gradient(140deg, ${m.bgColor} 0%, rgba(255,255,255,0.28) 60%, ${m.bgColor.replace("0.10","0.04")} 100%)`,
+              backdropFilter: "blur(24px) saturate(1.8)",
+              WebkitBackdropFilter: "blur(24px) saturate(1.8)",
+              borderTop: `1px solid rgba(255,255,255,0.72)`,
+              borderLeft: `1px solid rgba(255,255,255,0.58)`,
+              borderRight: `1px solid ${m.borderColor}`,
+              borderBottom: `1px solid ${m.borderColor}`,
+              boxShadow: `0 1px 0 rgba(255,255,255,0.90) inset, 0 8px 32px -4px ${m.glowColor}, 0 2px 8px rgba(10,20,60,0.08)`,
             }}
           >
-            {/* Bottom glow */}
-            <div className="absolute inset-x-0 bottom-0 h-1/2 pointer-events-none opacity-20 group-hover:opacity-50 transition-opacity duration-500"
-              style={{background:`radial-gradient(circle at 50% 100%,${m.glowColor},transparent 70%)`}} />
-            {/* Top shimmer */}
-            <div className="absolute inset-x-0 top-0 h-px opacity-40 group-hover:opacity-80 transition-opacity duration-300"
-              style={{background:`linear-gradient(90deg,transparent,${m.borderColor.replace("0.25","0.6")},transparent)`}} />
+            {/* Ambient glow orb */}
+            <div className="absolute inset-x-0 bottom-0 h-2/3 pointer-events-none opacity-30 group-hover:opacity-60 transition-opacity duration-500"
+              style={{background:`radial-gradient(ellipse at 50% 100%, ${m.glowColor}, transparent 70%)`}} />
 
+            {/* Icon container */}
             <div className="relative w-12 h-12 md:w-14 md:h-14 rounded-2xl flex items-center justify-center transition-all duration-300 group-hover:scale-110 group-hover:-rotate-6"
-              style={{background:m.bgColor,border:`1.5px solid ${m.borderColor}`,boxShadow:`0 0 20px -4px ${m.glowColor}`}}>
-              <m.icon className={`w-6 h-6 md:w-7 md:h-7 ${m.color}`} />
+              style={{
+                background: `rgba(255,255,255,0.55)`,
+                backdropFilter: "blur(12px)",
+                border: `1.5px solid ${m.borderColor}`,
+                boxShadow: `0 0 20px -4px ${m.glowColor}, 0 1px 0 rgba(255,255,255,0.90) inset`,
+              }}>
+              <m.icon className="w-6 h-6 md:w-7 md:h-7" style={{ color: m.accentHex }} />
             </div>
 
             <div className="text-center mt-1 z-10 px-2">
-              <p className="text-[13px] md:text-[15px] font-black tracking-[0.12em] uppercase text-white leading-tight drop-shadow-md">{m.label}</p>
-              <p className="text-[10px] md:text-[11px] text-slate-400 group-hover:text-slate-200 transition-colors mt-1.5 leading-snug max-w-[140px] mx-auto">{m.desc}</p>
+              <p className="text-[13px] md:text-[15px] font-black tracking-[0.12em] uppercase leading-tight"
+                style={{ color: "var(--text-primary)" }}>{m.label}</p>
+              <p className="text-[10px] md:text-[11px] transition-colors mt-1.5 leading-snug max-w-[140px] mx-auto"
+                style={{ color: "var(--text-muted)" }}>{m.desc}</p>
             </div>
           </button>
         ))}
@@ -238,12 +259,12 @@ function ScannedCard({
           >
             {label}
           </span>
-          <span className="text-xs text-slate-500 font-mono truncate">{result.code}</span>
+          <span className="text-xs font-mono truncate" style={{ color: "var(--text-muted)" }}>{result.code}</span>
         </div>
-        <p className="text-sm text-slate-100 font-semibold mt-1 truncate">{result.name}</p>
+        <p className="text-sm font-semibold mt-1 truncate" style={{ color: "var(--text-primary)" }}>{result.name}</p>
         {result.result_type === "item" && typeof result.details?.total_quantity === "number" && (
-          <p className="text-xs text-slate-500 mt-0.5">
-            Stock: <span className="text-slate-300 font-medium">
+          <p className="text-xs mt-0.5" style={{ color: "var(--text-muted)" }}>
+            Stock: <span className="font-medium" style={{ color: "var(--text-secondary)" }}>
               {result.details.total_quantity} {String(result.details.unit ?? "")}
             </span>
           </p>
@@ -271,33 +292,100 @@ function ScanPrompt({
 }) {
   const [camera, setCamera] = useState(false);
   const [manual, setManual] = useState("");
+  const [notFoundCode, setNotFoundCode] = useState<string | null>(null);
 
   // Prevent the scanner from calling onScan multiple times before unmount
   const firedRef = useRef(false);
+  const attemptRef = useRef(0);
+  const lastCodeRef = useRef("");
+  const prevLoadingRef = useRef(false);
 
-  // Reset lock when parent signals it's done processing (error = allow retry)
+  // Track loading transitions — after 2 failures for same code, show not-found UI
   useEffect(() => {
-    if (!loading) firedRef.current = false;
+    if (prevLoadingRef.current && !loading) {
+      // Request just completed (loading true→false)
+      attemptRef.current += 1;
+      if (attemptRef.current >= 2) {
+        // Two attempts exhausted — surface not-found UI, keep firedRef locked
+        setNotFoundCode(lastCodeRef.current);
+      } else {
+        // Allow one retry
+        firedRef.current = false;
+      }
+    }
+    prevLoadingRef.current = loading;
   }, [loading]);
 
   const handleScan = useCallback(
     (v: string) => {
       if (firedRef.current) return;
       firedRef.current = true;
+      // Reset attempt count when a different code is scanned
+      if (v !== lastCodeRef.current) {
+        lastCodeRef.current = v;
+        attemptRef.current = 0;
+        setNotFoundCode(null);
+      }
       setCamera(false);
       onScan(v);
     },
     [onScan],
   );
 
+  const handleTryAgain = () => {
+    setNotFoundCode(null);
+    firedRef.current = false;
+    attemptRef.current = 0;
+    lastCodeRef.current = "";
+    setCamera(false);
+  };
+
   return (
     <div className="space-y-4">
-      <p className="text-sm text-slate-400 text-center">{label}</p>
+      <p className="text-sm text-center" style={{ color: "var(--text-muted)" }}>{label}</p>
 
       {loading ? (
         <div className="flex flex-col items-center justify-center py-10 gap-3">
-          <Loader2 size={32} className="animate-spin text-brand-400" />
-          <p className="text-xs text-slate-500">Processing…</p>
+          <Loader2 size={32} className="animate-spin" style={{ color: "var(--accent)" }} />
+          <p className="text-xs" style={{ color: "var(--text-muted)" }}>Processing…</p>
+        </div>
+      ) : notFoundCode ? (
+        <div className="flex flex-col items-center gap-4 py-6 px-4 rounded-2xl"
+          style={{
+            background: "linear-gradient(140deg, rgba(239,68,68,0.06) 0%, rgba(255,255,255,0.30) 100%)",
+            backdropFilter: "blur(16px) saturate(1.6)",
+            WebkitBackdropFilter: "blur(16px) saturate(1.6)",
+            borderTop: "1px solid rgba(255,255,255,0.80)",
+            borderLeft: "1px solid rgba(255,255,255,0.65)",
+            borderRight: "1px solid rgba(239,68,68,0.20)",
+            borderBottom: "1px solid rgba(239,68,68,0.20)",
+            boxShadow: "0 1px 0 rgba(255,255,255,0.90) inset",
+          }}>
+          <div className="w-14 h-14 rounded-2xl flex items-center justify-center"
+            style={{ background: "rgba(239,68,68,0.08)", border: "1.5px solid rgba(239,68,68,0.25)" }}>
+            <Package size={24} style={{ color: "#ef4444" }} />
+          </div>
+          <div className="text-center space-y-1">
+            <p className="text-sm font-semibold" style={{ color: "var(--text-primary)" }}>Item not found in inventory</p>
+            <p className="text-xs font-mono px-3 py-1.5 rounded-lg"
+              style={{ color: "#ef4444", background: "rgba(239,68,68,0.08)", border: "1px solid rgba(239,68,68,0.20)" }}>
+              {notFoundCode}
+            </p>
+            <p className="text-[11px]" style={{ color: "var(--text-muted)" }}>
+              This code is not registered in the system.
+            </p>
+          </div>
+          <button
+            onClick={handleTryAgain}
+            className="flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-medium transition-all"
+            style={{
+              background: "rgba(255,255,255,0.55)",
+              border: "1px solid rgba(239,68,68,0.25)",
+              color: "var(--text-primary)",
+            }}>
+            <RotateCcw size={14} />
+            Scan a different code
+          </button>
         </div>
       ) : camera ? (
         <BarcodeScanner
@@ -309,34 +397,41 @@ function ScanPrompt({
       ) : (
         <button
           onClick={() => setCamera(true)}
-          className="w-full flex flex-col items-center gap-3 py-8 rounded-2xl transition-all duration-200 hover:scale-[1.01] active:scale-[0.99] animate-glow-pulse"
+          className="w-full flex flex-col items-center gap-3 py-8 rounded-2xl transition-all duration-200 hover:scale-[1.01] active:scale-[0.99]"
           style={{
-            background: "rgba(34,211,238,0.04)",
-            border: "1px solid rgba(34,211,238,0.2)",
-            boxShadow: "0 0 30px rgba(34,211,238,0.05)",
+            background: "linear-gradient(140deg, rgba(37,99,235,0.10) 0%, rgba(255,255,255,0.30) 60%, rgba(37,99,235,0.04) 100%)",
+            backdropFilter: "blur(16px) saturate(1.6)",
+            WebkitBackdropFilter: "blur(16px) saturate(1.6)",
+            borderTop: "1px solid rgba(255,255,255,0.80)",
+            borderLeft: "1px solid rgba(255,255,255,0.65)",
+            borderRight: "1px solid rgba(37,99,235,0.25)",
+            borderBottom: "1px solid rgba(37,99,235,0.25)",
+            boxShadow: "0 1px 0 rgba(255,255,255,0.90) inset, 0 4px 20px rgba(37,99,235,0.12)",
           }}
         >
           <div
             className="w-16 h-16 rounded-2xl flex items-center justify-center"
             style={{
-              background: "rgba(34,211,238,0.1)",
-              border: "1px solid rgba(34,211,238,0.3)",
+              background: "rgba(255,255,255,0.55)",
+              backdropFilter: "blur(12px)",
+              border: "1.5px solid rgba(37,99,235,0.30)",
+              boxShadow: "0 0 20px rgba(37,99,235,0.15), 0 1px 0 rgba(255,255,255,0.90) inset",
             }}
           >
-            <QrCode size={28} className="text-brand-400" />
+            <QrCode size={28} style={{ color: "var(--accent)" }} />
           </div>
           <div className="text-center">
-            <p className="text-base font-semibold text-white">Open Camera</p>
-            <p className="text-xs text-slate-500 mt-0.5">Tap to activate scanner</p>
+            <p className="text-base font-semibold" style={{ color: "var(--text-primary)" }}>Open Camera</p>
+            <p className="text-xs mt-0.5" style={{ color: "var(--text-muted)" }}>Tap to activate scanner</p>
           </div>
         </button>
       )}
 
       {/* Divider */}
       <div className="flex items-center gap-3">
-        <div className="flex-1 h-px" style={{ background: "rgba(255,255,255,0.06)" }} />
-        <span className="text-xs text-slate-600 px-1">or type manually</span>
-        <div className="flex-1 h-px" style={{ background: "rgba(255,255,255,0.06)" }} />
+        <div className="flex-1 h-px" style={{ background: "var(--border-subtle)" }} />
+        <span className="text-xs px-1" style={{ color: "var(--text-muted)" }}>or type manually</span>
+        <div className="flex-1 h-px" style={{ background: "var(--border-subtle)" }} />
       </div>
 
       <form
@@ -376,7 +471,7 @@ function FlowHeader({ icon: Icon, label, accent }: { icon: IconComponent; label:
       >
         <Icon size={17} style={{ color: accent }} />
       </div>
-      <h3 className="text-base font-semibold text-white">{label}</h3>
+      <h3 className="text-base font-semibold" style={{ color: "var(--text-primary)" }}>{label}</h3>
     </div>
   );
 }
@@ -569,7 +664,7 @@ function AddFlow({
             },
             {
               id: "new-item" as AddSubType,
-              icon: <Plus size={28} className="text-brand-400" />,
+              icon: <Plus size={28} style={{ color: "var(--accent)" }} />,
               title: "New Item",
               desc: "Scan shelf → details → QR",
               accent: "#22d3ee",
@@ -587,8 +682,8 @@ function AddFlow({
                 {opt.icon}
               </div>
               <div className="text-center">
-                <p className="text-[15px] font-black text-white tracking-wide">{opt.title}</p>
-                <p className="text-[11px] text-slate-500 mt-1 group-hover:text-slate-300 transition-colors">{opt.desc}</p>
+                <p className="text-[15px] font-black tracking-wide" style={{ color: "var(--text-primary)" }}>{opt.title}</p>
+                <p className="text-[11px] mt-1 transition-colors" style={{ color: "var(--text-muted)" }}>{opt.desc}</p>
               </div>
             </button>
           ))}
@@ -599,7 +694,7 @@ function AddFlow({
       {step === "scan-item" && subtype === "add-stock" && (
         <div className="space-y-3">
           <ScanPrompt label="Scan the Item QR" hint="Point at item barcode / QR code" onScan={doItemScan} loading={loading} />
-          <button onClick={() => go("select-subtype")} className="w-full text-center text-xs text-slate-600 hover:text-slate-400 transition-colors">
+          <button onClick={() => go("select-subtype")} className="w-full text-center text-xs transition-colors" style={{ color: "var(--text-muted)" }}>
             ← Back
           </button>
         </div>
@@ -611,17 +706,17 @@ function AddFlow({
           {prefill && (
             <div className="flex items-center gap-2.5 px-3 py-2.5 rounded-xl"
               style={{ background: "rgba(139,92,246,0.08)", border: "1px solid rgba(139,92,246,0.25)" }}>
-              <CheckCircle2 size={14} className="text-purple-400 shrink-0" />
+              <CheckCircle2 size={14} className="shrink-0" style={{ color: "var(--accent-violet)" }} />
               <div className="flex-1 min-w-0">
-                <p className="text-xs font-semibold text-purple-300">Smart Scan prefill active</p>
-                <p className="text-[11px] text-slate-500 truncate">{prefill.name} · {prefill.sku}</p>
+                <p className="text-xs font-semibold" style={{ color: "var(--accent-violet)" }}>Smart Scan prefill active</p>
+                <p className="text-[11px] truncate" style={{ color: "var(--text-muted)" }}>{prefill.name} · {prefill.sku}</p>
               </div>
             </div>
           )}
           {scannedItem && <ScannedCard result={scannedItem} label="Item" accent="#fbbf24" />}
           <ScanPrompt label="Scan Destination Shelf QR" hint="Point at rack / location QR" onScan={doRackScan} loading={loading} />
           <button onClick={() => go(subtype === "add-stock" ? "scan-item" : "select-subtype")}
-            className="w-full text-center text-xs text-slate-600 hover:text-slate-400 transition-colors">
+            className="w-full text-center text-xs transition-colors" style={{ color: "var(--text-muted)" }}>
             ← Back
           </button>
         </div>
@@ -658,13 +753,15 @@ function AddFlow({
           <div className="flex justify-between items-center px-1">
             <button
               onClick={() => go("scan-item")}
-              className="text-xs text-slate-600 hover:text-slate-400"
+              className="text-xs"
+              style={{ color: "var(--text-muted)" }}
             >
               Change item
             </button>
             <button
               onClick={onReset}
-              className="text-xs text-red-900/40 hover:text-red-900/60"
+              className="text-xs"
+              style={{ color: "var(--accent-danger)", opacity: 0.6 }}
             >
               Cancel
             </button>
@@ -692,11 +789,12 @@ function AddFlow({
             />
             <div className="flex gap-2">
               <div className="flex-1">
-                <label className="block text-xs text-slate-400 mb-1">Category</label>
+                <label className="block text-xs mb-1" style={{ color: "var(--text-muted)" }}>Category</label>
                 <select
                   value={newItemForm.category_id}
                   onChange={(e) => setNewItemForm((f) => ({ ...f, category_id: e.target.value }))}
-                  className="w-full rounded-xl bg-white/5 border border-white/10 text-sm text-white px-3 py-2 focus:outline-none focus:border-cyan-400/50"
+                  className="w-full rounded-xl text-sm px-3 py-2 focus:outline-none focus:border-cyan-400/50"
+                  style={{ background: "var(--bg-input)", border: "1px solid var(--border-card)", color: "var(--text-primary)" }}
                 >
                   <option value="">— none —</option>
                   {categories.map((c) => (
@@ -750,10 +848,10 @@ function AddFlow({
           </Button>
 
           <div className="flex justify-between items-center px-1">
-            <button onClick={() => go("scan-rack")} className="text-xs text-slate-600 hover:text-slate-400">
+            <button onClick={() => go("scan-rack")} className="text-xs" style={{ color: "var(--text-muted)" }}>
               ← Change shelf
             </button>
-            <button onClick={onReset} className="text-xs text-red-900/40 hover:text-red-900/60">
+            <button onClick={onReset} className="text-xs" style={{ color: "var(--accent-danger)", opacity: 0.6 }}>
               Cancel
             </button>
           </div>
@@ -870,17 +968,17 @@ function RemoveFlow({
             <div
               className="p-3 rounded-xl space-y-1"
               style={{
-                background: "rgba(255,255,255,0.03)",
-                border: "1px solid rgba(255,255,255,0.06)",
+                background: "rgba(255,255,255,0.35)",
+                border: "1px solid var(--border-card)",
               }}
             >
-              <p className="text-[10px] text-slate-500 font-bold uppercase tracking-wider">
+              <p className="text-[10px] font-bold uppercase tracking-wider" style={{ color: "var(--text-muted)" }}>
                 From Location
               </p>
-              <p className="text-white font-bold text-sm truncate">
+              <p className="font-bold text-sm truncate" style={{ color: "var(--text-primary)" }}>
                 {selectedStock.location_name}
               </p>
-              <p className="text-brand-400 text-xs font-mono">
+              <p className="text-xs font-mono" style={{ color: "var(--accent)" }}>
                 {selectedStock.quantity} in stock
               </p>
             </div>
@@ -908,7 +1006,8 @@ function RemoveFlow({
           </Button>
           <button
             onClick={() => setStepWithPhase("select-location")}
-            className="w-full text-center text-xs text-slate-600 hover:text-slate-400 transition-colors"
+            className="w-full text-center text-xs transition-colors"
+            style={{ color: "var(--text-muted)" }}
           >
             ← Back to location list
           </button>
@@ -1076,44 +1175,45 @@ function TransferFlow({
               border: "1px solid rgba(34,211,238,0.15)",
             }}
           >
-            <p className="text-xs text-brand-400 font-semibold uppercase tracking-wide">
+            <p className="text-xs font-semibold uppercase tracking-wide" style={{ color: "var(--accent)" }}>
               Item Details
             </p>
-            <p className="text-lg font-bold text-white">{item.name}</p>
-            <p className="font-mono text-xs text-slate-400">{item.code}</p>
+            <p className="text-lg font-bold" style={{ color: "var(--text-primary)" }}>{item.name}</p>
+            <p className="font-mono text-xs" style={{ color: "var(--text-muted)" }}>{item.code}</p>
             {typeof item.details?.total_quantity === "number" && (
               <div className="flex items-baseline gap-2 pt-1">
-                <span className="text-2xl font-bold text-brand-400">
+                <span className="text-2xl font-bold" style={{ color: "var(--accent)" }}>
                   {item.details.total_quantity}
                 </span>
-                <span className="text-sm text-slate-400">{item.details?.unit ?? "units"} total in stock</span>
+                <span className="text-sm" style={{ color: "var(--text-muted)" }}>{item.details?.unit ?? "units"} total in stock</span>
               </div>
             )}
           </div>
           {/* Show stock distribution */}
           {stockLevels.filter((l) => l.quantity > 0).length > 0 && (
             <div className="space-y-1.5">
-              <p className="text-xs text-slate-500 font-medium">Stock by location:</p>
+              <p className="text-xs font-medium" style={{ color: "var(--text-muted)" }}>Stock by location:</p>
               {stockLevels
                 .filter((l) => l.quantity > 0)
                 .map((l) => (
                   <div
                     key={l.location_id}
                     className="flex items-center justify-between text-xs px-3 py-2 rounded-lg"
-                    style={{ background: "rgba(255,255,255,0.03)" }}
+                    style={{ background: "rgba(255,255,255,0.40)", backdropFilter: "blur(8px)" }}
                   >
-                    <span className="text-slate-400">{l.location_name}</span>
-                    <span className="font-semibold text-brand-400">{l.quantity}</span>
+                    <span style={{ color: "var(--text-muted)" }}>{l.location_name}</span>
+                    <span className="font-semibold" style={{ color: "var(--accent)" }}>{l.quantity}</span>
                   </div>
                 ))}
             </div>
           )}
           <button
             onClick={() => setStepWithPhase("select-source")}
-            className="w-full flex items-center justify-center gap-2 py-3.5 rounded-xl text-sm font-semibold text-white transition-all"
+            className="w-full flex items-center justify-center gap-2 py-3.5 rounded-xl text-sm font-semibold transition-all"
             style={{
               background: "linear-gradient(135deg, rgba(34,211,238,0.2), rgba(8,145,178,0.2))",
               border: "1px solid rgba(34,211,238,0.35)",
+              color: "var(--text-primary)",
             }}
           >
             <MapPin size={16} />
@@ -1146,8 +1246,8 @@ function TransferFlow({
           />
           <button
             onClick={() => setStepWithPhase("select-source")}
-            className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl text-sm text-slate-500 hover:text-slate-300 transition-colors"
-            style={{ border: "1px solid rgba(255,255,255,0.06)" }}
+            className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl text-sm transition-colors"
+            style={{ border: "1px solid var(--border-subtle)", color: "var(--text-muted)" }}
           >
             <List size={14} /> View stock locations instead
           </button>
@@ -1181,7 +1281,7 @@ function TransferFlow({
                 border: "1px solid rgba(34,211,238,0.3)",
               }}
             >
-              <ArrowLeftRight size={14} className="text-brand-400" />
+              <ArrowLeftRight size={14} style={{ color: "var(--accent)" }} />
             </div>
             <div className="flex-1">
               <ScannedCard result={destRack} label="To" accent="#22d3ee" />
@@ -1195,10 +1295,10 @@ function TransferFlow({
               border: "1px solid rgba(34,211,238,0.2)",
             }}
           >
-            <span className="text-sm text-slate-400">Available at source</span>
-            <span className="text-lg font-bold text-white">
+            <span className="text-sm" style={{ color: "var(--text-muted)" }}>Available at source</span>
+            <span className="text-lg font-bold" style={{ color: "var(--text-primary)" }}>
               {sourceStock ?? item.details?.total_quantity ?? "?"}{" "}
-              <span className="text-sm font-normal text-slate-400">
+              <span className="text-sm font-normal" style={{ color: "var(--text-muted)" }}>
                 {item.details?.unit ?? ""}
               </span>
             </span>
@@ -1225,7 +1325,8 @@ function TransferFlow({
           </Button>
           <button
             onClick={() => setStepWithPhase("select-source")}
-            className="w-full text-center text-xs text-slate-600 hover:text-slate-400 transition-colors py-1"
+            className="w-full text-center text-xs transition-colors py-1"
+            style={{ color: "var(--text-muted)" }}
           >
             ← Change source rack
           </button>
@@ -1351,15 +1452,16 @@ function ModifyFlow({
             style={{
               background: "rgba(168,85,247,0.06)",
               border: "1px solid rgba(168,85,247,0.25)",
+              backdropFilter: "blur(12px)",
             }}
           >
-            <PenLine size={18} className="text-purple-400 shrink-0" />
+            <PenLine size={18} className="shrink-0" style={{ color: "var(--accent-violet)" }} />
             <div>
-              <p className="text-xs text-purple-400 font-semibold uppercase tracking-wide">
+              <p className="text-xs font-semibold uppercase tracking-wide" style={{ color: "var(--accent-violet)" }}>
                 Editing
               </p>
-              <p className="text-base font-bold text-white">{scannedItem.name}</p>
-              <p className="font-mono text-xs text-slate-400">{scannedItem.code}</p>
+              <p className="text-base font-bold" style={{ color: "var(--text-primary)" }}>{scannedItem.name}</p>
+              <p className="font-mono text-xs" style={{ color: "var(--text-muted)" }}>{scannedItem.code}</p>
             </div>
           </div>
 
@@ -1374,15 +1476,17 @@ function ModifyFlow({
             onChange={(e) => setForm((p) => ({ ...p, description: e.target.value }))}
           />
 
-          <label className="block text-sm text-slate-300">
+          <label className="block text-sm" style={{ color: "var(--text-secondary)" }}>
             Category
             <select
               value={form.category_id}
               onChange={(e) => setForm((p) => ({ ...p, category_id: e.target.value }))}
-              className="mt-1 w-full rounded-xl px-3 py-2.5 text-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
+              className="mt-1 w-full rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
               style={{
-                background: "rgba(255,255,255,0.05)",
-                border: "1px solid rgba(255,255,255,0.1)",
+                background: "var(--bg-input)",
+                border: "1px solid var(--border-card)",
+                color: "var(--text-primary)",
+                padding: "0.625rem 0.75rem",
               }}
             >
               <option value="">No category</option>
@@ -1477,8 +1581,16 @@ export function Scan() {
         <Suspense
           fallback={
             <div className="w-full h-full rounded-2xl flex items-center justify-center"
-              style={{ background: "rgba(3,7,20,0.9)", border: "1px solid rgba(34,211,238,0.12)" }}>
-              <Loader2 size={24} className="animate-spin text-brand-400" />
+              style={{
+                background: "var(--bg-card)",
+                backdropFilter: "blur(24px) saturate(1.8)",
+                borderTop: "1px solid var(--border-card)",
+                borderLeft: "1px solid var(--border-card)",
+                borderRight: "1px solid rgba(180,200,255,0.30)",
+                borderBottom: "1px solid rgba(180,200,255,0.30)",
+                boxShadow: "var(--shadow-card)",
+              }}>
+              <Loader2 size={24} className="animate-spin" style={{ color: "var(--accent)" }} />
             </div>
           }
         >
@@ -1492,9 +1604,14 @@ export function Scan() {
           /* ── Four compact action buttons ── */
           <div className="h-full rounded-2xl overflow-hidden"
             style={{
-              background: "linear-gradient(160deg,rgba(4,9,24,0.75) 0%,rgba(6,12,30,0.65) 100%)",
-              border: "1px solid rgba(255,255,255,0.06)",
-              boxShadow: "inset 0 1px 0 rgba(255,255,255,0.03)",
+              background: "var(--bg-card)",
+              backdropFilter: "blur(24px) saturate(1.8)",
+              WebkitBackdropFilter: "blur(24px) saturate(1.8)",
+              borderTop: "1px solid var(--border-card)",
+              borderLeft: "1px solid var(--border-card)",
+              borderRight: "1px solid rgba(180,200,255,0.30)",
+              borderBottom: "1px solid rgba(180,200,255,0.30)",
+              boxShadow: "var(--shadow-card)",
             }}>
             <ModeSelector onSelect={setMode} />
           </div>
@@ -1502,25 +1619,34 @@ export function Scan() {
           /* ── Active workflow ── */
           <div className="h-full rounded-2xl flex flex-col overflow-hidden"
             style={{
-              background: "linear-gradient(160deg,rgba(4,9,24,0.82) 0%,rgba(6,12,30,0.75) 100%)",
-              border: `1px solid ${meta?.accent ?? "rgba(255,255,255,0.08)"}22`,
-              boxShadow: "inset 0 1px 0 rgba(255,255,255,0.03)",
+              background: "var(--bg-card)",
+              backdropFilter: "blur(24px) saturate(1.8)",
+              WebkitBackdropFilter: "blur(24px) saturate(1.8)",
+              borderTop: "1px solid var(--border-card)",
+              borderLeft: "1px solid var(--border-card)",
+              borderRight: `1px solid ${meta?.accent ?? "rgba(180,200,255,0.30)"}44`,
+              borderBottom: `1px solid ${meta?.accent ?? "rgba(180,200,255,0.30)"}44`,
+              boxShadow: "var(--shadow-card)",
             }}>
             {/* Mini workflow header */}
             <div className="flex items-center gap-2.5 px-4 py-2 shrink-0"
-              style={{ borderBottom: "1px solid rgba(255,255,255,0.05)" }}>
+              style={{ borderBottom: "1px solid var(--border-subtle)" }}>
               <button onClick={() => { setMode(null); setFlowPhase("idle"); setScannedLocCode(null); }}
-                className="w-7 h-7 rounded-lg flex items-center justify-center text-slate-500 hover:text-brand-400 hover:bg-white/5 transition-all"
-                style={{ border: "1px solid rgba(255,255,255,0.07)" }}>
+                className="w-7 h-7 rounded-lg flex items-center justify-center transition-all hover:scale-105"
+                style={{
+                  border: "1px solid var(--border-card)",
+                  background: "var(--bg-card)",
+                  color: "var(--text-muted)",
+                }}>
                 <RotateCcw size={13} />
               </button>
               {Icon && meta && (
                 <div className="w-6 h-6 rounded-lg flex items-center justify-center shrink-0"
-                  style={{ background: `${meta.accent}22`, border: `1px solid ${meta.accent}30` }}>
+                  style={{ background: `${meta.accent}20`, border: `1px solid ${meta.accent}35` }}>
                   <Icon size={12} style={{ color: meta.accent }} />
                 </div>
               )}
-              <p className="text-[13px] font-bold text-white flex-1">
+              <p className="text-[13px] font-bold flex-1" style={{ color: "var(--text-primary)" }}>
                 {meta?.label ?? ""} Workflow
               </p>
               {meta && (
