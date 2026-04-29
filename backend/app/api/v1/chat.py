@@ -425,6 +425,32 @@ async def list_documents(db: DbSession, current_user: CurrentUser) -> list[Docum
     return result.scalars().all()
 
 
+@router.get("/documents/{doc_id}/content")
+async def get_document_content(doc_id: int, db: DbSession, current_user: CurrentUser):
+    """Serve the raw uploaded file so the frontend can show a PDF preview."""
+    result = await db.execute(
+        select(KnowledgeDocument).where(
+            KnowledgeDocument.id == doc_id,
+            KnowledgeDocument.is_active == True,  # noqa: E712
+        )
+    )
+    doc = result.scalar_one_or_none()
+    if not doc:
+        raise HTTPException(status_code=404, detail="Document not found")
+    if not doc.file_path:
+        raise HTTPException(status_code=404, detail="No file stored for this document")
+    path = Path(doc.file_path)
+    if not path.exists():
+        raise HTTPException(status_code=404, detail="File missing from storage")
+
+    from fastapi.responses import FileResponse
+    return FileResponse(
+        path=str(path),
+        media_type=doc.mime_type or "application/octet-stream",
+        filename=doc.filename,
+    )
+
+
 @router.delete("/documents/{doc_id}")
 async def delete_document(doc_id: int, db: DbSession, current_user: CurrentUser) -> dict:
     result = await db.execute(select(KnowledgeDocument).where(KnowledgeDocument.id == doc_id))

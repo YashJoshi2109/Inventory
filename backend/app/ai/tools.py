@@ -1018,6 +1018,31 @@ async def rag_search_docs(
     return {"query": query, "doc_type": doc_type, "total": len(chunks), "chunks": chunks}
 
 
+async def ask_user(
+    component: str,
+    question: str,
+    options: list[dict[str, str]],
+    context: str = "general",
+) -> dict:
+    """
+    Emit an interactive widget to the user so they can select from a list of options.
+    Use this when the user's intent is ambiguous and you need them to pick from
+    a set of known values (e.g., location code, item name, category).
+    - component: "checkbox" for multiple-select, "radio" for single-select.
+    - question: The question to display to the user.
+    - options: List of {value, label} dicts (up to 20).
+    - context: A short identifier (e.g., "location_select", "item_select").
+    Returns a special marker dict that the orchestrator intercepts as an SSE event.
+    """
+    return {
+        "__interactive__": True,
+        "component": component,
+        "question": question,
+        "options": options[:20],
+        "context": context,
+    }
+
+
 # ── OpenAI tool schema definitions (JSON Schema) ──────────────────────────────
 
 TOOL_SCHEMAS: list[dict[str, Any]] = [
@@ -1381,6 +1406,52 @@ TOOL_SCHEMAS: list[dict[str, Any]] = [
             },
         },
     },
+    {
+        "type": "function",
+        "function": {
+            "name": "ask_user",
+            "description": (
+                "Show the user an interactive selection widget (checkboxes or radio buttons) "
+                "when their request is ambiguous and you need them to pick from a known list. "
+                "Use 'checkbox' for multi-select (e.g., multiple locations for a transfer), "
+                "'radio' for single-select (e.g., which specific item they mean). "
+                "Call this INSTEAD of guessing. After the user selects, they will reply and you "
+                "will receive a follow-up message with their selection."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "component": {
+                        "type": "string",
+                        "enum": ["checkbox", "radio"],
+                        "description": "'checkbox' for multi-select, 'radio' for single-select",
+                    },
+                    "question": {
+                        "type": "string",
+                        "description": "The question to show the user, e.g. 'Which location did you mean?'",
+                    },
+                    "options": {
+                        "type": "array",
+                        "description": "List of choices (max 20). Each item has 'value' (the code/id) and 'label' (human-readable).",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "value": {"type": "string"},
+                                "label": {"type": "string"},
+                            },
+                            "required": ["value", "label"],
+                        },
+                        "maxItems": 20,
+                    },
+                    "context": {
+                        "type": "string",
+                        "description": "Short identifier for what is being selected (e.g. 'location_select', 'item_select', 'category_select')",
+                    },
+                },
+                "required": ["component", "question", "options"],
+            },
+        },
+    },
 ]
 
 
@@ -1470,4 +1541,6 @@ async def dispatch_tool(
         return await update_location(db, **args)
     if name == "delete_location":
         return await delete_location(db, **args)
+    if name == "ask_user":
+        return await ask_user(**args)
     raise ValueError(f"Unknown tool: {name}")

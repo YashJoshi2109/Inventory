@@ -37,7 +37,14 @@ export type SseEvent =
   | { type: "tool_call"; name: string; args: Record<string, unknown> }
   | { type: "tool_result"; name: string; data: Record<string, unknown> }
   | { type: "done"; message_id?: number }
-  | { type: "error"; message: string };
+  | { type: "error"; message: string }
+  | {
+      type: "interactive";
+      component: "checkbox" | "radio";
+      question: string;
+      options: Array<{ value: string; label: string }>;
+      context: string;
+    };
 
 export const chatApi = {
   createSession: async (title = "New chat"): Promise<ChatSession> => {
@@ -82,6 +89,10 @@ export const chatApi = {
 
   deleteDocument: async (id: number): Promise<void> => {
     await apiClient.delete(`/chat/documents/${id}`);
+  },
+
+  getDocumentContentUrl: (id: number): string => {
+    return `${BASE_URL}/chat/documents/${id}/content`;
   },
 
   /**
