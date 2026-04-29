@@ -1,0 +1,48 @@
+- generic [ref=e4]:
+  - generic [ref=e5]:
+    - img "UTA SEAR Lab" [ref=e6]
+    - heading "UTA SEAR Lab Inventory" [level=1] [ref=e7]
+    - paragraph [ref=e8]: AI-powered laboratory inventory control
+  - generic [ref=e10]:
+    - heading "Sign in to your account" [level=2] [ref=e11]
+    - generic [ref=e54]:
+      - img [ref=e55]
+      - paragraph [ref=e57]: Incorrect username or password
+    - generic [ref=e12]:
+      - generic [ref=e13]:
+        - generic [ref=e14]: Username
+        - textbox "Username" [ref=e16]:
+          - /placeholder: your.username
+          - text: yashjosh7486@gmail.com
+      - generic [ref=e17]:
+        - generic [ref=e18]:
+          - generic [ref=e19]: Password
+          - generic [ref=e20]:
+            - textbox "Password" [ref=e21]:
+              - /placeholder: ••••••••
+              - text: password
+            - generic:
+              - button:
+                - img
+        - link "Forgot password?" [ref=e23] [cursor=pointer]:
+          - /url: /forgot-password
+      - button "Sign in" [ref=e24] [cursor=pointer]
+    - generic [ref=e27]: or sign in with
+    - generic [ref=e29]:
+      - button "Touch ID" [ref=e30] [cursor=pointer]:
+        - img [ref=e31]
+        - generic [ref=e40]: Touch ID
+      - button "Another device" [ref=e41] [cursor=pointer]:
+        - img [ref=e42]
+        - generic [ref=e44]: Another device
+      - button "Security key" [ref=e45] [cursor=pointer]:
+        - img [ref=e46]
+        - generic [ref=e49]: Security key
+  - paragraph [ref=e50]:
+    - text: Don't have an account?
+    - link "Create one" [ref=e51] [cursor=pointer]:
+      - /url: /register
+    - text: ·
+    - link "Verify email" [ref=e52] [cursor=pointer]:
+      - /url: /verify-email
+  - paragraph [ref=e53]: SEAR Lab Inventory Control System v1.0

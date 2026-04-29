@@ -84,7 +84,17 @@ Location queries (IMPORTANT):
 - When the user mentions a shelf, rack, bin, location, area, or a code like "A1", "B-03", "shelf A1", "rack 2":
   call `get_location_contents` with that code, NOT `search_inventory`.
 - Location codes follow patterns like A1, A-01, B2, SHELF-A1, RACK-B, BIN-01.
-- If `get_location_contents` returns not-found, try `list_locations` to show available locations.
+- If `get_location_contents` returns not-found: call `list_locations`, then call `ask_user` with component="checkbox",
+  options = all available location codes (value=code, label="code — name"), context="location_select".
+  Do NOT just list locations as text — always use `ask_user` so the user can click to select.
+
+Interactive clarification (ask_user tool):
+- Whenever user intent is ambiguous (wrong location, multiple item matches, unclear category), call `ask_user`.
+- For single-choice disambiguation (which exact item?): component="radio".
+- For multi-location operations (stock across multiple locations): component="checkbox".
+- For category selection: call `list_categories` first, then `ask_user` with component="radio", context="category_select".
+- The `ask_user` tool emits an interactive UI widget to the user and stops streaming — the user's selection
+  arrives as a follow-up message. You do NOT need to write anything after calling `ask_user`.
 
 CRUD operations (full coverage — items, categories, locations, stock):
 - Items: `create_item` / `update_item` / `delete_item`. For create/update, call `list_categories` first if a category_id is needed.
@@ -391,7 +401,60 @@ async def run_copilot(
                     if tool_should_close:
                         await tool_session.close()
 
+                # ── ask_user tool (Gemini path) ────────────────────────────
+                if isinstance(result, dict) and result.get("__interactive__"):
+                    yield _sse({
+                        "type": "interactive",
+                        "component": result.get("component", "radio"),
+                        "question": result.get("question", "Please select an option:"),
+                        "options": result.get("options", []),
+                        "context": result.get("context", "general"),
+                    })
+                    yield _sse({"type": "done"})
+                    return
+
                 yield _sse({"type": "tool_result", "name": tool_name, "data": result})
+
+                # ── Interactive widget for Gemini path ─────────────────────
+                if (
+                    tool_name == "get_location_contents"
+                    and isinstance(result, dict)
+                    and "error" in result
+                    and "not found" in str(result.get("error", "")).lower()
+                ):
+                    searched = (args.get("location_code") if isinstance(args, dict) else None) or "that location"
+                    try:
+                        loc_session2, loc_close2 = await _get_db()
+                        try:
+                            loc_list2 = await dispatch_tool(
+                                name="list_locations",
+                                args={"location_type": "rack"},
+                                db=loc_session2,
+                                actor_id=actor_id,
+                                actor_roles=actor_roles,
+                                role_names=actor_roles,
+                            )
+                            if loc_close2:
+                                await loc_session2.commit()
+                        finally:
+                            if loc_close2:
+                                await loc_session2.close()
+
+                        locs2 = loc_list2.get("locations", [])
+                        if locs2:
+                            options2 = [
+                                {"value": l["code"], "label": f"{l['code']} — {l['name']}"}
+                                for l in sorted(locs2, key=lambda x: x.get("code", ""))[:20]
+                            ]
+                            yield _sse({
+                                "type": "interactive",
+                                "component": "checkbox",
+                                "question": f"Location '{searched}' not found. Which location(s) did you mean?",
+                                "options": options2,
+                                "context": "location_select",
+                            })
+                    except Exception:
+                        pass
 
                 fn_response_part = types.Part.from_function_response(
                     name=tool_name,
@@ -501,7 +564,74 @@ async def _run_openai_compat_loop(
             except Exception as exc:
                 result = {"error": str(exc)}
 
+            # ── ask_user tool: emit interactive SSE event and stop the loop ──
+            if isinstance(result, dict) and result.get("__interactive__"):
+                yield _sse({
+                    "type": "interactive",
+                    "component": result.get("component", "radio"),
+                    "question": result.get("question", "Please select an option:"),
+                    "options": result.get("options", []),
+                    "context": result.get("context", "general"),
+                })
+                yield _sse({"type": "done"})
+                return
+
             yield _sse({"type": "tool_result", "name": tool_name, "data": result})
+
+            # ── Interactive widget injection ────────────────────────────────
+            # When get_location_contents returns not-found, auto-fetch all
+            # locations and emit an interactive checkbox widget for the user.
+            if (
+                tool_name == "get_location_contents"
+                and isinstance(result, dict)
+                and "error" in result
+                and "not found" in str(result.get("error", "")).lower()
+            ):
+                searched = args.get("location_code", "that location")
+                try:
+                    loc_session, loc_close = await get_db()
+                    try:
+                        loc_list = await dispatch_tool(
+                            name="list_locations",
+                            args={"location_type": "rack"},
+                            db=loc_session,
+                            actor_id=actor_id,
+                            actor_roles=actor_roles,
+                            role_names=actor_roles,
+                        )
+                        if loc_close:
+                            await loc_session.commit()
+                    finally:
+                        if loc_close:
+                            await loc_session.close()
+
+                    locs = loc_list.get("locations", [])
+                    if locs:
+                        options = [
+                            {"value": l["code"], "label": f"{l['code']} — {l['name']}"}
+                            for l in sorted(locs, key=lambda x: x.get("code", ""))[:20]
+                        ]
+                        yield _sse({
+                            "type": "interactive",
+                            "component": "checkbox",
+                            "question": f"Location '{searched}' not found. Which location(s) did you mean?",
+                            "options": options,
+                            "context": "location_select",
+                        })
+                        # Inject location list for LLM context too
+                        msgs.append({
+                            "role": "tool",
+                            "tool_call_id": tc["id"],
+                            "content": json.dumps({
+                                **result,
+                                "available_locations": [l["code"] for l in locs[:20]],
+                                "hint": "An interactive selection widget has been shown to the user.",
+                            }),
+                        })
+                        continue  # skip the normal msgs.append below
+                except Exception:
+                    pass  # silently fall through if location fetch fails
+
             msgs.append({
                 "role": "tool",
                 "tool_call_id": tc["id"],

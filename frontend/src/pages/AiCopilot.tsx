@@ -52,6 +52,8 @@ import {
   PackageMinus,
   WifiOff,
   RotateCcw,
+  Eye,
+  ExternalLink,
 } from "lucide-react";
 import { clsx } from "clsx";
 import ReactMarkdown from "react-markdown";
@@ -68,6 +70,19 @@ interface ToolCall {
   done: boolean;
 }
 
+interface InteractiveOption {
+  value: string;
+  label: string;
+}
+
+interface InteractiveData {
+  component: "checkbox" | "radio";
+  question: string;
+  options: InteractiveOption[];
+  context: string;
+  answered?: boolean;
+}
+
 interface Msg {
   id: string;
   role: "user" | "assistant";
@@ -76,6 +91,7 @@ interface Msg {
   streaming: boolean;
   error?: string;
   imagePreview?: string; // base64 data URL for display
+  interactive?: InteractiveData;
 }
 
 // ── Constants ─────────────────────────────────────────────────────────────────
@@ -96,6 +112,7 @@ const TOOL_META: Record<string, { label: string; color: string; bg: string }> = 
   create_item:             { label: "Creating item",          color: "#34d399", bg: "rgba(52,211,153,0.08)" },
   update_item:             { label: "Updating item",          color: "#60a5fa", bg: "rgba(96,165,250,0.08)" },
   delete_item:             { label: "Removing item",          color: "#f87171", bg: "rgba(248,113,113,0.08)" },
+  ask_user:               { label: "Asking for clarification", color: "#f59e0b", bg: "rgba(245,158,11,0.08)" },
 };
 
 const SUGGESTIONS = [
@@ -148,7 +165,97 @@ function ToolBadge({ tc }: { tc: ToolCall }) {
   );
 }
 
-function MessageBubble({ msg }: { msg: Msg }) {
+function InteractiveWidget({
+  data,
+  onSubmit,
+}: {
+  data: InteractiveData;
+  onSubmit: (selected: string[]) => void;
+}) {
+  const [selected, setSelected] = useState<string[]>([]);
+
+  const toggle = (val: string) => {
+    if (data.component === "radio") {
+      setSelected([val]);
+    } else {
+      setSelected(prev =>
+        prev.includes(val) ? prev.filter(v => v !== val) : [...prev, val]
+      );
+    }
+  };
+
+  if (data.answered) {
+    return (
+      <div className="mt-2 px-3 py-2 rounded-xl text-xs flex items-center gap-2"
+        style={{ background: "rgba(52,211,153,0.06)", border: "1px solid rgba(52,211,153,0.18)", color: "#34d399" }}>
+        <CheckCircle2 size={11} className="shrink-0" />
+        Response submitted
+      </div>
+    );
+  }
+
+  return (
+    <div className="mt-2.5 rounded-2xl overflow-hidden"
+      style={{ border: "1px solid rgba(34,211,238,0.22)", background: "rgba(8,145,178,0.04)" }}>
+      <div className="px-4 py-2.5"
+        style={{ borderBottom: "1px solid rgba(34,211,238,0.12)", background: "rgba(34,211,238,0.06)" }}>
+        <p className="text-xs font-semibold" style={{ color: "#22d3ee" }}>{data.question}</p>
+        {data.component === "checkbox" && (
+          <p className="text-[10px] mt-0.5" style={{ color: "var(--text-muted)" }}>Select all that apply</p>
+        )}
+      </div>
+      <div className="px-3 py-3 space-y-1.5 max-h-48 overflow-y-auto">
+        {data.options.map(opt => {
+          const checked = selected.includes(opt.value);
+          return (
+            <label key={opt.value}
+              className="flex items-center gap-2.5 px-3 py-2 rounded-xl cursor-pointer transition-all select-none"
+              style={{
+                background: checked ? "rgba(34,211,238,0.10)" : "var(--bg-card)",
+                border: checked ? "1px solid rgba(34,211,238,0.30)" : "1px solid var(--border-card)",
+              }}>
+              <input
+                type={data.component}
+                checked={checked}
+                onChange={() => toggle(opt.value)}
+                className="w-3.5 h-3.5 accent-cyan-400 shrink-0"
+              />
+              <span className="text-xs leading-snug"
+                style={{ color: checked ? "#22d3ee" : "var(--text-secondary)" }}>
+                {opt.label}
+              </span>
+            </label>
+          );
+        })}
+      </div>
+      <div className="px-3 pb-3">
+        <button
+          disabled={selected.length === 0}
+          onClick={() => onSubmit(selected)}
+          className="w-full py-2 rounded-xl text-xs font-semibold transition-all disabled:opacity-40"
+          style={{
+            background: selected.length > 0
+              ? "linear-gradient(135deg,#0891b2,#22d3ee)"
+              : "rgba(34,211,238,0.06)",
+            color: selected.length > 0 ? "#fff" : "#22d3ee",
+            border: "1px solid rgba(34,211,238,0.2)",
+            boxShadow: selected.length > 0 ? "0 4px 16px rgba(34,211,238,0.18)" : "none",
+          }}>
+          {selected.length === 0
+            ? "Select an option"
+            : data.component === "checkbox" && selected.length > 1
+            ? `Confirm ${selected.length} selections`
+            : `Confirm: ${selected[0]}`}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function MessageBubble({ msg, onInteractiveSubmit }: {
+  msg: Msg;
+  onInteractiveSubmit?: (msgId: string, selected: string[]) => void;
+}) {
   if (msg.role === "user") {
     return (
       <div className="flex justify-end mb-5">
@@ -209,6 +316,13 @@ function MessageBubble({ msg }: { msg: Msg }) {
             <span className="flex-1 leading-snug">{msg.error}</span>
           </div>
         )}
+
+        {msg.interactive && onInteractiveSubmit && (
+          <InteractiveWidget
+            data={msg.interactive}
+            onSubmit={(selected) => onInteractiveSubmit(msg.id, selected)}
+          />
+        )}
       </div>
     </div>
   );
@@ -225,6 +339,7 @@ function KBPanel({ onClose }: { onClose: () => void }) {
   const [docType, setDocType] = useState("general");
   const [uploading, setUploading] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
+  const [previewDoc, setPreviewDoc] = useState<{ id: number; title: string; mime_type: string } | null>(null);
 
   const upload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -233,11 +348,14 @@ function KBPanel({ onClose }: { onClose: () => void }) {
     try {
       await chatApi.uploadDocument(file, docType, file.name);
       qc.invalidateQueries({ queryKey: ["chat-docs"] });
+      toast.success("Document uploaded and indexing…");
     } finally {
       setUploading(false);
       if (fileRef.current) fileRef.current.value = "";
     }
   };
+
+  const BASE_URL = import.meta.env.VITE_API_URL ?? "/api/v1";
 
   return (
     <div className="flex flex-col h-full"
@@ -273,7 +391,7 @@ function KBPanel({ onClose }: { onClose: () => void }) {
           {uploading ? "Uploading…" : "Upload Document"}
         </button>
         <input ref={fileRef} type="file" accept=".pdf,.docx,.txt,.md,.csv" className="hidden" onChange={upload} />
-        <p className="text-[10px] text-slate-600 text-center">PDF · DOCX · TXT · MD · CSV</p>
+        <p className="text-[10px] text-slate-600 text-center">PDF · DOCX · TXT · MD · CSV — unlimited uploads</p>
       </div>
 
       <div className="flex-1 overflow-y-auto px-4 pb-4 space-y-2">
@@ -288,10 +406,20 @@ function KBPanel({ onClose }: { onClose: () => void }) {
                 {doc.doc_type} · {doc.chunk_count} chunks · {doc.status}
               </p>
             </div>
-            <button onClick={() => chatApi.deleteDocument(doc.id).then(() => qc.invalidateQueries({ queryKey: ["chat-docs"] }))}
-              className="opacity-0 group-hover:opacity-100 text-slate-700 hover:text-red-400 transition-all shrink-0">
-              <Trash2 size={11} />
-            </button>
+            <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-all shrink-0">
+              {(doc.filename.toLowerCase().endsWith(".pdf") || doc.filename.toLowerCase().endsWith(".txt") || doc.filename.toLowerCase().endsWith(".md")) && (
+                <button
+                  title="Preview document"
+                  onClick={() => setPreviewDoc({ id: doc.id, title: doc.title, mime_type: doc.filename.endsWith(".pdf") ? "application/pdf" : "text/plain" })}
+                  className="p-1 rounded-lg text-slate-700 hover:text-brand-400 transition-all">
+                  <Eye size={11} />
+                </button>
+              )}
+              <button onClick={() => chatApi.deleteDocument(doc.id).then(() => qc.invalidateQueries({ queryKey: ["chat-docs"] }))}
+                className="p-1 rounded-lg text-slate-700 hover:text-red-400 transition-all">
+                <Trash2 size={11} />
+              </button>
+            </div>
           </div>
         ))}
         {docs.length === 0 && !isLoading && (
@@ -301,6 +429,51 @@ function KBPanel({ onClose }: { onClose: () => void }) {
           </div>
         )}
       </div>
+
+      {/* PDF / Document preview modal */}
+      {previewDoc && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm"
+          onClick={() => setPreviewDoc(null)}>
+          <div className="relative flex flex-col rounded-2xl overflow-hidden"
+            style={{
+              width: "min(900px, 95vw)",
+              height: "min(85vh, 800px)",
+              background: "var(--bg-topbar)",
+              border: "1px solid var(--border-card)",
+              boxShadow: "0 32px 96px rgba(0,0,0,0.5)",
+            }}
+            onClick={e => e.stopPropagation()}>
+            {/* Header */}
+            <div className="flex items-center gap-3 px-4 py-3 shrink-0"
+              style={{ borderBottom: "1px solid var(--border-card)" }}>
+              <FileText size={14} className="text-brand-400 shrink-0" />
+              <span className="text-sm font-medium flex-1 truncate" style={{ color: "var(--text-primary)" }}>
+                {previewDoc.title}
+              </span>
+              <a
+                href={`${BASE_URL}/chat/documents/${previewDoc.id}/content`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="p-1.5 rounded-lg text-slate-600 hover:text-brand-400 transition-colors"
+                title="Open in new tab">
+                <ExternalLink size={13} />
+              </a>
+              <button onClick={() => setPreviewDoc(null)}
+                className="p-1.5 rounded-lg text-slate-600 hover:text-slate-300 transition-colors">
+                <X size={14} />
+              </button>
+            </div>
+            {/* Content */}
+            <div className="flex-1 overflow-hidden">
+              <iframe
+                src={`${BASE_URL}/chat/documents/${previewDoc.id}/content`}
+                className="w-full h-full border-0"
+                title={previewDoc.title}
+              />
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -834,6 +1007,21 @@ export function AiCopilot() {
               }));
               break;
 
+            case "interactive":
+              setMessages(prev => prev.map(m =>
+                m.id === aId ? {
+                  ...m,
+                  interactive: {
+                    component: event.component,
+                    question: event.question,
+                    options: event.options,
+                    context: event.context,
+                    answered: false,
+                  },
+                } : m
+              ));
+              break;
+
             case "done":
               setMessages(prev => prev.map(m =>
                 m.id === aId ? { ...m, streaming: false } : m
@@ -876,6 +1064,31 @@ export function AiCopilot() {
 
   // Keep ref in sync so voice silence timer can call sendMessage
   useEffect(() => { sendMessageRef.current = sendMessage; }, [sendMessage]);
+
+  // ── Interactive widget submit ──────────────────────────────────────────────
+  const handleInteractiveSubmit = useCallback((msgId: string, selected: string[]) => {
+    // Look up the widget's context
+    const msg = messagesRef.current.find(m => m.id === msgId);
+    const context = msg?.interactive?.context ?? "";
+
+    // Mark widget as answered
+    setMessages(prev => prev.map(m =>
+      m.id === msgId && m.interactive
+        ? { ...m, interactive: { ...m.interactive, answered: true } }
+        : m
+    ));
+
+    // Build a context-specific reply
+    let reply: string;
+    if (context === "location_select") {
+      reply = selected.length === 1
+        ? `I meant location ${selected[0]}. Please show what's there.`
+        : `I meant locations ${selected.join(" and ")}. Please show what's in each of them.`;
+    } else {
+      reply = selected.length === 1 ? selected[0] : selected.join(", ");
+    }
+    void sendMessage(reply);
+  }, [sendMessage]);
 
   // Load TTS voices — Chrome fires onvoiceschanged async; Firefox/Safari return synchronously
   useEffect(() => {
@@ -1224,7 +1437,13 @@ export function AiCopilot() {
             </div>
           ) : (
             <div className="px-4 py-5 max-w-3xl mx-auto w-full">
-              {messages.map(m => <MessageBubble key={m.id} msg={m} />)}
+              {messages.map(m => (
+                <MessageBubble
+                  key={m.id}
+                  msg={m}
+                  onInteractiveSubmit={handleInteractiveSubmit}
+                />
+              ))}
               <div ref={bottomRef} className="h-2" />
             </div>
           )}
