@@ -322,7 +322,7 @@ export function Inventory() {
               <div className="overflow-x-auto">
                 <table className="w-full text-sm">
                   <thead>
-                    <tr className="border-b border-surface-border">
+                    <tr style={{ borderBottom: "2px solid var(--border-card)" }}>
                       {["SKU", "Name", "Category", "On Hand", "Reorder Level", "Unit Cost", "Status", ""].map((h) => (
                         <th key={h} className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wide" style={{ color: "var(--text-secondary)" }}>
                           {h}
@@ -330,7 +330,7 @@ export function Inventory() {
                       ))}
                     </tr>
                   </thead>
-                  <tbody className="divide-y divide-surface-border/50">
+                  <tbody>
                     {data.items.map((item) => (
                       <ItemRow key={item.id} item={item} />
                     ))}
@@ -600,7 +600,12 @@ export function Inventory() {
 
 function ItemRow({ item }: { item: ItemSummary }) {
   return (
-    <tr className="hover:bg-surface-hover/50 transition-colors group">
+    <tr
+      className="transition-colors group"
+      style={{ borderBottom: "1px solid var(--border-subtle)" }}
+      onMouseEnter={(e) => (e.currentTarget.style.background = "var(--bg-hover)")}
+      onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}
+    >
       <td className="px-4 py-3">
         <span className="font-mono text-xs text-brand-400">{item.sku}</span>
       </td>
