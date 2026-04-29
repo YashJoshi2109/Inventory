@@ -9,6 +9,7 @@ Provides:
   POST /ai/vision/analyze      — Gemini Vision image analysis
   POST /ai/metadata/suggest    — AI metadata suggestions for an item
 """
+import asyncio
 import base64
 import json as json_lib
 from datetime import datetime, timezone
@@ -85,6 +86,39 @@ _vision_health: dict[str, str | bool | None] = {
     "checked_at": None,
     "last_success_at": None,
 }
+
+# ── Cached vision clients (created once, reused across requests) ──────────────
+# Creating a new AsyncOpenAI / genai.Client per request leaks httpx connection
+# pools and gradually exhausts Render's 512 MB free-tier memory.
+_vision_gemini_client = None  # genai.Client — reused across requests
+_vision_or_client = None      # AsyncOpenAI for OpenRouter — reused across requests
+
+# Semaphore: allow only 1 concurrent vision request on Render free tier.
+# Two simultaneous PIL + Gemini calls can spike to ~400 MB+ and trigger OOM.
+_vision_semaphore = asyncio.Semaphore(1)
+
+
+def _get_vision_gemini_client():
+    global _vision_gemini_client
+    if _vision_gemini_client is None and settings.GEMINI_API_KEY:
+        from google import genai
+        _vision_gemini_client = genai.Client(api_key=settings.GEMINI_API_KEY)
+    return _vision_gemini_client
+
+
+def _get_vision_or_client():
+    global _vision_or_client
+    if _vision_or_client is None and settings.OPENROUTER_API_KEY:
+        from openai import AsyncOpenAI
+        _vision_or_client = AsyncOpenAI(
+            api_key=settings.OPENROUTER_API_KEY,
+            base_url="https://openrouter.ai/api/v1",
+            default_headers={
+                "HTTP-Referer": "https://sear-lab-inventory.app",
+                "X-Title": "SEAR Lab Smart Scan",
+            },
+        )
+    return _vision_or_client
 
 
 @router.get("/rate-limit", response_model=ChatRateLimitStatus)
@@ -349,16 +383,35 @@ async def analyze_vision(
             headers={"Retry-After": str(retry_after)},
         )
 
-    from google import genai
-    from google.genai import types as genai_types
+    # ── Concurrency guard — only 1 vision request at a time on Render free tier ─
+    # Two concurrent PIL + model calls can spike to ~400 MB+ and trigger OOM kill.
+    if _vision_semaphore.locked():
+        raise HTTPException(
+            status_code=503,
+            detail="Vision analysis busy — another scan is in progress. Please retry in a few seconds.",
+        )
 
-    client = genai.Client(api_key=settings.GEMINI_API_KEY) if settings.GEMINI_API_KEY else None
+    async with _vision_semaphore:
+        return await _run_vision_analysis(current_user, image, analysis_type, context)
+
+
+async def _run_vision_analysis(
+    current_user,
+    image: UploadFile,
+    analysis_type: str,
+    context: str,
+) -> VisionAnalysisResult:
+    """Inner implementation — called while holding the vision semaphore."""
+    import gc
+    from io import BytesIO
+
+    client = _get_vision_gemini_client()
 
     image_bytes = await image.read()
     if not image_bytes:
         raise HTTPException(status_code=400, detail="Uploaded image is empty")
 
-    # Reject images > 10 MB before doing any work (Pillow will compress down to ~50 KB)
+    # Reject images > 10 MB before doing any work
     if len(image_bytes) > 10 * 1024 * 1024:
         raise HTTPException(
             status_code=413,
@@ -367,16 +420,13 @@ async def analyze_vision(
 
     # Aggressively resize + compress image to keep peak memory well below 512 MB limit.
     # Target: ≤640px longest side, JPEG quality 65 → ~40-60 KB output.
-    # This is safe for Gemini Vision; models work well at this resolution.
     mime_type = image.content_type or "image/jpeg"
     try:
-        import gc
-        from io import BytesIO
         from PIL import Image as _PilImage
 
         buf_in = BytesIO(image_bytes)
-        del image_bytes  # free original bytes immediately
-        image_bytes = b""  # prevent accidental reuse
+        del image_bytes
+        image_bytes = b""
 
         with _PilImage.open(buf_in) as img:
             img = img.convert("RGB")
@@ -390,7 +440,6 @@ async def analyze_vision(
         gc.collect()
         mime_type = "image/jpeg"
     except Exception:
-        # If Pillow fails for any reason, continue with whatever bytes we have
         pass
 
     prompt_key = analysis_type if analysis_type in _VISION_PROMPTS else "full"
@@ -404,6 +453,8 @@ async def analyze_vision(
 
     # ── Try Gemini models first ────────────────────────────────────────────────
     if client is not None:
+        from google.genai import types as genai_types
+
         model_candidates = [settings.GEMINI_VISION_MODEL, *settings.GEMINI_VISION_FALLBACK_MODELS]
         seen: set[str] = set()
         ordered_models: list[str] = []
@@ -422,7 +473,7 @@ async def analyze_vision(
                         prompt_text,
                     ],
                 )
-                del image_bytes  # free immediately after handing to Gemini SDK
+                del image_bytes
                 now = datetime.now(timezone.utc).isoformat()
                 _vision_health["last_model_used"] = model_name
                 _vision_health["quota_limited"] = False
@@ -435,18 +486,15 @@ async def analyze_vision(
                 msg = str(exc)
                 _vision_health["last_model_used"] = model_name
                 _vision_health["checked_at"] = datetime.now(timezone.utc).isoformat()
-                # Quota / rate limit → try next model
                 if "RESOURCE_EXHAUSTED" in msg or "quota" in msg.lower() or "429" in msg:
                     quota_errors.append(f"{model_name}: quota/rate limited")
                     _vision_health["quota_limited"] = True
                     _vision_health["last_error"] = "quota/rate limited"
                     continue
-                # Model not found (bad name / region) → skip silently, try next
                 if "NOT_FOUND" in msg or "404" in msg or "not found" in msg.lower() or "not supported" in msg.lower():
                     quota_errors.append(f"{model_name}: model not available")
                     _vision_health["last_error"] = "model not available"
                     continue
-                # Any other error is fatal for this request
                 _vision_health["quota_limited"] = False
                 _vision_health["last_error"] = str(exc)
                 raise HTTPException(status_code=502, detail=f"Gemini Vision API error ({model_name}): {exc}") from exc
@@ -454,18 +502,10 @@ async def analyze_vision(
     # ── Fallback: OpenRouter vision models (tried in sequence) ────────────────
     if response is None and settings.OPENROUTER_API_KEY:
         import base64 as _b64
-        from openai import AsyncOpenAI as _AsyncOpenAI
+        _or_client = _get_vision_or_client()
         b64_image = _b64.b64encode(image_bytes).decode()
-        del image_bytes  # free raw bytes — b64 string is the only copy needed now
-        _or_client = _AsyncOpenAI(
-            api_key=settings.OPENROUTER_API_KEY,
-            base_url="https://openrouter.ai/api/v1",
-            default_headers={
-                "HTTP-Referer": "https://sear-lab-inventory.app",
-                "X-Title": "SEAR Lab Smart Scan",
-            },
-        )
-        # Build deduplicated ordered list: primary + fallbacks
+        del image_bytes  # free — b64 string is the only copy needed now
+
         _or_vision_models: list[str] = []
         _seen_or: set[str] = set()
         for _m in [settings.OPENROUTER_VISION_MODEL, *settings.OPENROUTER_VISION_FALLBACK_MODELS]:
@@ -485,19 +525,20 @@ async def analyze_vision(
                         ],
                     }],
                     temperature=0.1,
-                    max_tokens=1500,
+                    max_tokens=800,
                 )
-                # Wrap as a simple object so the parse block below works uniformly
+                del b64_image  # free b64 string after sending
                 class _FakeResponse:  # noqa: N801
                     text = or_resp.choices[0].message.content or ""
                 response = _FakeResponse()
+                del or_resp
                 now = datetime.now(timezone.utc).isoformat()
                 _vision_health["last_model_used"] = _or_model
                 _vision_health["quota_limited"] = False
                 _vision_health["last_error"] = None
                 _vision_health["checked_at"] = now
                 _vision_health["last_success_at"] = now
-                break  # success — stop trying further models
+                break
             except Exception as or_exc:
                 last_exc = or_exc
                 _vision_health["last_model_used"] = _or_model
@@ -519,12 +560,13 @@ async def analyze_vision(
         raise HTTPException(status_code=502, detail=f"Vision API error: {last_exc or 'no response from any provider'}")
 
     raw_text = response.text or ""
+    del response  # free model response object immediately
+    gc.collect()
 
     # Strip markdown code fences if present
     clean_text = raw_text.strip()
     if clean_text.startswith("```"):
         lines = clean_text.splitlines()
-        # drop first and last line (the fences)
         clean_text = "\n".join(lines[1:-1] if lines[-1].strip() == "```" else lines[1:])
 
     try:
@@ -541,7 +583,6 @@ async def analyze_vision(
             analysis_type=analysis_type,
         )
     except (json_lib.JSONDecodeError, KeyError, TypeError):
-        # Return a partial result with the raw text so the frontend can still display something
         return VisionAnalysisResult(
             detected_items=[],
             ocr_text="",
