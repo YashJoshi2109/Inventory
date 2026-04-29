@@ -1,0 +1,357 @@
+# Instincts generated from https://github.com/YashJoshi2109/Inventory
+# Generated: 2026-04-29T04:31:48.059Z
+# Version: 2.0
+# NOTE: This file supplements (does not replace) any existing curated instincts.
+# High-confidence manually curated instincts should be preserved alongside these.
+
+---
+id: Inventory-commit-conventional
+trigger: "when writing a commit message"
+confidence: 0.85
+domain: git
+source: repo-analysis
+source_repo: https://github.com/YashJoshi2109/Inventory
+---
+
+# Inventory Commit Conventional
+
+## Action
+
+Use conventional commit format with prefixes: feat
+
+## Evidence
+
+- 1 commits analyzed
+- Detected conventional commit pattern
+- Examples: feat: EPC barcode labels, light theme overhaul, scan loop fix, real DB data
+
+---
+id: Inventory-commit-length
+trigger: "when writing a commit message"
+confidence: 0.6
+domain: git
+source: repo-analysis
+source_repo: https://github.com/YashJoshi2109/Inventory
+---
+
+# Inventory Commit Length
+
+## Action
+
+Write moderate-length commit messages (~75 characters)
+
+## Evidence
+
+- Average commit message length: 75 chars
+- Based on 1 commits
+
+---
+id: Inventory-naming-files
+trigger: "when creating a new file"
+confidence: 0.8
+domain: code-style
+source: repo-analysis
+source_repo: https://github.com/YashJoshi2109/Inventory
+---
+
+# Inventory Naming Files
+
+## Action
+
+Use PascalCase naming convention
+
+## Evidence
+
+- Analyzed file naming patterns in repository
+- Dominant pattern: PascalCase
+
+---
+id: Inventory-import-alias
+trigger: "when importing modules"
+confidence: 0.85
+domain: code-style
+source: repo-analysis
+source_repo: https://github.com/YashJoshi2109/Inventory
+---
+
+# Inventory Import Alias
+
+## Action
+
+Use path aliases (@/, ~/) instead of relative imports
+
+## Evidence
+
+- Import analysis shows alias pattern
+- Example: import { x } from '@/lib/x'
+
+---
+id: Inventory-export-style
+trigger: "when exporting from a module"
+confidence: 0.7
+domain: code-style
+source: repo-analysis
+source_repo: https://github.com/YashJoshi2109/Inventory
+---
+
+# Inventory Export Style
+
+## Action
+
+Prefer named exports
+
+## Evidence
+
+- Export pattern analysis
+- Dominant style: named
+
+---
+id: Inventory-arch-type-based
+trigger: "when adding new code"
+confidence: 0.8
+domain: architecture
+source: repo-analysis
+source_repo: https://github.com/YashJoshi2109/Inventory
+---
+
+# Inventory Arch Type Based
+
+## Action
+
+Place code in the appropriate type folder (components/, services/, utils/, etc.)
+
+## Evidence
+
+- Type-based module organization detected
+- Folders: 
+
+---
+id: Inventory-test-separate
+trigger: "when writing tests"
+confidence: 0.8
+domain: testing
+source: repo-analysis
+source_repo: https://github.com/YashJoshi2109/Inventory
+---
+
+# Inventory Test Separate
+
+## Action
+
+Place tests in the tests/ or __tests__/ directory, mirroring src structure
+
+## Evidence
+
+- Separate test directory pattern detected
+- Tests live in dedicated test folders
+
+---
+id: inventory-instinct-file-naming
+trigger: "When creating a new file"
+confidence: 0.9
+domain: code-style
+source: repo-analysis
+source_repo: YashJoshi2109/Inventory
+---
+
+# Inventory Instinct File Naming
+
+## Action
+
+Name the file using PascalCase (e.g., MyComponent.tsx)
+
+## Evidence
+
+- Pattern in namingConventions.files: PascalCase
+
+---
+id: inventory-instinct-function-naming
+trigger: "When declaring a new function"
+confidence: 0.9
+domain: code-style
+source: repo-analysis
+source_repo: YashJoshi2109/Inventory
+---
+
+# Inventory Instinct Function Naming
+
+## Action
+
+Name the function using camelCase (e.g., fetchData)
+
+## Evidence
+
+- Pattern in namingConventions.functions: camelCase
+
+---
+id: inventory-instinct-class-naming
+trigger: "When defining a new class"
+confidence: 0.9
+domain: code-style
+source: repo-analysis
+source_repo: YashJoshi2109/Inventory
+---
+
+# Inventory Instinct Class Naming
+
+## Action
+
+Name the class using PascalCase (e.g., InventoryManager)
+
+## Evidence
+
+- Pattern in namingConventions.classes: PascalCase
+
+---
+id: inventory-instinct-constant-naming
+trigger: "When declaring a constant"
+confidence: 0.9
+domain: code-style
+source: repo-analysis
+source_repo: YashJoshi2109/Inventory
+---
+
+# Inventory Instinct Constant Naming
+
+## Action
+
+Name the constant using SCREAMING_SNAKE_CASE (e.g., MAX_ITEMS)
+
+## Evidence
+
+- Pattern in namingConventions.constants: SCREAMING_SNAKE_CASE
+
+---
+id: inventory-instinct-import-style
+trigger: "When importing modules"
+confidence: 0.8
+domain: code-style
+source: repo-analysis
+source_repo: YashJoshi2109/Inventory
+---
+
+# Inventory Instinct Import Style
+
+## Action
+
+Use alias import style
+
+## Evidence
+
+- Pattern in importStyle: alias
+
+---
+id: inventory-instinct-export-style
+trigger: "When exporting modules or functions"
+confidence: 0.8
+domain: code-style
+source: repo-analysis
+source_repo: YashJoshi2109/Inventory
+---
+
+# Inventory Instinct Export Style
+
+## Action
+
+Use named exports
+
+## Evidence
+
+- Pattern in exportStyle: named
+
+---
+id: inventory-instinct-commit-format
+trigger: "When writing a git commit message"
+confidence: 0.9
+domain: git
+source: repo-analysis
+source_repo: YashJoshi2109/Inventory
+---
+
+# Inventory Instinct Commit Format
+
+## Action
+
+Use the 'feat' prefix followed by a concise description (e.g., feat: add new inventory filter)
+
+## Evidence
+
+- Pattern in commits.prefixes: feat
+- Seen in commit: 'feat: EPC barcode labels, light theme overhaul, scan loop fix, real DB data'
+
+---
+id: inventory-instinct-commit-length
+trigger: "When composing a commit message"
+confidence: 0.7
+domain: git
+source: repo-analysis
+source_repo: YashJoshi2109/Inventory
+---
+
+# Inventory Instinct Commit Length
+
+## Action
+
+Keep the commit message around 75 characters on average
+
+## Evidence
+
+- Pattern in commits.averageLength: 75
+
+---
+id: inventory-instinct-error-handling
+trigger: "When handling errors in code"
+confidence: 0.8
+domain: code-style
+source: repo-analysis
+source_repo: YashJoshi2109/Inventory
+---
+
+# Inventory Instinct Error Handling
+
+## Action
+
+Use try-catch blocks for error handling
+
+## Evidence
+
+- Pattern in errorHandling.style: try-catch
+
+---
+id: inventory-instinct-test-location
+trigger: "When adding new tests"
+confidence: 0.8
+domain: testing
+source: repo-analysis
+source_repo: YashJoshi2109/Inventory
+---
+
+# Inventory Instinct Test Location
+
+## Action
+
+Place test files in a separate folder from source code
+
+## Evidence
+
+- Pattern in architecture.folderStructure.testLocation: separate
+
+---
+id: inventory-instinct-module-organization
+trigger: "When organizing modules"
+confidence: 0.8
+domain: architecture
+source: repo-analysis
+source_repo: YashJoshi2109/Inventory
+---
+
+# Inventory Instinct Module Organization
+
+## Action
+
+Group modules by type (e.g., components, utils, services)
+
+## Evidence
+
+- Pattern in architecture.moduleOrganization: type-based
+
