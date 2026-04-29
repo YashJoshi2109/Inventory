@@ -351,8 +351,8 @@ export function Alerts() {
                   "flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-all",
                   activeTab === id ? "" : "text-slate-500 hover:text-slate-300"
                 )}
-                style={activeTab === id ? { color: "var(--text-primary)" } : {}}
                 style={activeTab === id ? {
+                  color: "var(--text-primary)",
                   background: "rgba(34,211,238,0.1)",
                   border: "1px solid rgba(34,211,238,0.2)",
                 } : { border: "1px solid transparent" }}
