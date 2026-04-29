@@ -24,12 +24,13 @@ export default {
           dark: "#F97316",
         },
         surface: {
-          DEFAULT: "#07091A",
-          card: "#0D1228",
+          DEFAULT: "var(--bg-page)",
+          card: "var(--bg-card-solid)",
+          hover: "var(--bg-hover)",
           light: "#EDF1F8",
           "card-light": "#FFFFFF",
-          border: "rgba(148,163,184,0.22)",
-          "border-dark": "rgba(255,255,255,0.08)",
+          border: "var(--border-card)",
+          "border-dark": "var(--border-subtle)",
         },
       },
       fontFamily: {

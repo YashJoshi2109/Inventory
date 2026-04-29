@@ -1020,7 +1020,7 @@ export function AiCopilot() {
             className="w-full flex items-center gap-2 px-3 py-2.5 rounded-xl text-xs transition-all"
             style={showKB
               ? { background: "rgba(34,211,238,0.07)", border: "1px solid rgba(34,211,238,0.15)", color: "#22d3ee" }
-              : { background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.07)", color: "#64748b" }}>
+              : { background: "var(--bg-card)", border: "1px solid var(--border-card)", color: "var(--text-muted)" }}>
             <FileText size={12} />
             <span>Knowledge Base</span>
             <ChevronRight size={11} className={clsx("ml-auto transition-transform", showKB && "rotate-180")} />
@@ -1153,7 +1153,7 @@ export function AiCopilot() {
             )}
             style={showKB
               ? { background: "rgba(34,211,238,0.08)", border: "1px solid rgba(34,211,238,0.18)", color: "#22d3ee" }
-              : { background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.08)", color: "#64748b" }}>
+              : { background: "var(--bg-card)", border: "1px solid var(--border-card)", color: "var(--text-muted)" }}>
             <FileText size={12} />Knowledge Base
           </button>
         </div>
@@ -1265,7 +1265,7 @@ export function AiCopilot() {
                   ? "1px solid rgba(248,113,113,0.35)"
                   : streaming
                   ? "1px solid rgba(34,211,238,0.22)"
-                  : "1px solid rgba(255,255,255,0.09)",
+                  : "1px solid var(--border-card)",
                 boxShadow: isListening ? "0 0 20px rgba(248,113,113,0.07)" : streaming ? "0 0 20px rgba(34,211,238,0.06)" : "none",
               }}>
 
@@ -1377,7 +1377,7 @@ export function AiCopilot() {
                 )}
                 style={(input.trim() || attachedImage) && !streaming
                   ? { background: "linear-gradient(135deg,#0891b2,#22d3ee)", boxShadow: "0 4px 14px rgba(34,211,238,0.35)" }
-                  : { background: "rgba(255,255,255,0.06)" }}>
+                  : { background: "var(--bg-card)" }}>
                 <Send size={14} className="text-white" style={{ transform: "translateX(1px)" }} />
               </button>
             </div>
@@ -1466,7 +1466,7 @@ export function AiCopilot() {
                     ? "1.5px solid rgba(168,85,247,0.4)"
                     : streaming
                     ? "1.5px solid rgba(34,211,238,0.4)"
-                    : "1.5px solid rgba(255,255,255,0.07)",
+                    : "1.5px solid var(--border-card)",
                 }}>
                 <div className="transition-all duration-300">
                   {streaming
@@ -1515,8 +1515,8 @@ export function AiCopilot() {
             {/* Live transcript / pending text */}
             {(interimTranscript || input) && (
               <div className="max-w-xs w-full text-center px-5 py-3 rounded-2xl"
-                style={{ background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.08)" }}>
-                <p className="text-sm text-slate-300 leading-relaxed">
+                style={{ background: "var(--bg-card)", border: "1px solid var(--border-card)" }}>
+                <p className="text-sm leading-relaxed" style={{ color: "var(--text-primary)" }}>
                   {input || interimTranscript}
                 </p>
                 {interimTranscript && input !== interimTranscript && (
@@ -1532,7 +1532,7 @@ export function AiCopilot() {
               <button
                 onClick={() => { window.speechSynthesis?.cancel(); setTtsActive(false); }}
                 className="px-5 py-2.5 rounded-2xl text-sm font-medium text-slate-400 hover:text-white transition-all"
-                style={{ background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.1)" }}>
+                style={{ background: "var(--bg-card)", border: "1px solid var(--border-card)", color: "var(--text-muted)" }}>
                 Skip
               </button>
             )}

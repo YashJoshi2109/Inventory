@@ -1,17 +1,26 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { aiApi } from "@/api/transactions";
+import { aiApi, transactionsApi } from "@/api/transactions";
 import { Card, CardContent, CardHeader } from "@/components/ui/Card";
 import { Input } from "@/components/ui/Input";
 import { Skeleton } from "@/components/ui/Skeleton";
 import { Badge } from "@/components/ui/Badge";
-import { BrainCircuit, Search, TrendingDown, Calendar, Zap } from "lucide-react";
+import { BrainCircuit, Search, TrendingDown, Calendar, Zap, AlertTriangle, Sparkles } from "lucide-react";
 import { clsx } from "clsx";
 import { useDebounce } from "@/hooks/useDebounce";
+
+const EXAMPLE_QUERIES = [
+  "ethanol for cell culture",
+  "PCR tubes low stock",
+  "sodium chloride reagent grade",
+  "safety equipment PPE",
+  "micropipette tips 200µL",
+];
 
 export function AiInsights() {
   const [searchQuery, setSearchQuery] = useState("");
   const [forecastItemId, setForecastItemId] = useState<number | null>(null);
+  const [forecastItemName, setForecastItemName] = useState<string>("");
   const debouncedSearch = useDebounce(searchQuery, 400);
 
   const { data: searchResults, isLoading: searchLoading } = useQuery({
@@ -26,6 +35,20 @@ export function AiInsights() {
     queryFn: () => aiApi.forecast(forecastItemId!),
     enabled: forecastItemId !== null,
   });
+
+  const { data: alerts, isLoading: alertsLoading } = useQuery({
+    queryKey: ["alerts"],
+    queryFn: transactionsApi.getAlerts,
+    staleTime: 60_000,
+  });
+
+  // Filter only anomaly-type alerts that haven't been resolved
+  const anomalyAlerts = alerts?.filter((a) => a.alert_type === "anomaly" && !a.is_resolved) ?? [];
+
+  const handleHitClick = (hitId: number, hitName: string) => {
+    setForecastItemId(hitId);
+    setForecastItemName(hitName);
+  };
 
   return (
     <div className="p-4 lg:p-6 pb-24 lg:pb-6 space-y-6 animate-fade-in max-w-2xl">
@@ -59,6 +82,42 @@ export function AiInsights() {
             leftIcon={<Search size={15} />}
           />
 
+          {/* Empty state — no query yet */}
+          {!debouncedSearch && (
+            <div className="mt-5 text-center py-4 space-y-3">
+              <div className="w-10 h-10 mx-auto rounded-xl bg-purple-600/10 flex items-center justify-center">
+                <Sparkles size={18} className="text-purple-400" />
+              </div>
+              <div>
+                <p className="text-sm font-medium" style={{ color: "var(--text-primary)" }}>
+                  Search your inventory using plain English
+                </p>
+                <p className="text-xs mt-1" style={{ color: "var(--text-muted)" }}>
+                  The AI understands context, synonyms, and categories. Try one of these:
+                </p>
+              </div>
+              <div className="flex flex-wrap gap-2 justify-center mt-2">
+                {EXAMPLE_QUERIES.map((q) => (
+                  <button
+                    key={q}
+                    onClick={() => setSearchQuery(q)}
+                    className="px-3 py-1.5 rounded-full text-xs transition-colors"
+                    style={{
+                      background: "var(--bg-card)",
+                      border: "1px solid var(--border-card)",
+                      color: "var(--text-secondary)",
+                    }}
+                  >
+                    {q}
+                  </button>
+                ))}
+              </div>
+              <p className="text-xs" style={{ color: "var(--text-muted)" }}>
+                Click a result to instantly load its demand forecast below.
+              </p>
+            </div>
+          )}
+
           {searchLoading && (
             <div className="mt-4 space-y-2">
               {Array.from({ length: 3 }).map((_, i) => (
@@ -69,15 +128,20 @@ export function AiInsights() {
 
           {searchResults && searchResults.hits.length > 0 && (
             <div className="mt-4 space-y-2">
-              <p className="text-xs" style={{ color: "var(--text-muted)" }}>{searchResults.total} matches</p>
+              <p className="text-xs" style={{ color: "var(--text-muted)" }}>{searchResults.total} matches — click to view forecast</p>
               {(searchResults.hits as Array<{
                 id: number; sku: string; name: string; category: string | null;
                 total_quantity: number; unit: string; score: number;
               }>).map((hit) => (
                 <div
                   key={hit.id}
-                  className="flex items-center gap-3 p-3 rounded-xl bg-surface hover:bg-surface-hover cursor-pointer transition-colors"
-                  onClick={() => setForecastItemId(hit.id)}
+                  className={clsx(
+                    "flex items-center gap-3 p-3 rounded-xl cursor-pointer transition-colors",
+                    forecastItemId === hit.id
+                      ? "bg-purple-600/10 border border-purple-500/40"
+                      : "bg-surface hover:bg-surface-hover border border-transparent",
+                  )}
+                  onClick={() => handleHitClick(hit.id, hit.name)}
                 >
                   <div className="flex-1">
                     <div className="flex items-center gap-2">
@@ -97,7 +161,7 @@ export function AiInsights() {
           )}
 
           {searchResults && searchResults.total === 0 && debouncedSearch.length >= 2 && (
-            <p className="mt-4 text-sm text-slate-500 text-center">No matches found. Try different terms.</p>
+            <p className="mt-4 text-sm text-center" style={{ color: "var(--text-muted)" }}>No matches found. Try different terms.</p>
           )}
         </CardContent>
       </Card>
@@ -109,6 +173,9 @@ export function AiInsights() {
             <h3 className="text-sm font-semibold flex items-center gap-2" style={{ color: "var(--text-primary)" }}>
               <TrendingDown size={15} className="text-blue-400" />
               Demand Forecast
+              {forecastItemName && (
+                <span className="font-normal text-xs ml-1" style={{ color: "var(--text-muted)" }}>— {forecastItemName}</span>
+              )}
             </h3>
           </CardHeader>
           <CardContent>
@@ -177,6 +244,60 @@ export function AiInsights() {
           </CardContent>
         </Card>
       )}
+
+      {/* Anomaly Detection */}
+      <Card>
+        <CardHeader>
+          <h3 className="text-sm font-semibold flex items-center gap-2" style={{ color: "var(--text-primary)" }}>
+            <AlertTriangle size={15} className="text-amber-400" />
+            Anomaly Detection
+          </h3>
+          <p className="text-xs mt-0.5" style={{ color: "var(--text-muted)" }}>
+            Statistical &amp; ML-based flags on unusual inventory activity
+          </p>
+        </CardHeader>
+        <CardContent>
+          {alertsLoading ? (
+            <div className="space-y-2">
+              {Array.from({ length: 3 }).map((_, i) => (
+                <Skeleton key={i} className="h-14 w-full" rounded="xl" />
+              ))}
+            </div>
+          ) : anomalyAlerts.length > 0 ? (
+            <div className="space-y-2">
+              {anomalyAlerts.map((alert) => (
+                <div
+                  key={alert.id}
+                  className="flex items-start gap-3 p-3 rounded-xl border border-amber-500/25 bg-amber-500/5"
+                >
+                  <AlertTriangle size={15} className="text-amber-400 mt-0.5 shrink-0" />
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium truncate" style={{ color: "var(--text-primary)" }}>
+                      {alert.item_name ?? "Unknown item"}
+                    </p>
+                    <p className="text-xs mt-0.5" style={{ color: "var(--text-muted)" }}>
+                      {alert.message}
+                    </p>
+                  </div>
+                  <span className="text-xs shrink-0" style={{ color: "var(--text-muted)" }}>
+                    {new Date(alert.created_at).toLocaleDateString()}
+                  </span>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="py-6 text-center space-y-2">
+              <div className="w-9 h-9 mx-auto rounded-xl bg-emerald-600/10 flex items-center justify-center">
+                <AlertTriangle size={16} className="text-emerald-400" />
+              </div>
+              <p className="text-sm font-medium" style={{ color: "var(--text-primary)" }}>No anomalies detected</p>
+              <p className="text-xs" style={{ color: "var(--text-muted)" }}>
+                The system continuously monitors withdrawals for unusual patterns using statistical and ML-based detection.
+              </p>
+            </div>
+          )}
+        </CardContent>
+      </Card>
     </div>
   );
 }

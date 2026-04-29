@@ -25,9 +25,11 @@
     --text-secondary: #2D4060;
     --text-muted: #6278A0;
 
-    /* Glass borders — bright top edge + subtle sides */
-    --border-subtle: rgba(255, 255, 255, 0.55);
-    --border-card: rgba(255, 255, 255, 0.72);
+    /* Glass borders — visible on both glass and opaque light backgrounds */
+    --border-subtle: rgba(37, 99, 235, 0.10);
+    --border-card: rgba(37, 99, 235, 0.18);
+    /* Bright inner edge for glass shimmer effect */
+    --border-glass-top: rgba(255, 255, 255, 0.85);
 
     --accent: #2563EB;
     --accent-hover: #1D4ED8;
@@ -179,6 +181,13 @@
     -webkit-backdrop-filter: blur(24px) saturate(1.8) brightness(1.04);
     border: 1px solid var(--border-card);
     box-shadow: var(--shadow-card);
+  }
+
+  /* Light mode: use glass top-edge shimmer */
+  :root:not([data-theme="dark"]) .glass,
+  :root:not([data-theme="dark"]) .glass-elevated {
+    border-top-color: var(--border-glass-top);
+    border-left-color: rgba(255, 255, 255, 0.70);
   }
 
   .glass-elevated {
@@ -689,5 +698,25 @@
 
   .animate-float {
     animation: float 3s ease-in-out infinite;
+  }
+
+  /* ── Theme-adaptive form controls ── */
+  .theme-input {
+    background: var(--bg-input);
+    border: 1px solid var(--border-card);
+    color: var(--text-primary);
+  }
+  .theme-input::placeholder {
+    color: var(--text-muted);
+  }
+  .theme-input:focus {
+    outline: none;
+    border-color: rgba(var(--accent-rgb), 0.5);
+    box-shadow: 0 0 0 3px rgba(var(--accent-rgb), 0.08);
+  }
+
+  /* ── Surface hover utility ── */
+  .surface-hover:hover {
+    background: var(--bg-hover);
   }
 }

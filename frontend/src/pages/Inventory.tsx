@@ -231,8 +231,8 @@ export function Inventory() {
             defaultValue={q}
             onChange={(e) => setFilter("q", e.target.value)}
             placeholder="Search by name, SKU, supplier…"
-            className="w-full pl-9 pr-4 py-2.5 text-sm bg-surface-card border border-surface-border rounded-lg placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-brand-500"
-            style={{ color: "var(--text-primary)" }}
+            className="w-full pl-9 pr-4 py-2.5 text-sm rounded-lg placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-brand-500"
+            style={{ background: "var(--bg-input)", border: "1px solid var(--border-card)", color: "var(--text-primary)" }}
           />
         </div>
         <div className="flex gap-2 shrink-0">
@@ -269,8 +269,13 @@ export function Inventory() {
               "px-3 py-1.5 rounded-lg text-sm font-medium whitespace-nowrap transition-colors",
               status === f.value
                 ? "bg-brand-600 text-white"
-                : "bg-surface-card border border-surface-border hover:text-white"
+                : ""
             )}
+            style={status !== f.value ? {
+              background: "var(--bg-card)",
+              border: "1px solid var(--border-card)",
+              color: "var(--text-secondary)",
+            } : undefined}
           >
             {f.label}
           </button>
@@ -281,8 +286,8 @@ export function Inventory() {
           <select
             value={categoryId ?? ""}
             onChange={(e) => setFilter("category_id", e.target.value)}
-            className="px-3 py-1.5 rounded-lg text-sm bg-surface-card border border-surface-border focus:outline-none focus:ring-2 focus:ring-brand-500"
-            style={{ color: "var(--text-secondary)" }}
+            className="px-3 py-1.5 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
+            style={{ background: "var(--bg-card)", border: "1px solid var(--border-card)", color: "var(--text-secondary)" }}
           >
             <option value="">All Categories</option>
             {categories.map((c) => (
@@ -451,7 +456,7 @@ export function Inventory() {
                   <span
                     className={clsx(
                       "w-4 h-4 rounded-full border-2 shrink-0",
-                      selected ? "border-brand-400 bg-brand-500" : "border-slate-600",
+                      selected ? "border-brand-400 bg-brand-500" : "border-surface-border",
                     )}
                   />
                 </div>
@@ -462,8 +467,8 @@ export function Inventory() {
                     value={printCategoryId}
                     onChange={(e) => setPrintCategoryId(e.target.value)}
                     onClick={(e) => e.stopPropagation()}
-                    className="mt-3 w-full px-3 py-2 rounded-lg text-sm bg-surface-base border border-surface-border focus:outline-none focus:ring-2 focus:ring-brand-500"
-                    style={{ color: "var(--text-primary)" }}
+                    className="mt-3 w-full px-3 py-2 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
+                    style={{ background: "var(--bg-input)", border: "1px solid var(--border-card)", color: "var(--text-primary)" }}
                   >
                     <option value="">— Choose a category —</option>
                     {(categories ?? []).map((c) => (

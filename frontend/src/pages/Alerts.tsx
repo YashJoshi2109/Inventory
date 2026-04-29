@@ -325,8 +325,8 @@ export function Alerts() {
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             placeholder="Search alerts..."
-            className="w-full pl-8 pr-8 py-2 rounded-xl text-sm bg-white/[0.04] border border-white/[0.07] placeholder-slate-500 focus:outline-none focus:border-brand-500/40 transition-colors"
-            style={{ color: "var(--text-primary)" }}
+            className="w-full pl-8 pr-8 py-2 rounded-xl text-sm placeholder-slate-500 focus:outline-none transition-colors"
+            style={{ background: "var(--bg-input)", border: "1px solid var(--border-card)", color: "var(--text-primary)" }}
           />
           {search && (
             <button
@@ -340,7 +340,7 @@ export function Alerts() {
 
         {/* Tabs */}
         <div className="flex items-center gap-1 rounded-xl p-1 flex-wrap"
-          style={{ background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.06)" }}>
+          style={{ background: "var(--bg-card)", border: "1px solid var(--border-card)" }}>
           {TABS.map(({ id, label, icon: Icon }) => {
             const count = tabCount(id, activeAlerts, roleRequests, resolvedAlerts);
             return (
@@ -349,13 +349,13 @@ export function Alerts() {
                 onClick={() => setActiveTab(id)}
                 className={clsx(
                   "flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-all",
-                  activeTab === id ? "" : "text-slate-500 hover:text-slate-300"
+                  activeTab === id ? "" : ""
                 )}
                 style={activeTab === id ? {
                   color: "var(--text-primary)",
                   background: "rgba(34,211,238,0.1)",
                   border: "1px solid rgba(34,211,238,0.2)",
-                } : { border: "1px solid transparent" }}
+                } : { border: "1px solid transparent", background: "transparent", color: "var(--text-muted)" }}
               >
                 <Icon size={12} />
                 {label}
@@ -417,7 +417,7 @@ export function Alerts() {
               <h3 className="text-[10px] font-bold text-slate-600 uppercase tracking-widest">
                 Inventory Alerts
               </h3>
-              <div className="h-px flex-1" style={{ background: "rgba(255,255,255,0.05)" }} />
+              <div className="h-px flex-1" style={{ background: "var(--border-subtle)" }} />
             </div>
           )}
           {filteredAlerts.length === 0 && activeTab === "inventory" ? (
@@ -503,7 +503,7 @@ function InventoryAlertCard({
       className="relative rounded-2xl overflow-hidden group"
       style={{
         background: resolved ? "var(--bg-card)" : `linear-gradient(180deg, ${config.bg}, transparent)`,
-        border: `1px solid ${resolved ? "rgba(255,255,255,0.04)" : config.border}`,
+        border: `1px solid ${resolved ? "var(--border-card)" : config.border}`,
         boxShadow: resolved ? "none" : `0 4px 20px ${config.bg}`,
       }}
     >
@@ -515,7 +515,7 @@ function InventoryAlertCard({
         {/* Icon */}
         <div className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0 mt-0.5"
           style={{
-            background: resolved ? "rgba(255,255,255,0.03)" : config.badgeBg,
+            background: resolved ? "var(--bg-card)" : config.badgeBg,
             border: `1px solid ${resolved ? "rgba(255,255,255,0.06)" : config.border}`,
           }}>
           <SeverityIcon size={17} style={{ color: resolved ? "var(--text-muted)" : config.color }} />
