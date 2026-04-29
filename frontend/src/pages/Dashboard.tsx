@@ -358,7 +358,7 @@ function ActivityFlowChart({ activity }: { activity: InventoryEvent[] }) {
 
   return (
     <div
-      className="rounded-2xl overflow-hidden"
+      className="rounded-2xl overflow-hidden h-full flex flex-col"
       style={{
         background: "var(--bg-card)",
         border: "1px solid var(--border-card)",
@@ -368,7 +368,7 @@ function ActivityFlowChart({ activity }: { activity: InventoryEvent[] }) {
     >
       {/* header */}
       <div
-        className="px-5 py-4 flex items-center justify-between gap-3"
+        className="px-5 py-4 flex items-center justify-between gap-3 shrink-0"
         style={{ borderBottom: "1px solid var(--border-subtle)" }}
       >
         <div>
@@ -413,7 +413,7 @@ function ActivityFlowChart({ activity }: { activity: InventoryEvent[] }) {
       </div>
 
       {/* chart */}
-      <div className="px-4 pt-4 pb-3">
+      <div className="px-4 pt-4 pb-3 flex-1 flex flex-col">
         {/* legend */}
         <div className="flex gap-4 mb-3">
           {[
@@ -432,8 +432,9 @@ function ActivityFlowChart({ activity }: { activity: InventoryEvent[] }) {
           ))}
         </div>
 
-        <ResponsiveContainer width="100%" height={200}>
-          <AreaChart data={chartData} margin={{ top: 4, right: 4, left: -20, bottom: 0 }}>
+        <div className="flex-1" style={{ minHeight: 180 }}>
+        <ResponsiveContainer width="100%" height="100%">
+          <AreaChart data={chartData} margin={{ top: 4, right: 4, left: 0, bottom: 0 }}>
             <defs>
               <linearGradient id="gradIn" x1="0" y1="0" x2="0" y2="1">
                 <stop offset="0%" stopColor="var(--accent)" stopOpacity={0.35} />
@@ -469,7 +470,8 @@ function ActivityFlowChart({ activity }: { activity: InventoryEvent[] }) {
                 fontSize: 10,
                 fontFamily: "'Outfit', sans-serif",
               }}
-              width={28}
+              width={36}
+              allowDecimals={false}
             />
             <Tooltip content={<ChartTooltip />} />
             <Area
@@ -492,6 +494,7 @@ function ActivityFlowChart({ activity }: { activity: InventoryEvent[] }) {
             />
           </AreaChart>
         </ResponsiveContainer>
+        </div>
       </div>
     </div>
   );
@@ -507,7 +510,7 @@ function CategoryDonut({
 
   return (
     <div
-      className="rounded-2xl overflow-hidden"
+      className="rounded-2xl overflow-hidden h-full"
       style={{
         background: "var(--bg-card)",
         border: "1px solid var(--border-card)",
@@ -1133,10 +1136,11 @@ export function Dashboard() {
       </motion.div>
 
       {/* ── Charts row ── */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 items-stretch">
         {/* Activity flow — 2 cols */}
-        <div className="lg:col-span-2">
+        <div className="lg:col-span-2 flex flex-col">
           <motion.div
+            className="flex-1 flex flex-col"
             variants={animationVariants.fadeInUp}
             initial="hidden"
             whileInView="visible"
@@ -1148,6 +1152,7 @@ export function Dashboard() {
 
         {/* Category donut — 1 col */}
         <motion.div
+          className="flex flex-col"
           variants={animationVariants.fadeInUp}
           initial="hidden"
           whileInView="visible"
