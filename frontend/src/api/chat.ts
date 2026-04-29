@@ -103,7 +103,7 @@ export const chatApi = {
     form.append("content", content);
     if (image) form.append("image", image);
 
-    const response = await fetch(url, {
+    const doRequest = () => fetch(url, {
       method: "POST",
       headers: {
         Accept: "text/event-stream",
@@ -113,6 +113,22 @@ export const chatApi = {
       body: form,
       signal,
     });
+
+    let response: Response;
+    try {
+      response = await doRequest();
+    } catch (netErr) {
+      // Network-level failure (backend sleeping, CORS, offline)
+      onEvent({ type: "error", message: "Cannot reach the server. The backend may be starting up — please wait a moment and try again." });
+      return;
+    }
+
+    // 523 = Cloudflare "Origin Unreachable" (Render sleeping)
+    // 502/503/504 = backend cold-starting or overloaded
+    if (response.status === 523 || response.status === 502 || response.status === 503 || response.status === 504) {
+      onEvent({ type: "error", message: "The server is waking up (cold start). Please try again in 15–30 seconds." });
+      return;
+    }
 
     if (!response.ok) {
       const raw = await response.text().catch(() => "");

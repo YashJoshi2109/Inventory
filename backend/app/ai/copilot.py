@@ -148,8 +148,10 @@ async def run_copilot(
     # If no OPENROUTER_API_KEY is configured, we fall through to Gemini as
     # primary (legacy behavior) and then _openai_compat_fallback → OpenAI.
     if settings.OPENROUTER_API_KEY:
+        # Stream directly — no buffering so SSE tokens reach the client immediately.
+        # Only fall through to Gemini if OpenRouter fails BEFORE sending the first token.
+        _started = False
         try:
-            buffer: list[str] = []
             async for chunk in _run_openai_compat_loop(
                 client=_get_openrouter_client(),
                 model=settings.OPENROUTER_MODEL,
@@ -158,11 +160,14 @@ async def run_copilot(
                 actor_id=actor_id,
                 actor_roles=actor_roles,
             ):
-                buffer.append(chunk)
-            for chunk in buffer:
+                _started = True
                 yield chunk
             return
         except Exception as exc:
+            if _started:
+                # Tokens already sent — gracefully terminate the stream.
+                yield _sse({"type": "error", "message": "Connection to the AI service was interrupted. Please try again."})
+                return
             log.warning("OpenRouter primary error (%s): falling through to Gemini/OpenAI", type(exc).__name__)
 
     # ── Secondary: Gemini (legacy primary path) ────────────────────────────
@@ -532,7 +537,7 @@ async def _openai_compat_fallback(
 
     for provider_name, get_client, model in providers:
         log.info("Copilot: trying %s (%s)", provider_name, model)
-        buffer: list[str] = []
+        _started = False
         try:
             async for chunk in _run_openai_compat_loop(
                 client=get_client(),
@@ -542,14 +547,14 @@ async def _openai_compat_fallback(
                 actor_id=actor_id,
                 actor_roles=actor_roles,
             ):
-                buffer.append(chunk)
+                _started = True
+                yield chunk
         except Exception as exc:
+            if _started:
+                yield _sse({"type": "error", "message": "Connection to the AI service was interrupted. Please try again."})
+                return
             log.warning("%s error (%s): trying next provider", provider_name, type(exc).__name__)
             continue
-
-        # Success — yield buffered chunks
-        for chunk in buffer:
-            yield chunk
         return
 
     # All LLM providers exhausted — fall back to rule-based
