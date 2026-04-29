@@ -22,29 +22,29 @@ import { apiErrorMessage } from "@/utils/apiError";
 const SEVERITY_CONFIG = {
   info: {
     icon: Info,
-    color: "#60a5fa",
-    bg: "rgba(96,165,250,0.07)",
-    border: "rgba(96,165,250,0.18)",
+    color: "#3b82f6",
+    bg: "rgba(59,130,246,0.10)",
+    border: "rgba(59,130,246,0.28)",
     accent: "#3b82f6",
-    badgeBg: "rgba(96,165,250,0.1)",
+    badgeBg: "rgba(59,130,246,0.14)",
     label: "Info",
   },
   warning: {
     icon: AlertTriangle,
-    color: "#fbbf24",
-    bg: "rgba(251,191,36,0.07)",
-    border: "rgba(251,191,36,0.18)",
+    color: "#d97706",
+    bg: "rgba(217,119,6,0.10)",
+    border: "rgba(217,119,6,0.28)",
     accent: "#f59e0b",
-    badgeBg: "rgba(251,191,36,0.1)",
+    badgeBg: "rgba(217,119,6,0.14)",
     label: "Warning",
   },
   critical: {
     icon: XCircle,
-    color: "#f87171",
-    bg: "rgba(248,113,113,0.09)",
-    border: "rgba(248,113,113,0.24)",
+    color: "#dc2626",
+    bg: "rgba(220,38,38,0.10)",
+    border: "rgba(220,38,38,0.30)",
     accent: "#ef4444",
-    badgeBg: "rgba(248,113,113,0.1)",
+    badgeBg: "rgba(220,38,38,0.14)",
     label: "Critical",
   },
 };
@@ -196,7 +196,7 @@ export function Alerts() {
           }}
         >
           <h2 className="text-base font-semibold text-red-300">Could not load alerts</h2>
-          <p className="text-sm text-slate-400">
+          <p className="text-sm" style={{ color: "var(--text-muted)" }}>
             {apiErrorMessage(alertsError, "The alerts service is temporarily unavailable. Please retry.")}
           </p>
           <div>
@@ -288,7 +288,7 @@ export function Alerts() {
             <p className="text-xs mt-0.5" style={{ color: "var(--text-muted)" }}>
               Your request is under review. You'll receive an email once a manager approves or
               declines it.{" "}
-              <span className="text-slate-600">
+              <span style={{ color: "var(--text-secondary)" }}>
                 Submitted {formatDistanceToNow(new Date(myRoleRequest.created_at), { addSuffix: true })}
               </span>
             </p>
@@ -310,7 +310,7 @@ export function Alerts() {
           <div className="flex-1 min-w-0">
             <p className="text-sm font-semibold text-red-300">Manager role request declined</p>
             {myRoleRequest.review_note && (
-              <p className="text-xs text-slate-500 mt-0.5">Note: {myRoleRequest.review_note}</p>
+              <p className="text-xs mt-0.5" style={{ color: "var(--text-muted)" }}>Note: {myRoleRequest.review_note}</p>
             )}
           </div>
         </motion.div>
@@ -320,7 +320,7 @@ export function Alerts() {
       <div className="flex flex-col sm:flex-row gap-3 items-start sm:items-center">
         {/* Search */}
         <div className="relative flex-1 w-full sm:max-w-xs">
-          <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-600" />
+          <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2" style={{ color: "var(--text-muted)" }} />
           <input
             value={search}
             onChange={(e) => setSearch(e.target.value)}
@@ -331,7 +331,7 @@ export function Alerts() {
           {search && (
             <button
               onClick={() => setSearch("")}
-              className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-600 hover:text-slate-400"
+              className="absolute right-2.5 top-1/2 -translate-y-1/2 transition-colors" style={{ color: "var(--text-muted)" }}
             >
               <X size={12} />
             </button>
@@ -414,7 +414,7 @@ export function Alerts() {
           {(activeTab === "all") && filteredAlerts.length > 0 && (
             <div className="flex items-center gap-2 mt-1">
               <AlertTriangle size={11} className="text-amber-600" />
-              <h3 className="text-[10px] font-bold text-slate-600 uppercase tracking-widest">
+              <h3 className="text-[10px] font-bold uppercase tracking-widest" style={{ color: "var(--text-muted)" }}>
                 Inventory Alerts
               </h3>
               <div className="h-px flex-1" style={{ background: "var(--border-subtle)" }} />
@@ -516,7 +516,7 @@ function InventoryAlertCard({
         <div className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0 mt-0.5"
           style={{
             background: resolved ? "var(--bg-card)" : config.badgeBg,
-            border: `1px solid ${resolved ? "rgba(255,255,255,0.06)" : config.border}`,
+            border: `1px solid ${resolved ? "var(--border-subtle)" : config.border}`,
           }}>
           <SeverityIcon size={17} style={{ color: resolved ? "var(--text-muted)" : config.color }} />
         </div>
@@ -526,18 +526,18 @@ function InventoryAlertCard({
           <div className="flex items-center gap-2 mb-1.5 flex-wrap">
             <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-lg"
               style={{
-                background: resolved ? "rgba(255,255,255,0.04)" : config.badgeBg,
+                background: resolved ? "var(--bg-card)" : config.badgeBg,
                 color: resolved ? "var(--text-muted)" : config.color,
                 border: `1px solid ${resolved ? "transparent" : config.border}`,
               }}>
               {config.label}
             </span>
-            <span className="flex items-center gap-1 text-[10px] text-slate-600">
+            <span className="flex items-center gap-1 text-[10px]" style={{ color: "var(--text-muted)" }}>
               <TypeIcon size={10} />
               {alert.alert_type.replace(/_/g, " ")}
             </span>
             {resolved && (
-              <span className="text-[10px] text-emerald-700 flex items-center gap-1 ml-auto">
+              <span className="text-[10px] flex items-center gap-1 ml-auto" style={{ color: "var(--accent-success)" }}>
                 <CheckCircle2 size={9} /> Resolved
               </span>
             )}
@@ -547,11 +547,12 @@ function InventoryAlertCard({
           </p>
           <div className="flex items-center gap-3 mt-2 flex-wrap">
             {alert.item_sku && (
-              <span className="flex items-center gap-1 text-[11px] font-mono text-slate-600 bg-white/[0.03] px-2 py-0.5 rounded-lg border border-white/[0.05]">
+              <span className="flex items-center gap-1 text-[11px] font-mono px-2 py-0.5 rounded-lg"
+                style={{ color: "var(--text-secondary)", background: "var(--bg-card)", border: "1px solid var(--border-subtle)" }}>
                 <Package size={9} /> {alert.item_sku}
               </span>
             )}
-            <span className="flex items-center gap-1 text-[11px] text-slate-600">
+            <span className="flex items-center gap-1 text-[11px]" style={{ color: "var(--text-muted)" }}>
               <Clock size={10} />
               {formatDistanceToNow(new Date(alert.created_at), { addSuffix: true })}
             </span>
@@ -643,7 +644,7 @@ function RoleRequestCard({
               style={{ background: "rgba(167,139,250,0.1)", color: "#a78bfa", border: "1px solid rgba(167,139,250,0.2)" }}>
               Manager Request
             </span>
-            <span className="flex items-center gap-1 text-[11px] text-slate-600">
+            <span className="flex items-center gap-1 text-[11px]" style={{ color: "var(--text-secondary)" }}>
               <Clock size={10} />
               {formatDistanceToNow(new Date(request.created_at), { addSuffix: true })}
             </span>
@@ -653,7 +654,7 @@ function RoleRequestCard({
           </p>
           <div className="flex items-center gap-3 mt-1 flex-wrap">
             {request.username && (
-              <span className="text-[11px] font-mono text-slate-600 bg-white/[0.03] px-2 py-0.5 rounded-lg border border-white/[0.05]">
+              <span className="text-[11px] font-mono px-2 py-0.5 rounded-lg" style={{ color: "var(--text-secondary)", background: "var(--bg-card)", border: "1px solid var(--border-subtle)" }}>
                 @{request.username}
               </span>
             )}
@@ -678,8 +679,8 @@ function RoleRequestCard({
                   value={reviewNote}
                   onChange={(e) => setReviewNote(e.target.value)}
                   placeholder="Optional note to user (will be emailed)…"
-                  className="w-full px-3 py-2 rounded-xl text-xs bg-white/[0.04] border border-white/[0.08] placeholder-slate-500 focus:outline-none focus:border-purple-500/40 transition-colors"
-                  style={{ color: "var(--text-primary)" }}
+                  className="w-full px-3 py-2 rounded-xl text-xs focus:outline-none transition-colors"
+                  style={{ background: "var(--bg-input)", border: "1px solid var(--border-card)", color: "var(--text-primary)" }}
                 />
               </motion.div>
             )}
@@ -712,7 +713,7 @@ function RoleRequestCard({
           </Button>
           <button
             onClick={() => setShowNote(!showNote)}
-            className="text-[10px] text-slate-600 hover:text-slate-400 transition-colors text-center"
+            className="text-[10px] transition-colors text-center" style={{ color: "var(--text-muted)" }}
           >
             {showNote ? "Hide note" : "Add note"}
           </button>

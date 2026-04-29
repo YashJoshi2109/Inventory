@@ -358,33 +358,40 @@ async def analyze_vision(
     if not image_bytes:
         raise HTTPException(status_code=400, detail="Uploaded image is empty")
 
-    # Reject images > 5 MB before doing any work
-    if len(image_bytes) > 5 * 1024 * 1024:
+    # Reject images > 10 MB before doing any work (Pillow will compress down to ~50 KB)
+    if len(image_bytes) > 10 * 1024 * 1024:
         raise HTTPException(
             status_code=413,
-            detail="Image too large (max 5 MB). Please reduce the image size before uploading.",
+            detail="Image too large (max 10 MB). Please reduce the image size before uploading.",
         )
 
-    # Resize to ≤1024px on the longest side and re-encode as JPEG ~80% quality.
-    # This cuts memory usage from several MB to ~80-120 KB — critical on 512 MB instances.
+    # Aggressively resize + compress image to keep peak memory well below 512 MB limit.
+    # Target: ≤640px longest side, JPEG quality 65 → ~40-60 KB output.
+    # This is safe for Gemini Vision; models work well at this resolution.
+    mime_type = image.content_type or "image/jpeg"
     try:
+        import gc
         from io import BytesIO
         from PIL import Image as _PilImage
 
-        with _PilImage.open(BytesIO(image_bytes)) as img:
+        buf_in = BytesIO(image_bytes)
+        del image_bytes  # free original bytes immediately
+        image_bytes = b""  # prevent accidental reuse
+
+        with _PilImage.open(buf_in) as img:
             img = img.convert("RGB")
-            max_dim = 1024
+            max_dim = 640
             if img.width > max_dim or img.height > max_dim:
                 img.thumbnail((max_dim, max_dim), _PilImage.LANCZOS)
-            buf = BytesIO()
-            img.save(buf, format="JPEG", quality=80, optimize=True)
-            image_bytes = buf.getvalue()
+            buf_out = BytesIO()
+            img.save(buf_out, format="JPEG", quality=65, optimize=True)
+            image_bytes = buf_out.getvalue()
+        del buf_in, buf_out
+        gc.collect()
         mime_type = "image/jpeg"
     except Exception:
-        # If Pillow fails for any reason, continue with original bytes
-        mime_type = image.content_type or "image/jpeg"
-    else:
-        del buf  # free the BytesIO buffer
+        # If Pillow fails for any reason, continue with whatever bytes we have
+        pass
 
     prompt_key = analysis_type if analysis_type in _VISION_PROMPTS else "full"
     prompt_text = _VISION_PROMPTS[prompt_key]
