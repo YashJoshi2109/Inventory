@@ -14,37 +14,50 @@ interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
   rightIcon?: React.ReactNode;
 }
 
-const variants: Record<Variant, string> = {
-  primary:
-    "text-white font-semibold shadow-glow-cyan-sm hover:shadow-glow-cyan transition-shadow",
-  secondary:
-    "text-slate-300 hover:text-white transition-colors",
-  danger:
-    "bg-red-600 hover:bg-red-500 text-white shadow-sm",
-  ghost:
-    "text-slate-400 hover:text-white transition-colors",
-  success:
-    "bg-emerald-600 hover:bg-emerald-500 text-white shadow-sm",
-};
-
 const variantStyles: Record<Variant, React.CSSProperties> = {
   primary: {
-    background: "linear-gradient(135deg, #0891b2, #06b6d4)",
-    border: "1px solid rgba(34,211,238,0.4)",
+    background: "linear-gradient(135deg, var(--accent), var(--accent-hover))",
+    color: "#ffffff",
+    border: "none",
+    boxShadow: "0 4px 14px rgba(var(--accent-rgb, 37,99,235), 0.35)",
   },
   secondary: {
-    background: "rgba(255,255,255,0.05)",
-    border: "1px solid rgba(255,255,255,0.1)",
+    background: "var(--bg-card)",
+    border: "1px solid var(--border-card)",
+    color: "var(--text-secondary)",
   },
-  danger: {},
-  ghost: { background: "transparent" },
-  success: {},
+  danger: {
+    background: "rgba(var(--accent-danger-rgb, 220,38,38), 0.12)",
+    border: "1px solid var(--accent-danger)",
+    color: "var(--accent-danger)",
+  },
+  ghost: {
+    background: "transparent",
+    border: "none",
+    color: "var(--text-muted)",
+  },
+  success: {
+    background: "rgba(var(--accent-success-rgb, 5,150,105), 0.12)",
+    border: "1px solid var(--accent-success)",
+    color: "var(--accent-success)",
+  },
+};
+
+const variantHoverClass: Record<Variant, string> = {
+  primary:
+    "hover:-translate-y-px hover:shadow-[0_6px_20px_rgba(var(--accent-rgb,37,99,235),0.5)]",
+  secondary: "hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]",
+  danger:
+    "hover:bg-[rgba(var(--accent-danger-rgb,220,38,38),0.22)]",
+  ghost: "hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]",
+  success:
+    "hover:bg-[rgba(var(--accent-success-rgb,5,150,105),0.22)]",
 };
 
 const sizes: Record<Size, string> = {
   sm: "px-3 py-1.5 text-sm gap-1.5",
   md: "px-4 py-2 text-sm gap-2",
-  lg: "px-6 py-3 text-base gap-2.5",
+  lg: "px-6 py-2.5 text-base gap-2.5",
 };
 
 export const Button = forwardRef<HTMLButtonElement, ButtonProps>(
@@ -68,16 +81,24 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(
       ref={ref}
       disabled={disabled || loading}
       className={clsx(
-        "inline-flex items-center justify-center rounded-xl font-medium",
-        "transition-all duration-150 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500/50 focus-visible:ring-offset-2 focus-visible:ring-offset-surface",
-        "disabled:opacity-40 disabled:cursor-not-allowed",
+        "inline-flex items-center justify-center font-semibold",
+        "transition-all duration-150 focus:outline-none",
+        "focus-visible:ring-2 focus-visible:ring-[var(--accent)] focus-visible:ring-offset-2",
+        "focus-visible:ring-offset-[var(--bg-card)]",
+        "disabled:opacity-40 disabled:cursor-not-allowed disabled:transform-none",
         "active:scale-[0.97]",
-        variants[variant],
+        variantHoverClass[variant],
         sizes[size],
         fullWidth && "w-full",
         className,
       )}
-      style={{ ...variantStyles[variant], ...style }}
+      style={{
+        borderRadius: "12px",
+        fontFamily: "'Outfit', sans-serif",
+        fontWeight: 600,
+        ...variantStyles[variant],
+        ...style,
+      }}
       {...props}
     >
       {loading ? <Spinner size="sm" /> : leftIcon}

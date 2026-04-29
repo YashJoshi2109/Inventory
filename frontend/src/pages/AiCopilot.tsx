@@ -140,7 +140,7 @@ function ToolBadge({ tc }: { tc: ToolCall }) {
         : <CheckCircle2 size={11} className="shrink-0" style={{ color: m.color }} />}
       <span style={{ color: m.color }} className="font-medium">{m.label}</span>
       {tc.done && !hasError && (
-        <span className="text-slate-500 ml-auto">
+        <span className="ml-auto" style={{ color: "var(--text-muted)" }}>
           {total !== undefined ? `${total} result${total !== 1 ? "s" : ""}` : "done"}
         </span>
       )}
@@ -183,10 +183,11 @@ function MessageBubble({ msg }: { msg: Msg }) {
         {msg.toolCalls.map((tc, i) => <ToolBadge key={i} tc={tc} />)}
 
         {(msg.content || msg.streaming) && (
-          <div className="px-4 py-3 rounded-2xl rounded-tl-sm text-sm text-slate-200 leading-relaxed"
+          <div className="px-4 py-3 rounded-2xl rounded-tl-sm text-sm leading-relaxed"
             style={{
-              background: "rgba(255,255,255,0.035)",
-              border: "1px solid rgba(255,255,255,0.07)",
+              background: "var(--bg-card)",
+              border: "1px solid var(--border-card)",
+              color: "var(--text-primary)",
             }}>
             {msg.streaming && !msg.content
               ? <TypingDots />
@@ -194,7 +195,7 @@ function MessageBubble({ msg }: { msg: Msg }) {
                   [&>p]:my-1 [&>p:first-child]:mt-0 [&>p:last-child]:mb-0
                   [&>ul]:my-1 [&>ol]:my-1 [&>li]:my-0.5
                   [&>h1]:text-base [&>h2]:text-sm [&>h3]:text-sm
-                  [&>strong]:text-white [&>code]:text-brand-300">
+                  [&>strong]:text-current [&>code]:text-brand-300">
                   <ReactMarkdown>{msg.content}</ReactMarkdown>
                   {msg.streaming && <TypingDots />}
                 </div>}
@@ -240,12 +241,12 @@ function KBPanel({ onClose }: { onClose: () => void }) {
 
   return (
     <div className="flex flex-col h-full"
-      style={{ background: "rgba(5,11,25,0.98)", borderLeft: "1px solid rgba(255,255,255,0.08)" }}>
+      style={{ background: "var(--bg-topbar)", borderLeft: "1px solid var(--border-card)" }}>
       <div className="flex items-center justify-between px-4 py-3.5"
-        style={{ borderBottom: "1px solid rgba(255,255,255,0.07)" }}>
+        style={{ borderBottom: "1px solid var(--border-card)" }}>
         <div className="flex items-center gap-2">
           <FileText size={15} className="text-brand-400" />
-          <span className="text-sm font-semibold text-slate-100">Knowledge Base</span>
+          <span className="text-sm font-semibold" style={{ color: "var(--text-primary)" }}>Knowledge Base</span>
         </div>
         <button onClick={onClose} className="text-slate-600 hover:text-slate-300 transition-colors p-1 rounded-lg hover:bg-white/5">
           <X size={15} />
@@ -254,10 +255,10 @@ function KBPanel({ onClose }: { onClose: () => void }) {
 
       <div className="p-4 space-y-2.5">
         <select value={docType} onChange={e => setDocType(e.target.value)}
-          className="w-full text-xs rounded-xl px-3 py-2 text-slate-300 outline-none"
-          style={{ background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.1)" }}>
+          className="w-full text-xs rounded-xl px-3 py-2 outline-none"
+          style={{ background: "var(--bg-card)", border: "1px solid var(--border-card)", color: "var(--text-primary)" }}>
           {DOC_TYPES.map(t => (
-            <option key={t} value={t} className="bg-slate-900">{t.charAt(0).toUpperCase() + t.slice(1)}</option>
+            <option key={t} value={t}>{t.charAt(0).toUpperCase() + t.slice(1)}</option>
           ))}
         </select>
 
@@ -279,10 +280,10 @@ function KBPanel({ onClose }: { onClose: () => void }) {
         {isLoading && <div className="flex justify-center py-6"><Loader2 size={15} className="animate-spin text-slate-600" /></div>}
         {docs.map(doc => (
           <div key={doc.id} className="flex items-start gap-2.5 p-3 rounded-xl group transition-all"
-            style={{ background: "rgba(255,255,255,0.025)", border: "1px solid rgba(255,255,255,0.06)" }}>
+            style={{ background: "var(--bg-card)", border: "1px solid var(--border-card)" }}>
             <FileText size={13} className="text-brand-400 mt-0.5 shrink-0" />
             <div className="flex-1 min-w-0">
-              <p className="text-xs font-medium text-slate-200 truncate">{doc.title}</p>
+              <p className="text-xs font-medium truncate" style={{ color: "var(--text-primary)" }}>{doc.title}</p>
               <p className="text-[10px] mt-0.5" style={{ color: doc.status === "ready" ? "#34d399" : doc.status === "failed" ? "#f87171" : "#fbbf24" }}>
                 {doc.doc_type} · {doc.chunk_count} chunks · {doc.status}
               </p>
@@ -919,21 +920,21 @@ export function AiCopilot() {
       <aside
         className="flex flex-col shrink-0 z-50 w-72 lg:w-64 fixed inset-y-0 left-0 lg:relative lg:inset-auto"
         style={{
-          background: "rgba(3,7,18,0.98)",
-          borderRight: "1px solid rgba(255,255,255,0.07)",
-          backdropFilter: "blur(24px)",
+          background: "var(--bg-topbar)",
+          borderRight: "1px solid var(--border-card)",
+          backdropFilter: "blur(24px) saturate(1.8)",
         }}
       >
         {/* Logo + search */}
-        <div className="px-4 pt-4 pb-3" style={{ borderBottom: "1px solid rgba(255,255,255,0.06)" }}>
+        <div className="px-4 pt-4 pb-3" style={{ borderBottom: "1px solid var(--border-card)" }}>
           <div className="flex items-center gap-2.5 mb-4">
             <div className="w-8 h-8 rounded-xl flex items-center justify-center shrink-0"
               style={{ background: "linear-gradient(135deg,#0891b2,#22d3ee)", boxShadow: "0 0 14px rgba(34,211,238,0.28)" }}>
               <Bot size={14} className="text-white" />
             </div>
             <div>
-              <p className="text-sm font-bold text-white leading-none">Copilot</p>
-              <p className="text-[10px] text-slate-500 mt-0.5">AI Inventory Assistant</p>
+              <p className="text-sm font-bold leading-none" style={{ color: "var(--text-primary)" }}>Copilot</p>
+              <p className="text-[10px] mt-0.5" style={{ color: "var(--text-muted)" }}>AI Inventory Assistant</p>
             </div>
             <button onClick={() => setShowSidebar(false)}
               className="ml-auto text-slate-600 hover:text-slate-400 transition-colors p-1 rounded-lg hover:bg-white/5">
@@ -941,11 +942,12 @@ export function AiCopilot() {
             </button>
           </div>
           <div className="flex items-center gap-2 px-3 py-2 rounded-xl"
-            style={{ background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.08)" }}>
+            style={{ background: "var(--bg-card)", border: "1px solid var(--border-card)" }}>
             <Search size={12} className="text-slate-600 shrink-0" />
             <input value={searchTerm} onChange={e => setSearchTerm(e.target.value)}
               placeholder="Search chats…"
-              className="flex-1 bg-transparent text-xs text-slate-300 placeholder-slate-700 outline-none" />
+              className="flex-1 bg-transparent text-xs placeholder-slate-500 outline-none"
+              style={{ color: "var(--text-primary)" }} />
           </div>
         </div>
 
@@ -971,10 +973,10 @@ export function AiCopilot() {
               onClick={() => selectSession(s.id)}
               className={clsx(
                 "group flex items-center gap-2 px-3 py-2 rounded-xl cursor-pointer transition-all duration-100",
-                activeSessionId === s.id ? "text-slate-200" : "text-slate-500 hover:text-slate-300",
+                activeSessionId === s.id ? "" : "text-slate-500 hover:text-slate-300",
               )}
               style={activeSessionId === s.id
-                ? { background: "rgba(34,211,238,0.07)", border: "1px solid rgba(34,211,238,0.14)" }
+                ? { background: "rgba(34,211,238,0.07)", border: "1px solid rgba(34,211,238,0.14)", color: "var(--text-primary)" }
                 : { border: "1px solid transparent" }}>
 
               {editingId === s.id ? (
@@ -986,7 +988,8 @@ export function AiCopilot() {
                     if (e.key === "Escape") setEditingId(null);
                   }}
                   onClick={e => e.stopPropagation()}
-                  className="flex-1 bg-transparent text-xs text-slate-200 outline-none border-b border-brand-400/40" />
+                  className="flex-1 bg-transparent text-xs outline-none border-b border-brand-400/40"
+                  style={{ color: "var(--text-primary)" }} />
               ) : (
                 <span className="flex-1 text-xs truncate">{s.title}</span>
               )}
@@ -1031,14 +1034,14 @@ export function AiCopilot() {
 
         {/* Top bar */}
         <div className="flex items-center gap-3 px-4 py-3 shrink-0"
-          style={{ borderBottom: "1px solid rgba(255,255,255,0.06)", background: "rgba(3,7,18,0.6)", backdropFilter: "blur(20px)" }}>
+          style={{ borderBottom: "1px solid var(--border-card)", background: "var(--bg-topbar)", backdropFilter: "blur(24px) saturate(1.8)" }}>
 
           <button onClick={() => setShowSidebar(v => !v)}
             className="text-slate-500 hover:text-slate-300 transition-colors p-1.5 rounded-lg hover:bg-white/5">
             <Menu size={17} />
           </button>
 
-          <p className="text-sm font-medium text-slate-300 truncate flex-1">
+          <p className="text-sm font-medium truncate flex-1" style={{ color: "var(--text-primary)" }}>
             {currentSession?.title ?? (isEmpty ? "AI Inventory Copilot" : "Chat")}
           </p>
 
@@ -1070,17 +1073,17 @@ export function AiCopilot() {
                       left: quotaCardPos.left,
                       width: 300,
                       zIndex: 60,
-                      background: "rgba(7,15,31,0.98)",
-                      border: "1px solid rgba(255,255,255,0.10)",
-                      boxShadow: "0 18px 60px rgba(0,0,0,0.55)",
-                      backdropFilter: "blur(24px)",
+                      background: "var(--bg-topbar)",
+                      border: "1px solid var(--border-card)",
+                      boxShadow: "0 18px 60px rgba(0,0,0,0.25)",
+                      backdropFilter: "blur(24px) saturate(1.8)",
                       borderRadius: 16,
                     }}
                   >
-                    <div style={{ padding: "14px 14px 10px 14px", borderBottom: "1px solid rgba(255,255,255,0.07)" }}>
+                    <div style={{ padding: "14px 14px 10px 14px", borderBottom: "1px solid var(--border-card)" }}>
                       <div className="flex items-center gap-2">
                         <Bot size={14} className="text-brand-400" />
-                        <div className="text-sm font-semibold" style={{ color: "#e2e8f0" }}>
+                        <div className="text-sm font-semibold" style={{ color: "var(--text-primary)" }}>
                           AI Copilot quota
                         </div>
                         <div className="ml-auto text-[10px] font-semibold" style={{ color: "#22d3ee" }}>
@@ -1088,14 +1091,14 @@ export function AiCopilot() {
                         </div>
                       </div>
 
-                      <div className="mt-2 text-[11px] text-slate-400">
+                      <div className="mt-2 text-[11px]" style={{ color: "var(--text-secondary)" }}>
                         Model:{" "}
-                        <span className="text-slate-200 font-semibold">{chatRateLimit.model ?? "Gemini"}</span>
+                        <span className="font-semibold" style={{ color: "var(--text-primary)" }}>{chatRateLimit.model ?? "Gemini"}</span>
                       </div>
                     </div>
 
                     <div style={{ padding: 14, display: "flex", flexDirection: "column", gap: 10 }}>
-                      <div className="text-[12px]" style={{ color: "#94a3b8" }}>
+                      <div className="text-[12px]" style={{ color: "var(--text-secondary)" }}>
                         Remaining: <span style={{ color: "#22d3ee", fontWeight: 700 }}>{chatRateLimit.remaining}</span> / {chatRateLimit.limit} per 60s
                       </div>
 
@@ -1109,11 +1112,11 @@ export function AiCopilot() {
                         />
                       </div>
 
-                      <div className="text-[11px]" style={{ color: "#94a3b8" }}>
-                        Used: <span style={{ color: "#e2e8f0", fontWeight: 700 }}>{chatRateLimit.used}</span>
+                      <div className="text-[11px]" style={{ color: "var(--text-secondary)" }}>
+                        Used: <span style={{ color: "var(--text-primary)", fontWeight: 700 }}>{chatRateLimit.used}</span>
                         {" · "}
                         Next reset:{" "}
-                        <span style={{ color: "#e2e8f0", fontWeight: 700 }}>
+                        <span style={{ color: "var(--text-primary)", fontWeight: 700 }}>
                           {chatRateLimit.retry_after_seconds > 0 ? `${chatRateLimit.retry_after_seconds}s` : "now"}
                         </span>
                       </div>
@@ -1169,14 +1172,14 @@ export function AiCopilot() {
               >
                 <img src="/UTA_logo.webp" alt="UTA logo" className="w-full h-full object-cover" />
               </div>
-              <h2 className="text-lg font-bold text-white mb-1">Hi there</h2>
-              <p className="text-slate-500 text-sm mb-8">Where should we start?</p>
+              <h2 className="text-lg font-bold mb-1" style={{ color: "var(--text-primary)" }}>Hi there</h2>
+              <p className="text-sm mb-8" style={{ color: "var(--text-muted)" }}>Where should we start?</p>
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 w-full max-w-md">
                 {SUGGESTIONS.map(({ icon: Icon, text, color }) => (
                   <button key={text} onClick={() => sendMessage(text)}
                     className="flex items-center gap-3 px-4 py-3 rounded-2xl text-left text-sm font-medium transition-all duration-150 hover:scale-[1.02] active:scale-[0.98]"
-                    style={{ background: "rgba(255,255,255,0.035)", border: "1px solid rgba(255,255,255,0.08)", color: "#94a3b8" }}>
+                    style={{ background: "var(--bg-card)", border: "1px solid var(--border-card)", color: "var(--text-secondary)" }}>
                     <div className="w-7 h-7 rounded-xl flex items-center justify-center shrink-0"
                       style={{ background: `${color}14`, border: `1px solid ${color}28` }}>
                       <Icon size={14} style={{ color }} />
@@ -1199,7 +1202,7 @@ export function AiCopilot() {
 
         {/* Input bar */}
         <div className="shrink-0 px-4 pb-16 pt-2 lg:pb-4"
-          style={{ borderTop: "1px solid rgba(255,255,255,0.06)" }}>
+          style={{ borderTop: "1px solid var(--border-card)" }}>
           <div className="max-w-3xl mx-auto">
 
             {/* Image preview */}
@@ -1209,7 +1212,8 @@ export function AiCopilot() {
                   <img src={imagePreview} alt="attach preview"
                     className="rounded-xl h-16 w-auto max-w-[120px] object-cover border border-white/10" />
                   <button onClick={clearImage}
-                    className="absolute -top-1.5 -right-1.5 w-5 h-5 rounded-full bg-slate-900 border border-white/15 flex items-center justify-center text-slate-400 hover:text-red-400 transition-colors">
+                    className="absolute -top-1.5 -right-1.5 w-5 h-5 rounded-full border border-white/15 flex items-center justify-center hover:text-red-400 transition-colors"
+                    style={{ background: "var(--bg-card)", color: "var(--text-secondary)" }}>
                     <X size={9} />
                   </button>
                 </div>
@@ -1256,7 +1260,7 @@ export function AiCopilot() {
 
             <div className="flex items-center justify-start gap-2.5 px-3.5 py-2.5 rounded-2xl transition-all duration-200"
               style={{
-                background: "rgba(255,255,255,0.04)",
+                background: "var(--bg-card)",
                 border: isListening
                   ? "1px solid rgba(248,113,113,0.35)"
                   : streaming
@@ -1355,10 +1359,10 @@ export function AiCopilot() {
                   : isListening ? "Speak now — words appear here in real time…"
                   : "Ask anything about your lab inventory…"
                 }
-                className="flex-1 bg-transparent text-sm placeholder-slate-700 outline-none resize-none leading-relaxed"
+                className="flex-1 bg-transparent text-sm placeholder-slate-500 outline-none resize-none leading-relaxed"
                 style={{
                   maxHeight: 140,
-                  color: isListening ? "#fca5a5" : "#e2e8f0", // red tint while listening
+                  color: isListening ? "#fca5a5" : "var(--text-primary)",
                 }}
               />
 
@@ -1402,7 +1406,7 @@ export function AiCopilot() {
       {/* ── Voice Conversation Overlay (ChatGPT-style) ────────────────────── */}
       {voiceMode && (
         <div className="absolute inset-0 z-50 flex flex-col items-center justify-between py-10 px-6 select-none"
-          style={{ background: "rgba(2,6,18,0.97)", backdropFilter: "blur(28px)" }}>
+          style={{ background: "rgba(2,6,18,0.97)", backdropFilter: "blur(28px) saturate(2.0)" }}>
 
           {/* Mini conversation history */}
           <div className="w-full max-w-md space-y-1.5 overflow-hidden" style={{ maxHeight: 140 }}>

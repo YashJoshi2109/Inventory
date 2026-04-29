@@ -123,15 +123,27 @@ function TransactionSkeleton() {
         <div
           key={i}
           className="rounded-xl p-4 animate-pulse"
-          style={{ background: "rgba(255,255,255,0.03)" }}
+          style={{ background: "var(--bg-card)" }}
         >
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-full bg-white/5 shrink-0" />
+            <div
+              className="w-10 h-10 rounded-full shrink-0"
+              style={{ background: "var(--border-subtle)" }}
+            />
             <div className="flex-1 space-y-2">
-              <div className="h-3.5 bg-white/5 rounded-full w-2/3" />
-              <div className="h-2.5 bg-white/5 rounded-full w-1/3" />
+              <div
+                className="h-3.5 rounded-full w-2/3"
+                style={{ background: "var(--border-subtle)" }}
+              />
+              <div
+                className="h-2.5 rounded-full w-1/3"
+                style={{ background: "var(--border-subtle)" }}
+              />
             </div>
-            <div className="w-12 h-8 bg-white/5 rounded-lg shrink-0" />
+            <div
+              className="w-12 h-8 rounded-lg shrink-0"
+              style={{ background: "var(--border-subtle)" }}
+            />
           </div>
         </div>
       ))}
@@ -152,8 +164,10 @@ function MobileCard({ event, index }: { event: InventoryEvent; index: number }) 
       transition={{ duration: 0.22, delay: index * 0.03 }}
       className="relative overflow-hidden rounded-xl border"
       style={{
-        background: "rgba(255,255,255,0.03)",
-        borderColor: "rgba(255,255,255,0.07)",
+        background: "var(--bg-card)",
+        backdropFilter: "blur(24px) saturate(1.8)",
+        borderColor: "var(--border-card)",
+        boxShadow: "var(--shadow-card)",
       }}
     >
       {/* Left accent bar */}
@@ -175,7 +189,10 @@ function MobileCard({ event, index }: { event: InventoryEvent; index: number }) 
         <div className="flex-1 min-w-0 space-y-1.5">
           {/* Row 1: item name + qty badge */}
           <div className="flex items-center justify-between gap-2">
-            <span className="text-sm font-semibold text-slate-100 truncate leading-tight">
+            <span
+              className="text-sm font-semibold truncate leading-tight"
+              style={{ color: "var(--text-primary)" }}
+            >
               {event.item_name}
             </span>
             <span
@@ -183,8 +200,12 @@ function MobileCard({ event, index }: { event: InventoryEvent; index: number }) 
                 "shrink-0 text-xs font-bold px-2 py-0.5 rounded-md",
                 qty.positive === true && "text-emerald-400 bg-emerald-400/10",
                 qty.positive === false && "text-red-400 bg-red-400/10",
-                qty.positive === null && "text-slate-300 bg-white/5"
               )}
+              style={
+                qty.positive === null
+                  ? { background: "var(--bg-input)", color: "var(--text-secondary)" }
+                  : undefined
+              }
             >
               {qty.label}
             </span>
@@ -192,7 +213,10 @@ function MobileCard({ event, index }: { event: InventoryEvent; index: number }) 
 
           {/* Row 2: SKU + event type badge */}
           <div className="flex items-center gap-2 flex-wrap">
-            <span className="font-mono text-[11px] text-slate-500 bg-white/5 px-1.5 py-0.5 rounded">
+            <span
+              className="font-mono text-[11px] px-1.5 py-0.5 rounded"
+              style={{ color: "var(--text-muted)", background: "var(--bg-input)" }}
+            >
               {event.item_sku}
             </span>
             <span
@@ -205,27 +229,33 @@ function MobileCard({ event, index }: { event: InventoryEvent; index: number }) 
 
           {/* Row 3: location + time */}
           <div className="flex items-center justify-between gap-2 flex-wrap">
-            <div className="flex items-center gap-1 text-[11px] text-slate-500">
+            <div
+              className="flex items-center gap-1 text-[11px]"
+              style={{ color: "var(--text-muted)" }}
+            >
               {event.from_location_code && event.to_location_code ? (
                 <>
-                  <span className="text-slate-400">{event.from_location_code}</span>
-                  <ArrowRight size={10} className="text-slate-600" />
-                  <span className="text-slate-400">{event.to_location_code}</span>
+                  <span style={{ color: "var(--text-muted)" }}>{event.from_location_code}</span>
+                  <ArrowRight size={10} style={{ color: "var(--text-muted)" }} />
+                  <span style={{ color: "var(--text-muted)" }}>{event.to_location_code}</span>
                 </>
               ) : event.to_location_code ? (
-                <span className="text-slate-400">{event.to_location_code}</span>
+                <span style={{ color: "var(--text-muted)" }}>{event.to_location_code}</span>
               ) : event.from_location_code ? (
-                <span className="text-slate-400">{event.from_location_code}</span>
+                <span style={{ color: "var(--text-muted)" }}>{event.from_location_code}</span>
               ) : null}
             </div>
-            <span className="text-[11px] text-slate-500 shrink-0">
+            <span className="text-[11px] shrink-0" style={{ color: "var(--text-muted)" }}>
               {formatOccurredAt(event.occurred_at)}
             </span>
           </div>
 
           {/* Row 4: reference / borrower (optional) */}
           {(event.reference || event.borrower) && (
-            <div className="text-[11px] text-slate-500 italic truncate">
+            <div
+              className="text-[11px] italic truncate"
+              style={{ color: "var(--text-muted)" }}
+            >
               {event.reference && <span>Ref: {event.reference}</span>}
               {event.reference && event.borrower && " · "}
               {event.borrower && <span>By: {event.borrower}</span>}
@@ -250,7 +280,7 @@ function TableRow({ event, index }: { event: InventoryEvent; index: number }) {
       transition={{ duration: 0.15, delay: index * 0.02 }}
       className="group transition-colors"
       style={{
-        background: index % 2 === 0 ? "transparent" : "rgba(255,255,255,0.015)",
+        background: index % 2 === 0 ? "transparent" : "rgba(var(--accent-rgb), 0.02)",
       }}
     >
       {/* Type */}
@@ -273,12 +303,20 @@ function TableRow({ event, index }: { event: InventoryEvent; index: number }) {
 
       {/* Item */}
       <td className="px-4 py-3 max-w-[180px]">
-        <span className="text-sm text-slate-200 truncate block">{event.item_name}</span>
+        <span
+          className="text-sm truncate block"
+          style={{ color: "var(--text-primary)" }}
+        >
+          {event.item_name}
+        </span>
       </td>
 
       {/* SKU */}
       <td className="px-4 py-3 whitespace-nowrap">
-        <span className="font-mono text-xs text-slate-500 bg-white/5 px-1.5 py-0.5 rounded">
+        <span
+          className="font-mono text-xs px-1.5 py-0.5 rounded"
+          style={{ color: "var(--text-muted)", background: "var(--bg-input)" }}
+        >
           {event.item_sku}
         </span>
       </td>
@@ -290,8 +328,8 @@ function TableRow({ event, index }: { event: InventoryEvent; index: number }) {
             "text-sm font-bold",
             qty.positive === true && "text-emerald-400",
             qty.positive === false && "text-red-400",
-            qty.positive === null && "text-slate-300"
           )}
+          style={qty.positive === null ? { color: "var(--text-secondary)" } : undefined}
         >
           {qty.label}
         </span>
@@ -299,11 +337,14 @@ function TableRow({ event, index }: { event: InventoryEvent; index: number }) {
 
       {/* Location */}
       <td className="px-4 py-3 whitespace-nowrap">
-        <div className="flex items-center gap-1 text-xs text-slate-400">
+        <div
+          className="flex items-center gap-1 text-xs"
+          style={{ color: "var(--text-muted)" }}
+        >
           {event.from_location_code && event.to_location_code ? (
             <>
               <span>{event.from_location_code}</span>
-              <ArrowRight size={10} className="text-slate-600" />
+              <ArrowRight size={10} style={{ color: "var(--text-muted)" }} />
               <span>{event.to_location_code}</span>
             </>
           ) : (
@@ -314,21 +355,26 @@ function TableRow({ event, index }: { event: InventoryEvent; index: number }) {
 
       {/* Reference */}
       <td className="px-4 py-3 max-w-[120px]">
-        <span className="text-xs text-slate-500 truncate block">
+        <span
+          className="text-xs truncate block"
+          style={{ color: "var(--text-muted)" }}
+        >
           {event.reference ?? event.borrower ?? "—"}
         </span>
       </td>
 
       {/* Actor */}
       <td className="px-4 py-3 whitespace-nowrap">
-        <span className="text-xs text-slate-400">
+        <span className="text-xs" style={{ color: "var(--text-muted)" }}>
           {event.actor_username ?? "—"}
         </span>
       </td>
 
       {/* Time */}
       <td className="px-4 py-3 whitespace-nowrap">
-        <span className="text-xs text-slate-500">{formatOccurredAt(event.occurred_at)}</span>
+        <span className="text-xs" style={{ color: "var(--text-muted)" }}>
+          {formatOccurredAt(event.occurred_at)}
+        </span>
       </td>
     </motion.tr>
   );
@@ -346,10 +392,14 @@ function EmptyTransactions() {
         className="w-16 h-16 rounded-2xl flex items-center justify-center mb-4"
         style={{ background: "rgba(34,211,238,0.08)", border: "1px solid rgba(34,211,238,0.2)" }}
       >
-        <ClipboardList size={28} className="text-cyan-400" />
+        <ClipboardList size={28} style={{ color: "var(--accent-cyan)" }} />
       </div>
-      <p className="text-base font-semibold text-slate-300 mb-1">No transactions found</p>
-      <p className="text-sm text-slate-500">Try adjusting your filter or check back later.</p>
+      <p className="text-base font-semibold mb-1" style={{ color: "var(--text-primary)" }}>
+        No transactions found
+      </p>
+      <p className="text-sm" style={{ color: "var(--text-muted)" }}>
+        Try adjusting your filter or check back later.
+      </p>
     </motion.div>
   );
 }
@@ -449,10 +499,7 @@ export function Transactions() {
   }
 
   return (
-    <div
-      className="min-h-screen pb-24 lg:pb-6"
-      style={{ background: "#030712" }}
-    >
+    <div className="min-h-screen pb-24 lg:pb-6">
       <div className="max-w-7xl mx-auto px-4 lg:px-6 pt-6 space-y-5">
 
         {/* ── Header ── */}
@@ -476,9 +523,14 @@ export function Transactions() {
                 <ClipboardList size={20} className="text-cyan-400" />
               </div>
               <div>
-                <h1 className="text-xl font-bold text-white leading-tight">Transactions</h1>
+                <h1
+                  className="text-xl font-bold leading-tight"
+                  style={{ color: "var(--text-primary)" }}
+                >
+                  Transactions
+                </h1>
                 {data && (
-                  <p className="text-xs text-slate-500 mt-0.5">
+                  <p className="text-xs mt-0.5" style={{ color: "var(--text-muted)" }}>
                     {data.total.toLocaleString()} total records
                   </p>
                 )}
@@ -488,11 +540,19 @@ export function Transactions() {
             {/* Live badge */}
             <div
               className="flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium"
-              style={{
-                background: "rgba(34,211,238,0.06)",
-                border: "1px solid rgba(34,211,238,0.2)",
-                color: "#22d3ee",
-              }}
+              style={
+                isFetching
+                  ? {
+                      background: "rgba(251,191,36,0.10)",
+                      border: "1px solid rgba(251,191,36,0.30)",
+                      color: "#fbbf24",
+                    }
+                  : {
+                      background: "rgba(var(--accent-success-rgb), 0.10)",
+                      border: "1px solid rgba(var(--accent-success-rgb), 0.30)",
+                      color: "var(--accent-success)",
+                    }
+              }
             >
               <span
                 className={clsx(
@@ -517,11 +577,16 @@ export function Transactions() {
                   key={s.label}
                   className="rounded-xl px-3 py-2.5 flex flex-col gap-0.5"
                   style={{
-                    background: "rgba(255,255,255,0.03)",
-                    border: "1px solid rgba(255,255,255,0.07)",
+                    background: "var(--bg-card)",
+                    backdropFilter: "blur(24px) saturate(1.8)",
+                    border: "1px solid var(--border-card)",
+                    boxShadow: "var(--shadow-card)",
                   }}
                 >
-                  <span className="text-[10px] uppercase tracking-wider text-slate-500 font-medium">
+                  <span
+                    className="text-[10px] uppercase tracking-wider font-medium"
+                    style={{ color: "var(--text-muted)" }}
+                  >
                     {s.label}
                   </span>
                   <span
@@ -529,8 +594,8 @@ export function Transactions() {
                       "text-base font-bold",
                       s.positive === true && "text-emerald-400",
                       s.positive === false && "text-red-400",
-                      s.positive === null && "text-slate-200"
                     )}
+                    style={s.positive === null ? { color: "var(--text-primary)" } : undefined}
                   >
                     {s.value}
                   </span>
@@ -546,7 +611,7 @@ export function Transactions() {
           animate={{ opacity: 1 }}
           transition={{ duration: 0.25, delay: 0.1 }}
           className="sticky top-0 z-10 -mx-4 lg:mx-0 px-4 lg:px-0 py-2"
-          style={{ background: "rgba(3,7,18,0.9)", backdropFilter: "blur(12px)" }}
+          style={{ background: "var(--bg-topbar)", backdropFilter: "blur(24px) saturate(1.8)" }}
         >
           <div className="flex gap-2 overflow-x-auto pb-1 scrollbar-none">
             {FILTER_OPTIONS.map((f) => {
@@ -556,22 +621,18 @@ export function Transactions() {
                 <button
                   key={f.value}
                   onClick={() => handleFilterChange(f.value)}
-                  className={clsx(
-                    "flex items-center gap-1.5 px-3.5 py-1.5 rounded-full text-xs font-semibold whitespace-nowrap transition-all duration-200 shrink-0",
-                    active
-                      ? "text-white"
-                      : "text-slate-400 hover:text-slate-200"
-                  )}
+                  className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-full text-xs font-semibold whitespace-nowrap transition-all duration-200 shrink-0"
                   style={
                     active
                       ? {
-                          background: "linear-gradient(135deg, rgba(34,211,238,0.25) 0%, rgba(34,211,238,0.1) 100%)",
-                          border: "1px solid rgba(34,211,238,0.5)",
-                          boxShadow: "0 0 12px rgba(34,211,238,0.15)",
+                          background: "rgba(var(--accent-rgb), 0.20)",
+                          border: "1px solid rgba(var(--accent-rgb), 0.45)",
+                          color: "var(--accent)",
                         }
                       : {
-                          background: "rgba(255,255,255,0.04)",
-                          border: "1px solid rgba(255,255,255,0.08)",
+                          background: "var(--bg-card)",
+                          border: "1px solid var(--border-card)",
+                          color: "var(--text-muted)",
                         }
                   }
                 >
@@ -613,8 +674,10 @@ export function Transactions() {
               <div
                 className="hidden lg:block rounded-2xl overflow-hidden"
                 style={{
-                  background: "rgba(255,255,255,0.03)",
-                  border: "1px solid rgba(255,255,255,0.07)",
+                  background: "var(--bg-card)",
+                  backdropFilter: "blur(24px) saturate(1.8)",
+                  border: "1px solid var(--border-card)",
+                  boxShadow: "var(--shadow-card)",
                 }}
               >
                 <div className="overflow-x-auto">
@@ -622,14 +685,15 @@ export function Transactions() {
                     <thead>
                       <tr
                         style={{
-                          background: "rgba(255,255,255,0.03)",
-                          borderBottom: "1px solid rgba(255,255,255,0.07)",
+                          background: "var(--bg-card)",
+                          borderBottom: "1px solid var(--border-subtle)",
                         }}
                       >
                         {["Type", "Item", "SKU", "Qty", "Location", "Reference", "Actor", "Time"].map((h) => (
                           <th
                             key={h}
-                            className="px-4 py-3 text-[11px] font-semibold uppercase tracking-wider text-slate-500"
+                            className="px-4 py-3 text-[11px] font-semibold uppercase tracking-wider"
+                            style={{ color: "var(--text-muted)" }}
                           >
                             {h}
                           </th>
@@ -638,7 +702,7 @@ export function Transactions() {
                     </thead>
                     <tbody
                       className="divide-y"
-                      style={{ borderColor: "rgba(255,255,255,0.04)" }}
+                      style={{ borderColor: "var(--border-subtle)" }}
                     >
                       {data.items.map((event, i) => (
                         <TableRow key={event.id} event={event} index={i} />
@@ -658,14 +722,14 @@ export function Transactions() {
                       disabled={page === 1}
                       className="flex items-center gap-1 px-3 py-2 rounded-lg text-sm font-medium transition-all disabled:opacity-40 disabled:cursor-not-allowed"
                       style={{
-                        background: "rgba(255,255,255,0.05)",
-                        border: "1px solid rgba(255,255,255,0.1)",
-                        color: "#94a3b8",
+                        background: "var(--bg-card)",
+                        border: "1px solid var(--border-card)",
+                        color: "var(--text-muted)",
                       }}
                     >
                       <ChevronLeft size={15} /> Prev
                     </button>
-                    <span className="text-xs text-slate-400 px-1">
+                    <span className="text-xs px-1" style={{ color: "var(--text-muted)" }}>
                       {page} / {data.total_pages}
                     </span>
                     <button
@@ -673,9 +737,9 @@ export function Transactions() {
                       disabled={page >= data.total_pages}
                       className="flex items-center gap-1 px-3 py-2 rounded-lg text-sm font-medium transition-all disabled:opacity-40 disabled:cursor-not-allowed"
                       style={{
-                        background: "rgba(255,255,255,0.05)",
-                        border: "1px solid rgba(255,255,255,0.1)",
-                        color: "#94a3b8",
+                        background: "var(--bg-card)",
+                        border: "1px solid var(--border-card)",
+                        color: "var(--text-muted)",
                       }}
                     >
                       Next <ChevronRight size={15} />
@@ -687,31 +751,35 @@ export function Transactions() {
                     <button
                       onClick={() => setPage((p) => Math.max(1, p - 1))}
                       disabled={page === 1}
-                      className="flex items-center gap-1.5 px-4 py-2 rounded-xl text-sm font-medium transition-all disabled:opacity-40 disabled:cursor-not-allowed hover:bg-white/5"
+                      className="flex items-center gap-1.5 px-4 py-2 rounded-xl text-sm font-medium transition-all disabled:opacity-40 disabled:cursor-not-allowed"
                       style={{
-                        background: "rgba(255,255,255,0.04)",
-                        border: "1px solid rgba(255,255,255,0.08)",
-                        color: "#94a3b8",
+                        background: "var(--bg-card)",
+                        border: "1px solid var(--border-card)",
+                        color: "var(--text-muted)",
                       }}
                     >
                       <ChevronLeft size={15} /> Prev
                     </button>
 
-                    <span className="text-sm text-slate-400 px-2">
+                    <span className="text-sm px-2" style={{ color: "var(--text-muted)" }}>
                       Page{" "}
-                      <span className="font-semibold text-slate-200">{page}</span>
+                      <span className="font-semibold" style={{ color: "var(--text-primary)" }}>
+                        {page}
+                      </span>
                       {" "}of{" "}
-                      <span className="font-semibold text-slate-200">{data.total_pages}</span>
+                      <span className="font-semibold" style={{ color: "var(--text-primary)" }}>
+                        {data.total_pages}
+                      </span>
                     </span>
 
                     <button
                       onClick={() => setPage((p) => Math.min(data.total_pages, p + 1))}
                       disabled={page >= data.total_pages}
-                      className="flex items-center gap-1.5 px-4 py-2 rounded-xl text-sm font-medium transition-all disabled:opacity-40 disabled:cursor-not-allowed hover:bg-white/5"
+                      className="flex items-center gap-1.5 px-4 py-2 rounded-xl text-sm font-medium transition-all disabled:opacity-40 disabled:cursor-not-allowed"
                       style={{
-                        background: "rgba(255,255,255,0.04)",
-                        border: "1px solid rgba(255,255,255,0.08)",
-                        color: "#94a3b8",
+                        background: "var(--bg-card)",
+                        border: "1px solid var(--border-card)",
+                        color: "var(--text-muted)",
                       }}
                     >
                       Next <ChevronRight size={15} />
@@ -719,7 +787,9 @@ export function Transactions() {
 
                     {/* Jump to page */}
                     <div className="flex items-center gap-2 ml-4">
-                      <span className="text-xs text-slate-500">Jump to</span>
+                      <span className="text-xs" style={{ color: "var(--text-muted)" }}>
+                        Jump to
+                      </span>
                       <input
                         type="number"
                         min={1}
@@ -728,19 +798,20 @@ export function Transactions() {
                         onChange={(e) => setJumpValue(e.target.value)}
                         onKeyDown={(e) => e.key === "Enter" && handleJump()}
                         placeholder={String(page)}
-                        className="w-16 px-2 py-1.5 rounded-lg text-sm text-center text-slate-200 outline-none focus:ring-1 focus:ring-cyan-400/40"
+                        className="w-16 px-2 py-1.5 rounded-lg text-sm text-center outline-none focus:ring-1 focus:ring-cyan-400/40"
                         style={{
-                          background: "rgba(255,255,255,0.05)",
-                          border: "1px solid rgba(255,255,255,0.1)",
+                          background: "var(--bg-input)",
+                          border: "1px solid var(--border-card)",
+                          color: "var(--text-primary)",
                         }}
                       />
                       <button
                         onClick={handleJump}
                         className="px-3 py-1.5 rounded-lg text-xs font-semibold transition-all"
                         style={{
-                          background: "rgba(34,211,238,0.12)",
-                          border: "1px solid rgba(34,211,238,0.3)",
-                          color: "#22d3ee",
+                          background: "rgba(var(--accent-rgb), 0.12)",
+                          border: "1px solid rgba(var(--accent-rgb), 0.30)",
+                          color: "var(--accent)",
                         }}
                       >
                         Go

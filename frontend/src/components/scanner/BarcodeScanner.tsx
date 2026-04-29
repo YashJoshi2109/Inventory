@@ -121,7 +121,7 @@ export function BarcodeScanner({
             className="mx-4 mb-3 px-4 py-2.5 rounded-xl text-center"
             style={{
               background: "rgba(3,7,18,0.75)",
-              backdropFilter: "blur(12px)",
+              backdropFilter: "blur(24px) saturate(1.8)",
               border: "1px solid rgba(34,211,238,0.2)",
             }}
           >
@@ -137,7 +137,7 @@ export function BarcodeScanner({
           className="absolute top-3 right-3 p-2 rounded-xl pointer-events-auto transition-all"
           style={{
             background: "rgba(3,7,18,0.7)",
-            backdropFilter: "blur(8px)",
+            backdropFilter: "blur(24px) saturate(1.8)",
             border: "1px solid rgba(34,211,238,0.2)",
           }}
         >

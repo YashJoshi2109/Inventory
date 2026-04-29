@@ -59,7 +59,7 @@ function Section({ title, subtitle, icon: Icon, accent = "#22d3ee", children }: 
   children: React.ReactNode;
 }) {
   return (
-    <motion.div variants={fadeUp} className="rounded-2xl overflow-hidden" style={{ background: "var(--bg-card)", border: "1px solid var(--border-card)", backdropFilter: "blur(16px)" }}>
+    <motion.div variants={fadeUp} className="rounded-2xl overflow-hidden" style={{ background: "var(--bg-card)", border: "1px solid var(--border-card)", backdropFilter: "blur(24px) saturate(1.8)" }}>
       <div className="px-5 py-4 flex items-center gap-3" style={{ borderBottom: "1px solid var(--border-subtle)" }}>
         <div className="w-9 h-9 rounded-xl flex items-center justify-center shrink-0" style={{ background: `${accent}18`, border: `1px solid ${accent}30` }}>
           <Icon size={17} style={{ color: accent }} />
@@ -343,7 +343,7 @@ export function Settings() {
           style={{
             background: "linear-gradient(135deg, rgba(8,145,178,0.18) 0%, rgba(34,211,238,0.08) 50%, rgba(167,139,250,0.1) 100%)",
             border: "1px solid rgba(34,211,238,0.2)",
-            backdropFilter: "blur(16px)",
+            backdropFilter: "blur(24px) saturate(1.8)",
           }}
         >
           {/* background orbs */}

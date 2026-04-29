@@ -248,7 +248,7 @@ export function Register() {
           className="relative rounded-2xl overflow-hidden"
           style={{
             background: "rgba(7,15,31,0.85)",
-            backdropFilter: "blur(20px)",
+            backdropFilter: "blur(24px) saturate(1.8)",
             border: "1px solid rgba(255,255,255,0.08)",
             boxShadow: "0 16px 48px rgba(0,0,0,0.5)",
           }}
