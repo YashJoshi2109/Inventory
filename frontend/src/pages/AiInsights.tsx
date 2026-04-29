@@ -149,7 +149,9 @@ export function AiInsights() {
   const categoryBreakdown = stats?.category_breakdown ?? [];
 
   return (
-    <div className="p-4 lg:p-6 pb-24 lg:pb-6 space-y-5 animate-fade-in max-w-3xl">
+    <div className="p-4 lg:p-6 pb-24 lg:pb-6 animate-fade-in">
+    <div className="grid grid-cols-1 xl:grid-cols-[1fr_300px] gap-5 max-w-6xl">
+    <div className="space-y-5 min-w-0">
 
       {/* ── Header ── */}
       <div className="flex items-center gap-3">
@@ -600,6 +602,144 @@ export function AiInsights() {
           Rebuild search index
         </button>
       </div>
+    </div>{/* end left column */}
+
+    {/* ── RIGHT SIDEBAR ── */}
+    <div className="space-y-4 hidden xl:block">
+
+      {/* Quick Actions */}
+      <Card>
+        <CardHeader>
+          <h3 className="text-xs font-semibold uppercase tracking-wide flex items-center gap-2"
+            style={{ color: "var(--text-muted)" }}>
+            <Sparkles size={12} style={{ color: "var(--accent-violet)" }} />
+            Quick Actions
+          </h3>
+        </CardHeader>
+        <CardContent className="p-0">
+          {[
+            { label: "View All Alerts", href: "/alerts", icon: ShieldAlert, color: "var(--accent-danger)" },
+            { label: "Inventory List", href: "/inventory", icon: Package, color: "var(--accent)" },
+            { label: "Run Transactions", href: "/transactions", icon: Activity, color: "var(--accent-violet)" },
+            { label: "Import Data", href: "/import", icon: ArrowUpRight, color: "var(--accent-cyan)" },
+          ].map(({ label, href, icon: Icon, color }, i) => (
+            <Link
+              key={href}
+              to={href}
+              className="flex items-center gap-3 px-4 py-2.5 text-xs transition-colors"
+              style={{ borderTop: i > 0 ? "1px solid var(--border-subtle)" : "none", color: "var(--text-secondary)" }}
+              onMouseEnter={(e) => (e.currentTarget.style.background = "var(--bg-hover)")}
+              onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}
+            >
+              <Icon size={13} style={{ color }} />
+              {label}
+              <ChevronRight size={11} className="ml-auto" style={{ color: "var(--text-muted)" }} />
+            </Link>
+          ))}
+        </CardContent>
+      </Card>
+
+      {/* AI Capabilities */}
+      <Card>
+        <CardHeader>
+          <h3 className="text-xs font-semibold uppercase tracking-wide flex items-center gap-2"
+            style={{ color: "var(--text-muted)" }}>
+            <BrainCircuit size={12} style={{ color: "var(--accent-violet)" }} />
+            AI Capabilities
+          </h3>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          {[
+            { icon: Search, label: "NLP Search", desc: "TF-IDF semantic search across all inventory fields", color: "var(--accent-violet)" },
+            { icon: TrendingDown, label: "Demand Forecast", desc: "ML-based 7/30-day consumption forecasts", color: "var(--accent)" },
+            { icon: Target, label: "Anomaly Detection", desc: "Statistical outlier detection on usage patterns", color: "var(--accent-cyan)" },
+            { icon: Activity, label: "Health Score", desc: "Real-time composite inventory health metric", color: "var(--accent-success)" },
+          ].map(({ icon: Icon, label, desc, color }) => (
+            <div key={label} className="flex gap-2.5">
+              <div className="w-7 h-7 rounded-lg flex items-center justify-center shrink-0 mt-0.5"
+                style={{ background: `rgba(var(--accent-violet-rgb), 0.10)`, border: "1px solid rgba(var(--accent-violet-rgb), 0.18)" }}>
+                <Icon size={12} style={{ color }} />
+              </div>
+              <div>
+                <p className="text-xs font-medium" style={{ color: "var(--text-primary)" }}>{label}</p>
+                <p className="text-[10px] mt-0.5 leading-snug" style={{ color: "var(--text-muted)" }}>{desc}</p>
+              </div>
+            </div>
+          ))}
+        </CardContent>
+      </Card>
+
+      {/* Search Tips */}
+      <Card>
+        <CardHeader>
+          <h3 className="text-xs font-semibold uppercase tracking-wide flex items-center gap-2"
+            style={{ color: "var(--text-muted)" }}>
+            <Star size={12} style={{ color: "var(--accent-warning)" }} />
+            Search Tips
+          </h3>
+        </CardHeader>
+        <CardContent className="space-y-2">
+          {[
+            "Type partial names — \"ethan\" matches \"Ethanol\"",
+            "Include context — \"PCR tubes low\" narrows results",
+            "Use chemical names or lab jargon freely",
+            "Click any result to load its demand forecast",
+          ].map((tip, i) => (
+            <div key={i} className="flex items-start gap-2">
+              <span className="text-[10px] font-bold mt-0.5 shrink-0 w-4 h-4 rounded-full flex items-center justify-center"
+                style={{ background: "rgba(var(--accent-warning-rgb), 0.12)", color: "var(--accent-warning)" }}>
+                {i + 1}
+              </span>
+              <p className="text-[10px] leading-snug" style={{ color: "var(--text-secondary)" }}>{tip}</p>
+            </div>
+          ))}
+        </CardContent>
+      </Card>
+
+      {/* Reorder Queue Summary */}
+      {lowStockAlerts.length > 0 && (
+        <Card>
+          <CardHeader>
+            <h3 className="text-xs font-semibold uppercase tracking-wide flex items-center gap-2"
+              style={{ color: "var(--text-muted)" }}>
+              <AlertTriangle size={12} style={{ color: "var(--accent-warning)" }} />
+              Reorder Summary
+            </h3>
+          </CardHeader>
+          <CardContent className="space-y-2">
+            <div className="flex items-center justify-between p-2.5 rounded-xl"
+              style={{ background: "rgba(var(--accent-warning-rgb), 0.08)", border: "1px solid rgba(var(--accent-warning-rgb), 0.22)" }}>
+              <div className="text-center flex-1">
+                <p className="text-xl font-bold" style={{ color: "var(--accent-warning)" }}>{lowStockAlerts.length}</p>
+                <p className="text-[10px]" style={{ color: "var(--text-muted)" }}>Need Reorder</p>
+              </div>
+              <div className="text-center flex-1" style={{ borderLeft: "1px solid rgba(var(--accent-warning-rgb), 0.20)" }}>
+                <p className="text-xl font-bold" style={{ color: "var(--accent-danger)" }}>{anomalyAlerts.length}</p>
+                <p className="text-[10px]" style={{ color: "var(--text-muted)" }}>Anomalies</p>
+              </div>
+            </div>
+            <Link
+              to="/alerts"
+              className="flex items-center justify-center gap-1.5 w-full py-2 rounded-lg text-xs transition-colors"
+              style={{ border: "1px solid var(--border-card)", color: "var(--text-secondary)" }}
+              onMouseEnter={(e) => {
+                (e.currentTarget as HTMLAnchorElement).style.borderColor = "var(--accent-warning)";
+                (e.currentTarget as HTMLAnchorElement).style.color = "var(--accent-warning)";
+              }}
+              onMouseLeave={(e) => {
+                (e.currentTarget as HTMLAnchorElement).style.borderColor = "var(--border-card)";
+                (e.currentTarget as HTMLAnchorElement).style.color = "var(--text-secondary)";
+              }}
+            >
+              <AlertTriangle size={11} />
+              View All Alerts
+            </Link>
+          </CardContent>
+        </Card>
+      )}
+
+    </div>
+    </div>
     </div>
   );
 }
