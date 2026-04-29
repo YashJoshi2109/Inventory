@@ -56,6 +56,30 @@ async def lifespan(app: FastAPI):
     except Exception as _db_err:
         logger.warning("Database pool pre-warm failed (app will retry on first request): %s", _db_err)
 
+    # Build AI search index from DB so NLP search works from first request
+    try:
+        from app.ai.nlp_search import rebuild_global_index
+        from app.core.database import AsyncSessionLocal
+        from app.repositories.item_repo import ItemRepository
+        async with AsyncSessionLocal() as _ai_session:
+            _item_repo = ItemRepository(_ai_session)
+            _items, _ = await _item_repo.search(is_active=True, skip=0, limit=5000)
+            _corpus = [
+                {
+                    "id": it.id,
+                    "sku": it.sku,
+                    "name": it.name,
+                    "description": getattr(it, "description", "") or "",
+                    "category": it.category.name if it.category else "",
+                    "supplier": getattr(it, "supplier", "") or "",
+                }
+                for it in _items
+            ]
+        rebuild_global_index(_corpus)
+        logger.info("AI search index built with %d items", len(_corpus))
+    except Exception as _ai_err:
+        logger.warning("AI search index build failed (search will return empty): %s", _ai_err)
+
     if settings.MQTT_ENABLED:
         try:
             from app.core.mqtt_client import build_mqtt_client

@@ -49,18 +49,24 @@ export function Modal({ open, onClose, title, size = "md", children, footer }: M
             exit={{ opacity: 0, y: 40 }}
             transition={{ type: "spring", damping: 28, stiffness: 350 }}
             className={clsx(
-              "relative w-full bg-surface-card border border-surface-border",
-              "rounded-t-2xl sm:rounded-2xl shadow-2xl",
+              "relative w-full rounded-t-2xl sm:rounded-2xl shadow-2xl",
               "flex flex-col max-h-[95dvh] overflow-hidden",
               sizes[size]
             )}
+            style={{
+              background: "var(--bg-card-solid)",
+              border: "1px solid var(--border-card)",
+              boxShadow: "var(--shadow-elevation)",
+            }}
           >
             {title && (
-              <div className="flex items-center justify-between px-5 py-4 border-b border-surface-border shrink-0">
-                <h2 className="text-lg font-semibold text-slate-100">{title}</h2>
+              <div className="flex items-center justify-between px-5 py-4 shrink-0"
+                style={{ borderBottom: "1px solid var(--border-card)" }}>
+                <h2 className="text-lg font-semibold" style={{ color: "var(--text-primary)" }}>{title}</h2>
                 <button
                   onClick={onClose}
-                  className="p-1.5 rounded-lg hover:bg-surface-hover text-slate-400 hover:text-white transition-colors"
+                  className="p-1.5 rounded-lg surface-hover transition-colors"
+                  style={{ color: "var(--text-secondary)" }}
                 >
                   <X size={18} />
                 </button>
@@ -68,7 +74,8 @@ export function Modal({ open, onClose, title, size = "md", children, footer }: M
             )}
             <div className="overflow-y-auto flex-1">{children}</div>
             {footer && (
-              <div className="px-5 py-4 border-t border-surface-border shrink-0 bg-surface/30">
+              <div className="px-5 py-4 shrink-0"
+                style={{ background: "var(--bg-card)", borderTop: "1px solid var(--border-card)" }}>
                 {footer}
               </div>
             )}

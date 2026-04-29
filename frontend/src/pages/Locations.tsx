@@ -120,19 +120,19 @@ export function Locations() {
           </button>
 
           {/* View toggle */}
-          <div className="flex rounded-xl overflow-hidden" style={{ border: "1px solid rgba(255,255,255,0.08)" }}>
+          <div className="flex rounded-xl overflow-hidden" style={{ border: "1px solid var(--border-card)" }}>
             <button onClick={() => setViewMode("list")}
               className="flex items-center gap-1.5 px-2.5 py-2 text-xs transition-all"
               style={viewMode === "list"
                 ? { background: "rgba(34,211,238,0.12)", color: "#22d3ee" }
-                : { background: "rgba(255,255,255,0.03)", color: "#64748b" }}>
+                : { background: "var(--bg-card)", color: "var(--text-muted)" }}>
               <List size={13} />
             </button>
             <button onClick={() => setViewMode("map")}
               className="flex items-center gap-1.5 px-2.5 py-2 text-xs transition-all"
               style={viewMode === "map"
                 ? { background: "rgba(34,211,238,0.12)", color: "#22d3ee" }
-                : { background: "rgba(255,255,255,0.03)", color: "#64748b" }}>
+                : { background: "var(--bg-card)", color: "var(--text-muted)" }}>
               <LayoutGrid size={13} />
             </button>
           </div>
