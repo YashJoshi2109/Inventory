@@ -26,6 +26,7 @@ const Login         = lazy(() => import("@/pages/Login").then((m) => ({ default:
 const Register      = lazy(() => import("@/pages/Register").then((m) => ({ default: m.Register })));
 const VerifyEmail   = lazy(() => import("@/pages/VerifyEmail").then((m) => ({ default: m.VerifyEmail })));
 const ForgotPassword = lazy(() => import("@/pages/ForgotPassword").then((m) => ({ default: m.ForgotPassword })));
+const Landing       = lazy(() => import("@/pages/Landing").then((m) => ({ default: m.Landing })));
 
 // ── Query client ──────────────────────────────────────────────────────────────
 
@@ -107,7 +108,9 @@ function AuthBootstrap({ children }: { children: React.ReactNode }) {
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
   if (!isAuthenticated) {
-    return <Navigate to="/login" replace />;
+    // Mobile: show cinematic landing page; desktop: go straight to login
+    const isMobile = typeof window !== "undefined" && window.innerWidth < 1024;
+    return <Navigate to={isMobile ? "/welcome" : "/login"} replace />;
   }
   return <>{children}</>;
 }
@@ -126,6 +129,7 @@ export default function App() {
         <AuthBootstrap>
           <Suspense fallback={<SkeletonApp />}>
             <Routes>
+              <Route path="/welcome" element={<Suspense fallback={<SkeletonApp />}><Landing /></Suspense>} />
               <Route path="/login" element={<Login />} />
               <Route path="/register" element={<Register />} />
               <Route path="/verify-email" element={<VerifyEmail />} />
@@ -154,7 +158,7 @@ export default function App() {
                 <Route path="users" element={<Suspense fallback={<PageSpinner />}><Admin /></Suspense>} />
                 <Route path="energy" element={<Suspense fallback={<PageSpinner />}><EnergyDashboard /></Suspense>} />
               </Route>
-              <Route path="*" element={<Navigate to="/dashboard" replace />} />
+              <Route path="*" element={<Navigate to="/" replace />} />
             </Routes>
           </Suspense>
         </AuthBootstrap>

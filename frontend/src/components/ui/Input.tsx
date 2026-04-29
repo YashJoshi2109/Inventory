@@ -81,7 +81,7 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(
           />
           {rightIcon && (
             <span
-              className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none"
+              className="absolute right-3 top-1/2 -translate-y-1/2"
               style={{ color: "var(--text-muted)" }}
             >
               {rightIcon}

@@ -358,7 +358,7 @@ function ActivityFlowChart({ activity }: { activity: InventoryEvent[] }) {
 
   return (
     <div
-      className="rounded-2xl overflow-hidden h-full flex flex-col"
+      className="rounded-2xl overflow-hidden flex flex-col"
       style={{
         background: "var(--bg-card)",
         border: "1px solid var(--border-card)",
@@ -432,7 +432,7 @@ function ActivityFlowChart({ activity }: { activity: InventoryEvent[] }) {
           ))}
         </div>
 
-        <div className="flex-1" style={{ minHeight: 180 }}>
+        <div style={{ height: 220 }}>
         <ResponsiveContainer width="100%" height="100%">
           <AreaChart data={chartData} margin={{ top: 12, right: 20, left: -8, bottom: 0 }}>
             <defs>

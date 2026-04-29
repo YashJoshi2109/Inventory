@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState, useMemo, type ComponentType, Suspense, lazy } from "react";
 import { useLocation } from "react-router-dom";
 import { clsx } from "clsx";
+import { useThemeStore } from "@/store/theme";
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type IconComponent = ComponentType<any>;
@@ -65,6 +66,8 @@ function StockLevelPicker({
   onScanInstead?: () => void;
   label: string;
 }) {
+  const theme = useThemeStore((s) => s.theme);
+  const isDark = theme === "dark";
   return (
     <div className="space-y-3">
       <p className="text-sm" style={{ color: "var(--text-muted)" }}>{label}</p>
@@ -81,10 +84,10 @@ function StockLevelPicker({
               onClick={() => onSelect(level)}
               className="w-full flex items-center justify-between p-4 rounded-xl transition-all"
               style={{
-                background: "rgba(255,255,255,0.32)",
+                background: isDark ? "rgba(255,255,255,0.06)" : "rgba(255,255,255,0.75)",
                 backdropFilter: "blur(12px)",
                 border: "1px solid var(--border-card)",
-                boxShadow: "0 1px 0 rgba(255,255,255,0.80) inset",
+                boxShadow: isDark ? "0 1px 0 rgba(255,255,255,0.10) inset" : "0 1px 0 rgba(255,255,255,0.95) inset",
               }}
             >
               <div className="flex items-center gap-3">
@@ -111,7 +114,7 @@ function StockLevelPicker({
           className="w-full flex items-center justify-center gap-2 py-3 rounded-xl text-xs transition-all"
           style={{
             border: "1px solid var(--border-card)",
-            background: "rgba(255,255,255,0.25)",
+            background: isDark ? "rgba(255,255,255,0.06)" : "rgba(255,255,255,0.75)",
             color: "var(--text-muted)",
           }}
         >
@@ -184,6 +187,8 @@ const MODES: Array<{
 ];
 
 function ModeSelector({ onSelect }: { onSelect: (m: ScanMode) => void }) {
+  const theme = useThemeStore((s) => s.theme);
+  const isDark = theme === "dark";
   return (
     <div className="h-full w-full flex items-center justify-center p-4 overflow-y-auto">
       <div className="grid grid-cols-2 md:flex md:flex-row gap-3 md:gap-4 w-full max-w-3xl">
@@ -193,14 +198,14 @@ function ModeSelector({ onSelect }: { onSelect: (m: ScanMode) => void }) {
             onClick={() => onSelect(m.id as ScanMode)}
             className="group relative flex flex-col items-center justify-center gap-3 rounded-2xl transition-all duration-300 overflow-hidden hover:scale-[1.03] active:scale-[0.97] md:flex-1 py-6 md:py-8"
             style={{
-              background: `linear-gradient(140deg, ${m.bgColor} 0%, rgba(255,255,255,0.28) 60%, ${m.bgColor.replace("0.10","0.04")} 100%)`,
+              background: `linear-gradient(140deg, ${m.bgColor} 0%, ${isDark ? "rgba(255,255,255,0.08)" : "rgba(255,255,255,0.92)"} 60%, ${m.bgColor.replace("0.10","0.04")} 100%)`,
               backdropFilter: "blur(24px) saturate(1.8)",
               WebkitBackdropFilter: "blur(24px) saturate(1.8)",
-              borderTop: `1px solid rgba(255,255,255,0.72)`,
-              borderLeft: `1px solid rgba(255,255,255,0.58)`,
+              borderTop: isDark ? "1px solid rgba(255,255,255,0.20)" : "1px solid rgba(255,255,255,0.95)",
+              borderLeft: isDark ? "1px solid rgba(255,255,255,0.14)" : "1px solid rgba(255,255,255,0.80)",
               borderRight: `1px solid ${m.borderColor}`,
               borderBottom: `1px solid ${m.borderColor}`,
-              boxShadow: `0 1px 0 rgba(255,255,255,0.90) inset, 0 8px 32px -4px ${m.glowColor}, 0 2px 8px rgba(10,20,60,0.08)`,
+              boxShadow: `0 1px 0 ${isDark ? "rgba(255,255,255,0.12)" : "rgba(255,255,255,0.95)"} inset, 0 8px 32px -4px ${m.glowColor}, 0 2px 8px rgba(10,20,60,0.08)`,
             }}
           >
             {/* Ambient glow orb */}
@@ -210,10 +215,10 @@ function ModeSelector({ onSelect }: { onSelect: (m: ScanMode) => void }) {
             {/* Icon container */}
             <div className="relative w-12 h-12 md:w-14 md:h-14 rounded-2xl flex items-center justify-center transition-all duration-300 group-hover:scale-110 group-hover:-rotate-6"
               style={{
-                background: `rgba(255,255,255,0.55)`,
+                background: isDark ? "rgba(255,255,255,0.10)" : "rgba(255,255,255,0.88)",
                 backdropFilter: "blur(12px)",
                 border: `1.5px solid ${m.borderColor}`,
-                boxShadow: `0 0 20px -4px ${m.glowColor}, 0 1px 0 rgba(255,255,255,0.90) inset`,
+                boxShadow: `0 0 20px -4px ${m.glowColor}, 0 1px 0 ${isDark ? "rgba(255,255,255,0.15)" : "rgba(255,255,255,0.95)"} inset`,
               }}>
               <m.icon className="w-6 h-6 md:w-7 md:h-7" style={{ color: m.accentHex }} />
             </div>
@@ -290,6 +295,8 @@ function ScanPrompt({
   onScan: (v: string) => void;
   loading: boolean;
 }) {
+  const theme = useThemeStore((s) => s.theme);
+  const isDark = theme === "dark";
   const [camera, setCamera] = useState(false);
   const [manual, setManual] = useState("");
   const [notFoundCode, setNotFoundCode] = useState<string | null>(null);
@@ -352,14 +359,14 @@ function ScanPrompt({
       ) : notFoundCode ? (
         <div className="flex flex-col items-center gap-4 py-6 px-4 rounded-2xl"
           style={{
-            background: "linear-gradient(140deg, rgba(239,68,68,0.06) 0%, rgba(255,255,255,0.30) 100%)",
+            background: `linear-gradient(140deg, rgba(239,68,68,0.06) 0%, ${isDark ? "rgba(255,255,255,0.08)" : "rgba(255,255,255,0.88)"} 100%)`,
             backdropFilter: "blur(16px) saturate(1.6)",
             WebkitBackdropFilter: "blur(16px) saturate(1.6)",
-            borderTop: "1px solid rgba(255,255,255,0.80)",
-            borderLeft: "1px solid rgba(255,255,255,0.65)",
+            borderTop: isDark ? "1px solid rgba(255,255,255,0.20)" : "1px solid rgba(255,255,255,0.95)",
+            borderLeft: isDark ? "1px solid rgba(255,255,255,0.14)" : "1px solid rgba(255,255,255,0.80)",
             borderRight: "1px solid rgba(239,68,68,0.20)",
             borderBottom: "1px solid rgba(239,68,68,0.20)",
-            boxShadow: "0 1px 0 rgba(255,255,255,0.90) inset",
+            boxShadow: `0 1px 0 ${isDark ? "rgba(255,255,255,0.12)" : "rgba(255,255,255,0.95)"} inset`,
           }}>
           <div className="w-14 h-14 rounded-2xl flex items-center justify-center"
             style={{ background: "rgba(239,68,68,0.08)", border: "1.5px solid rgba(239,68,68,0.25)" }}>
@@ -379,7 +386,7 @@ function ScanPrompt({
             onClick={handleTryAgain}
             className="flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-medium transition-all"
             style={{
-              background: "rgba(255,255,255,0.55)",
+              background: isDark ? "rgba(255,255,255,0.10)" : "rgba(255,255,255,0.88)",
               border: "1px solid rgba(239,68,68,0.25)",
               color: "var(--text-primary)",
             }}>
@@ -399,23 +406,23 @@ function ScanPrompt({
           onClick={() => setCamera(true)}
           className="w-full flex flex-col items-center gap-3 py-8 rounded-2xl transition-all duration-200 hover:scale-[1.01] active:scale-[0.99]"
           style={{
-            background: "linear-gradient(140deg, rgba(37,99,235,0.10) 0%, rgba(255,255,255,0.30) 60%, rgba(37,99,235,0.04) 100%)",
+            background: `linear-gradient(140deg, rgba(37,99,235,0.10) 0%, ${isDark ? "rgba(255,255,255,0.08)" : "rgba(255,255,255,0.88)"} 60%, rgba(37,99,235,0.04) 100%)`,
             backdropFilter: "blur(16px) saturate(1.6)",
             WebkitBackdropFilter: "blur(16px) saturate(1.6)",
-            borderTop: "1px solid rgba(255,255,255,0.80)",
-            borderLeft: "1px solid rgba(255,255,255,0.65)",
+            borderTop: isDark ? "1px solid rgba(255,255,255,0.20)" : "1px solid rgba(255,255,255,0.95)",
+            borderLeft: isDark ? "1px solid rgba(255,255,255,0.14)" : "1px solid rgba(255,255,255,0.80)",
             borderRight: "1px solid rgba(37,99,235,0.25)",
             borderBottom: "1px solid rgba(37,99,235,0.25)",
-            boxShadow: "0 1px 0 rgba(255,255,255,0.90) inset, 0 4px 20px rgba(37,99,235,0.12)",
+            boxShadow: `0 1px 0 ${isDark ? "rgba(255,255,255,0.12)" : "rgba(255,255,255,0.95)"} inset, 0 4px 20px rgba(37,99,235,0.12)`,
           }}
         >
           <div
             className="w-16 h-16 rounded-2xl flex items-center justify-center"
             style={{
-              background: "rgba(255,255,255,0.55)",
+              background: isDark ? "rgba(255,255,255,0.10)" : "rgba(255,255,255,0.88)",
               backdropFilter: "blur(12px)",
               border: "1.5px solid rgba(37,99,235,0.30)",
-              boxShadow: "0 0 20px rgba(37,99,235,0.15), 0 1px 0 rgba(255,255,255,0.90) inset",
+              boxShadow: `0 0 20px rgba(37,99,235,0.15), 0 1px 0 ${isDark ? "rgba(255,255,255,0.15)" : "rgba(255,255,255,0.95)"} inset`,
             }}
           >
             <QrCode size={28} style={{ color: "var(--accent)" }} />
@@ -968,7 +975,7 @@ function RemoveFlow({
             <div
               className="p-3 rounded-xl space-y-1"
               style={{
-                background: "rgba(255,255,255,0.35)",
+                background: "var(--bg-card)",
                 border: "1px solid var(--border-card)",
               }}
             >
@@ -1199,7 +1206,7 @@ function TransferFlow({
                   <div
                     key={l.location_id}
                     className="flex items-center justify-between text-xs px-3 py-2 rounded-lg"
-                    style={{ background: "rgba(255,255,255,0.40)", backdropFilter: "blur(8px)" }}
+                    style={{ background: "var(--bg-card)", backdropFilter: "blur(8px)" }}
                   >
                     <span style={{ color: "var(--text-muted)" }}>{l.location_name}</span>
                     <span className="font-semibold" style={{ color: "var(--accent)" }}>{l.quantity}</span>

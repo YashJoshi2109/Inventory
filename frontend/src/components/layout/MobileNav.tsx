@@ -1,5 +1,5 @@
 import { NavLink, useLocation, useNavigate } from "react-router-dom";
-import { LayoutDashboard, Package, QrCode, Bell, BrainCircuit, MapPin, MoreHorizontal, LogOut, Settings, Camera, Shield } from "lucide-react";
+import { LayoutDashboard, Package, QrCode, Bell, BrainCircuit, MapPin, MoreHorizontal, LogOut, Settings, Camera, Shield, MessageSquareHeart, Upload } from "lucide-react";
 import { clsx } from "clsx";
 import { useQuery } from "@tanstack/react-query";
 import { transactionsApi } from "@/api/transactions";
@@ -46,7 +46,8 @@ export function MobileNav() {
       location.pathname.startsWith("/copilot") ||
       location.pathname.startsWith("/settings") ||
       location.pathname.startsWith("/smart-scan") ||
-      location.pathname.startsWith("/users")
+      location.pathname.startsWith("/users") ||
+      location.pathname.startsWith("/import")
     );
   }, [location.pathname]);
 
@@ -239,7 +240,11 @@ export function MobileNav() {
             aria-label="Close menu"
             onClick={() => setMoreOpen(false)}
             className="fixed inset-0 z-40"
-            style={{ background: "rgba(0,0,0,0.35)" }}
+            style={{
+              background: "rgba(0,0,0,0.55)",
+              backdropFilter: "blur(8px)",
+              WebkitBackdropFilter: "blur(8px)",
+            }}
           />
 
           {/* Sheet panel */}
@@ -250,11 +255,12 @@ export function MobileNav() {
             <div
               className="mx-3 overflow-hidden"
               style={{
-                background: "var(--bg-card)",
-                backdropFilter: "blur(24px) saturate(1.8)",
+                background: "var(--bg-card-solid, var(--bg-card))",
+                backdropFilter: "blur(40px) saturate(2.0)",
+                WebkitBackdropFilter: "blur(40px) saturate(2.0)",
                 border: "1px solid var(--border-card)",
                 borderRadius: "24px 24px 0 0",
-                boxShadow: "0 -8px 40px rgba(0,0,0,0.18)",
+                boxShadow: "0 -12px 60px rgba(0,0,0,0.35), 0 -1px 0 var(--border-card) inset",
               }}
             >
               {/* Drag handle */}
@@ -345,6 +351,85 @@ export function MobileNav() {
                     </p>
                     <p className="text-xs truncate" style={{ color: "var(--text-muted)" }}>
                       Search &amp; forecasting
+                    </p>
+                  </div>
+                </button>
+
+                {/* AI Copilot */}
+                <button
+                  type="button"
+                  onClick={() => navigate("/copilot")}
+                  className="w-full flex items-center gap-3 px-3 py-3 rounded-2xl text-left transition-all duration-150"
+                  style={{
+                    background: "rgba(var(--accent-cyan-rgb,34,211,238),0.05)",
+                    border: "1px solid rgba(var(--accent-cyan-rgb,34,211,238),0.18)",
+                  }}
+                  onMouseEnter={(e) => (e.currentTarget.style.background = "rgba(var(--accent-cyan-rgb,34,211,238),0.10)")}
+                  onMouseLeave={(e) => (e.currentTarget.style.background = "rgba(var(--accent-cyan-rgb,34,211,238),0.05)")}
+                >
+                  <div
+                    className="w-10 h-10 rounded-2xl flex items-center justify-center shrink-0"
+                    style={{
+                      background: "rgba(var(--accent-cyan-rgb,34,211,238),0.12)",
+                      border: "1px solid rgba(var(--accent-cyan-rgb,34,211,238),0.25)",
+                    }}
+                  >
+                    <MessageSquareHeart size={18} style={{ color: "var(--accent-cyan)" }} />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p
+                      className="text-sm font-semibold truncate flex items-center gap-2"
+                      style={{ color: "var(--text-primary)" }}
+                    >
+                      AI Copilot
+                      <span
+                        style={{
+                          fontSize: 9,
+                          fontWeight: 700,
+                          padding: "2px 6px",
+                          borderRadius: 999,
+                          textTransform: "uppercase",
+                          letterSpacing: "0.06em",
+                          background: "rgba(var(--accent-cyan-rgb,34,211,238),0.15)",
+                          color: "var(--accent-cyan)",
+                        }}
+                      >
+                        AI
+                      </span>
+                    </p>
+                    <p className="text-xs truncate" style={{ color: "var(--text-muted)" }}>
+                      Chat with lab assistant
+                    </p>
+                  </div>
+                </button>
+
+                {/* Import */}
+                <button
+                  type="button"
+                  onClick={() => navigate("/import")}
+                  className="w-full flex items-center gap-3 px-3 py-3 rounded-2xl text-left transition-all duration-150"
+                  style={{
+                    background: "rgba(var(--accent-success-rgb,4,120,87),0.05)",
+                    border: "1px solid rgba(var(--accent-success-rgb,4,120,87),0.18)",
+                  }}
+                  onMouseEnter={(e) => (e.currentTarget.style.background = "rgba(var(--accent-success-rgb,4,120,87),0.10)")}
+                  onMouseLeave={(e) => (e.currentTarget.style.background = "rgba(var(--accent-success-rgb,4,120,87),0.05)")}
+                >
+                  <div
+                    className="w-10 h-10 rounded-2xl flex items-center justify-center shrink-0"
+                    style={{
+                      background: "rgba(var(--accent-success-rgb,4,120,87),0.12)",
+                      border: "1px solid rgba(var(--accent-success-rgb,4,120,87),0.25)",
+                    }}
+                  >
+                    <Upload size={18} style={{ color: "var(--accent-success)" }} />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-semibold truncate" style={{ color: "var(--text-primary)" }}>
+                      Import
+                    </p>
+                    <p className="text-xs truncate" style={{ color: "var(--text-muted)" }}>
+                      CSV / bulk upload
                     </p>
                   </div>
                 </button>
