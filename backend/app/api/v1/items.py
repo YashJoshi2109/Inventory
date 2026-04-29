@@ -93,9 +93,13 @@ async def list_items(
         limit=page_size,
     )
 
+    # Batch-fetch all stock totals in ONE query (avoids N+1 round-trips to Supabase)
+    item_ids = [item.id for item in items]
+    stock_totals = await stock_repo.get_totals_for_items(item_ids)
+
     summaries = []
     for item in items:
-        total_qty = await stock_repo.get_total_for_item(item.id)
+        total_qty = stock_totals.get(item.id, Decimal("0"))
         item_status = "OUT" if total_qty <= 0 else ("LOW" if total_qty <= item.reorder_level else "OK")
         if status_filter and item_status != status_filter.upper():
             continue

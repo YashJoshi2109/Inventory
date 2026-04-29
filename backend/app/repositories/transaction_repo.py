@@ -159,6 +159,37 @@ class StockLevelRepository(BaseRepository[StockLevel]):
         )
         return Decimal(str(result.scalar_one()))
 
+    async def get_totals_for_items(self, item_ids: list[int]) -> dict[int, Decimal]:
+        """Batch fetch stock totals for multiple items — single SQL query, no N+1."""
+        if not item_ids:
+            return {}
+        result = await self.session.execute(
+            select(StockLevel.item_id, func.sum(StockLevel.quantity).label("total"))
+            .where(StockLevel.item_id.in_(item_ids))
+            .group_by(StockLevel.item_id)
+        )
+        rows = result.all()
+        totals: dict[int, Decimal] = {row.item_id: Decimal(str(row.total)) for row in rows}
+        # items with no stock rows → 0
+        for iid in item_ids:
+            totals.setdefault(iid, Decimal("0"))
+        return totals
+
+    async def get_item_counts_for_locations(self, location_ids: list[int]) -> dict[int, int]:
+        """Batch fetch total item quantities per location — single SQL query, no N+1."""
+        if not location_ids:
+            return {}
+        result = await self.session.execute(
+            select(StockLevel.location_id, func.sum(StockLevel.quantity).label("total"))
+            .where(StockLevel.location_id.in_(location_ids))
+            .group_by(StockLevel.location_id)
+        )
+        rows = result.all()
+        counts: dict[int, int] = {row.location_id: int(row.total) for row in rows}
+        for lid in location_ids:
+            counts.setdefault(lid, 0)
+        return counts
+
     async def get_by_location(self, location_id: int) -> list[StockLevel]:
         result = await self.session.execute(
             select(StockLevel)

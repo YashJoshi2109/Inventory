@@ -180,9 +180,18 @@ async def print_bulk_labels(
 
     status_wanted = status.upper() if status else None
     labels: list[dict] = []
+
+    if status_wanted:
+        # Batch-fetch all totals in one query when filtering by status
+        item_ids = [item.id for item in items]
+        stock_totals = await stock_repo.get_totals_for_items(item_ids)
+    else:
+        stock_totals = {}
+
     for item in items:
         if status_wanted:
-            total_qty = await stock_repo.get_total_for_item(item.id)
+            from decimal import Decimal
+            total_qty = stock_totals.get(item.id, Decimal("0"))
             item_status = (
                 "OUT" if total_qty <= 0
                 else ("LOW" if total_qty <= item.reorder_level else "OK")

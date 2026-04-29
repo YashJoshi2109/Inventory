@@ -82,28 +82,27 @@ async def list_locations(
     current_user: CurrentUser,
     area_id: int | None = None,
 ) -> list[LocationRead]:
+    from app.repositories.transaction_repo import StockLevelRepository
+
     repo = LocationRepository(session)
-    if area_id:
-        locs = await repo.get_by_area(area_id)
-    else:
-        locs = await repo.get_all()
+    stock_repo = StockLevelRepository(session)
+
+    # Single query: all locations with area eager-loaded
+    locs = await repo.get_all_with_area(area_id=area_id)
+
+    # Batch-fetch item counts per location — one SQL query total
+    loc_ids = [loc.id for loc in locs]
+    item_counts = await stock_repo.get_item_counts_for_locations(loc_ids)
 
     result = []
     for loc in locs:
-        loc_with_area = await repo.get_with_area(loc.id)
-        if loc_with_area:
-            from app.repositories.transaction_repo import StockLevelRepository
-            stock_repo = StockLevelRepository(session)
-            stock_levels = await stock_repo.get_by_location(loc.id)
-            total_items = sum(sl.quantity for sl in stock_levels)
-
-            result.append(LocationRead(
-                **_model_dict(loc_with_area, {"area", "barcodes"}),
-                area_code=loc_with_area.area.code if loc_with_area.area else "",
-                area_name=loc_with_area.area.name if loc_with_area.area else "",
-                barcodes=[],
-                item_count=int(total_items),
-            ))
+        result.append(LocationRead(
+            **_model_dict(loc, {"area", "barcodes"}),
+            area_code=loc.area.code if loc.area else "",
+            area_name=loc.area.name if loc.area else "",
+            barcodes=[],
+            item_count=item_counts.get(loc.id, 0),
+        ))
     return result
 
 
