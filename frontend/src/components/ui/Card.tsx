@@ -4,28 +4,26 @@ import { clsx } from "clsx";
 interface CardProps extends HTMLAttributes<HTMLDivElement> {
   glass?: boolean;
   glow?: boolean;
+  elevated?: boolean;
+  noPad?: boolean;
 }
 
-export function Card({ className, glass = false, glow = false, ...props }: CardProps) {
+export function Card({
+  className,
+  glass = false,
+  glow = false,
+  elevated = false,
+  noPad = false,
+  ...props
+}: CardProps) {
   return (
     <div
       className={clsx(
         "rounded-2xl transition-all duration-200",
-        glass
-          ? "glass"
-          : "rounded-2xl",
-        glow && "card-glow",
+        elevated ? "glass-elevated" : "glass",
+        glow && "card-hover",
         className,
       )}
-      style={
-        glass
-          ? undefined
-          : {
-              background: "rgba(7,15,31,0.6)",
-              border: "1px solid rgba(255,255,255,0.07)",
-              backdropFilter: "blur(12px)",
-            }
-      }
       {...props}
     />
   );
@@ -35,7 +33,7 @@ export function CardHeader({ className, ...props }: HTMLAttributes<HTMLDivElemen
   return (
     <div
       className={clsx("px-5 py-4", className)}
-      style={{ borderBottom: "1px solid rgba(255,255,255,0.06)" }}
+      style={{ borderBottom: "1px solid var(--border-subtle)" }}
       {...props}
     />
   );
@@ -49,7 +47,10 @@ export function CardFooter({ className, ...props }: HTMLAttributes<HTMLDivElemen
   return (
     <div
       className={clsx("px-5 py-3 rounded-b-2xl", className)}
-      style={{ borderTop: "1px solid rgba(255,255,255,0.06)", background: "rgba(0,0,0,0.1)" }}
+      style={{
+        borderTop: "1px solid var(--border-subtle)",
+        background: "rgba(var(--accent-rgb, 37,99,235), 0.02)",
+      }}
       {...props}
     />
   );

@@ -231,7 +231,8 @@ export function Inventory() {
             defaultValue={q}
             onChange={(e) => setFilter("q", e.target.value)}
             placeholder="Search by name, SKU, supplier…"
-            className="w-full pl-9 pr-4 py-2.5 text-sm bg-surface-card border border-surface-border rounded-lg text-slate-200 placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-brand-500"
+            className="w-full pl-9 pr-4 py-2.5 text-sm bg-surface-card border border-surface-border rounded-lg placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-brand-500"
+            style={{ color: "var(--text-primary)" }}
           />
         </div>
         <div className="flex gap-2 shrink-0">
@@ -268,7 +269,7 @@ export function Inventory() {
               "px-3 py-1.5 rounded-lg text-sm font-medium whitespace-nowrap transition-colors",
               status === f.value
                 ? "bg-brand-600 text-white"
-                : "bg-surface-card border border-surface-border text-slate-400 hover:text-white"
+                : "bg-surface-card border border-surface-border hover:text-white"
             )}
           >
             {f.label}
@@ -280,7 +281,8 @@ export function Inventory() {
           <select
             value={categoryId ?? ""}
             onChange={(e) => setFilter("category_id", e.target.value)}
-            className="px-3 py-1.5 rounded-lg text-sm bg-surface-card border border-surface-border text-slate-400 focus:outline-none focus:ring-2 focus:ring-brand-500"
+            className="px-3 py-1.5 rounded-lg text-sm bg-surface-card border border-surface-border focus:outline-none focus:ring-2 focus:ring-brand-500"
+            style={{ color: "var(--text-secondary)" }}
           >
             <option value="">All Categories</option>
             {categories.map((c) => (
@@ -292,7 +294,7 @@ export function Inventory() {
 
       {/* Results summary */}
       {data && (
-        <div className="flex items-center justify-between text-sm text-slate-400">
+        <div className="flex items-center justify-between text-sm" style={{ color: "var(--text-secondary)" }}>
           <span>{data.total.toLocaleString()} items</span>
           <span>Page {data.page} of {data.total_pages}</span>
         </div>
@@ -317,7 +319,7 @@ export function Inventory() {
                   <thead>
                     <tr className="border-b border-surface-border">
                       {["SKU", "Name", "Category", "On Hand", "Reorder Level", "Unit Cost", "Status", ""].map((h) => (
-                        <th key={h} className="px-4 py-3 text-left text-xs font-medium text-slate-400 uppercase tracking-wide">
+                        <th key={h} className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wide" style={{ color: "var(--text-secondary)" }}>
                           {h}
                         </th>
                       ))}
@@ -352,7 +354,7 @@ export function Inventory() {
               >
                 Previous
               </Button>
-              <span className="text-sm text-slate-400">
+              <span className="text-sm" style={{ color: "var(--text-secondary)" }}>
                 {page} / {data.total_pages}
               </span>
               <Button
@@ -390,7 +392,7 @@ export function Inventory() {
         )}
       >
         <div className="p-5 space-y-3">
-          <p className="text-xs text-slate-400">
+          <p className="text-xs" style={{ color: "var(--text-secondary)" }}>
             Pick what to print. Labels use the Avery 5160 layout (30 per sheet).
           </p>
 
@@ -435,15 +437,16 @@ export function Inventory() {
                 className={clsx(
                   "w-full text-left px-4 py-3 rounded-xl border transition-colors",
                   selected
-                    ? "bg-brand-600/15 border-brand-500 text-white"
-                    : "bg-surface-card border-surface-border text-slate-300 hover:border-brand-500/50",
+                    ? "bg-brand-600/15 border-brand-500"
+                    : "bg-surface-card border-surface-border hover:border-brand-500/50",
                   isDisabled && "opacity-50 cursor-not-allowed",
                 )}
+                style={{ color: "var(--text-primary)" }}
               >
                 <div className="flex items-center justify-between gap-3">
                   <div className="min-w-0">
                     <p className="text-sm font-semibold">{opt.label}</p>
-                    <p className="text-xs text-slate-500 mt-0.5">{opt.desc}</p>
+                    <p className="text-xs mt-0.5" style={{ color: "var(--text-muted)" }}>{opt.desc}</p>
                   </div>
                   <span
                     className={clsx(
@@ -459,7 +462,8 @@ export function Inventory() {
                     value={printCategoryId}
                     onChange={(e) => setPrintCategoryId(e.target.value)}
                     onClick={(e) => e.stopPropagation()}
-                    className="mt-3 w-full px-3 py-2 rounded-lg text-sm bg-surface-base border border-surface-border text-slate-200 focus:outline-none focus:ring-2 focus:ring-brand-500"
+                    className="mt-3 w-full px-3 py-2 rounded-lg text-sm bg-surface-base border border-surface-border focus:outline-none focus:ring-2 focus:ring-brand-500"
+                    style={{ color: "var(--text-primary)" }}
                   >
                     <option value="">— Choose a category —</option>
                     {(categories ?? []).map((c) => (
@@ -513,11 +517,12 @@ export function Inventory() {
               onChange={(e) => setNewItem((p) => ({ ...p, unit: e.target.value }))}
             />
             <div>
-              <label className="block text-xs font-medium text-slate-400 mb-1.5">Category</label>
+              <label className="block text-xs font-medium mb-1.5" style={{ color: "var(--text-secondary)" }}>Category</label>
               <select
                 value={newItem.category_id}
                 onChange={(e) => setNewItem((p) => ({ ...p, category_id: e.target.value }))}
-                className="w-full px-3 py-2.5 rounded-lg text-sm bg-surface-card border border-surface-border text-slate-200 focus:outline-none focus:ring-2 focus:ring-brand-500"
+                className="w-full px-3 py-2.5 rounded-lg text-sm bg-surface-card border border-surface-border focus:outline-none focus:ring-2 focus:ring-brand-500"
+                style={{ color: "var(--text-primary)" }}
               >
                 <option value="">— No category —</option>
                 {(categories ?? []).map((c) => (
@@ -544,7 +549,7 @@ export function Inventory() {
               onChange={(e) => setNewItem((p) => ({ ...p, reorder_level: e.target.value }))}
             />
           </div>
-          <p className="text-xs text-slate-500">
+          <p className="text-xs" style={{ color: "var(--text-muted)" }}>
             A primary barcode is automatically generated from SKU after creation.
           </p>
         </div>
@@ -595,7 +600,7 @@ function ItemRow({ item }: { item: ItemSummary }) {
         <span className="font-mono text-xs text-brand-400">{item.sku}</span>
       </td>
       <td className="px-4 py-3">
-        <p className="text-slate-200 font-medium">{item.name}</p>
+        <p className="font-medium" style={{ color: "var(--text-primary)" }}>{item.name}</p>
       </td>
       <td className="px-4 py-3">
         {item.category_name && (
@@ -610,14 +615,14 @@ function ItemRow({ item }: { item: ItemSummary }) {
           {item.total_quantity} {item.unit}
         </span>
       </td>
-      <td className="px-4 py-3 text-slate-400">{item.reorder_level} {item.unit}</td>
-      <td className="px-4 py-3 text-slate-300">${Number(item.unit_cost).toFixed(2)}</td>
+      <td className="px-4 py-3" style={{ color: "var(--text-secondary)" }}>{item.reorder_level} {item.unit}</td>
+      <td className="px-4 py-3" style={{ color: "var(--text-primary)" }}>${Number(item.unit_cost).toFixed(2)}</td>
       <td className="px-4 py-3"><StatusBadge status={item.status} /></td>
       <td className="px-4 py-3">
         <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
           <Link
             to={`/inventory/${item.id}`}
-            className="p-1.5 rounded-lg hover:bg-surface-hover text-slate-400 hover:text-white"
+            className="p-1.5 rounded-lg hover:bg-surface-hover" style={{ color: "var(--text-secondary)" }}
           >
             <QrCode size={14} />
           </Link>
@@ -639,15 +644,15 @@ function ItemCard({ item }: { item: ItemSummary }) {
                 <Badge variant="default" className="text-xs">{item.category_name}</Badge>
               )}
             </div>
-            <p className="text-sm font-medium text-slate-200 truncate">{item.name}</p>
+            <p className="text-sm font-medium truncate" style={{ color: "var(--text-primary)" }}>{item.name}</p>
           </div>
           <StatusBadge status={item.status} />
         </div>
-        <div className="flex items-center gap-4 mt-3 text-xs text-slate-500">
+        <div className="flex items-center gap-4 mt-3 text-xs" style={{ color: "var(--text-muted)" }}>
           <span>
             <span className={clsx(
               "font-semibold text-sm mr-0.5",
-              item.status === "OUT" ? "text-red-400" : item.status === "LOW" ? "text-amber-400" : "text-slate-200"
+              item.status === "OUT" ? "text-red-400" : item.status === "LOW" ? "text-amber-400" : ""
             )}>
               {item.total_quantity}
             </span>

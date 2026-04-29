@@ -37,9 +37,24 @@ class ScanService:
         """
         Resolution order:
         1. Location barcode  (prefix LOC: or direct location code)
-        2. Item barcode      (SKU or registered barcode value)
+        2. Item barcode      (EPC serial or registered barcode_value)
+        3. JSON QR payload   ({"sku":..., "epc":...} from printed labels)
+        4. Direct SKU match  (human-typed or legacy barcodes)
         """
         clean = barcode_value.strip()
+
+        # Handle JSON QR payloads ({"sku":"...", "epc":"..."})
+        if clean.startswith("{"):
+            try:
+                import json as _json
+                payload = _json.loads(clean)
+                # Try EPC first, then SKU from payload
+                if "epc" in payload:
+                    clean = payload["epc"]
+                elif "sku" in payload:
+                    clean = payload["sku"]
+            except Exception:
+                pass  # not JSON, continue with original value
 
         # Location barcode (QR contains "LOC:{code}")
         if clean.upper().startswith("LOC:"):

@@ -1,18 +1,24 @@
 """
 Barcode + QR code generation and printing label service.
 
-Barcode ID Strategy
-===================
-Items  : SIER-{CAT_PREFIX}-{6-digit-seq}   e.g. SIER-CHM-000001
-         Where CAT_PREFIX is first 3 chars of category code
-Locations: SIER-LOC-{AREA_CODE}-{BIN}     e.g. SIER-LOC-LABA-S01B03
+Label format (matches physical Zebra thermal labels):
+  ┌─────────────────────────────────┐
+  │ ITEM NAME              [QR QR]  │
+  │ SKU: FE-ITEM-001       [QR QR]  │
+  │  ▌▌▌▌▌▌▌▌▌▌▌▌▌▌▌▌▌▌▌▌▌▌▌▌▌▌   │
+  │  E280111222233344440034         │
+  └─────────────────────────────────┘
 
-Phase 1: Code128 barcodes on plain paper (printable via browser PDF)
-Phase 2: Pluggable: swap barcode_type = "rfid" without schema changes
+EPC Serial Strategy
+===================
+Items:     E280111222233344440{item_id:03d}   e.g. E280111222233344440034
+Locations: LOC:{location_code}
+
+Both Code128 barcode AND QR code encode the EPC serial → scanner reads either.
+Scan lookup: barcode_value exact match → item found.
+SKU fallback: if no barcode record matches, try direct SKU match.
 """
 import io
-import os
-import textwrap
 from pathlib import Path
 
 import barcode as pybarcode
@@ -20,11 +26,10 @@ from barcode.writer import ImageWriter
 import qrcode
 from qrcode.image.svg import SvgFillImage
 from PIL import Image, ImageDraw, ImageFont
-from reportlab.lib import colors
 from reportlab.lib.pagesizes import letter
-from reportlab.lib.units import mm
-from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph
-from reportlab.lib.styles import getSampleStyleSheet
+from reportlab.lib.units import mm, inch
+from reportlab.pdfgen import canvas as rl_canvas
+from reportlab.lib.utils import ImageReader
 
 from app.core.config import settings
 
@@ -32,16 +37,18 @@ from app.core.config import settings
 BARCODE_DIR = Path(settings.BARCODE_DIR)
 BARCODE_DIR.mkdir(parents=True, exist_ok=True)
 
-
-def _safe_code128(value: str) -> str:
-    """Remove chars not allowed in Code128 barcodes."""
-    allowed = set(" !\"#$%&'()*+,-./:;<=>?@[\\]^_`{|}~" + "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz")
-    return "".join(c for c in value if c in allowed)
+# Lab EPC company prefix (matches physical labels)
+EPC_PREFIX = "E280111222233344440"
 
 
-def generate_item_barcode_value(sku: str) -> str:
-    """Primary barcode value for an item = the SKU itself (uppercase)."""
-    return sku.upper()
+def generate_epc_serial(item_id: int) -> str:
+    """Generate EPC-style serial: lab prefix + 3-digit item_id."""
+    return f"{EPC_PREFIX}{item_id:03d}"
+
+
+def generate_item_barcode_value(item_id: int, sku: str) -> str:
+    """Primary barcode value = EPC serial.  SKU is the human-readable fallback."""
+    return generate_epc_serial(item_id)
 
 
 def generate_location_barcode_value(location_code: str) -> str:
@@ -49,12 +56,30 @@ def generate_location_barcode_value(location_code: str) -> str:
     return f"LOC:{location_code.upper()}"
 
 
-def render_barcode_png(value: str, filename: str | None = None) -> bytes:
-    """Returns PNG bytes for a Code128 barcode."""
+def _safe_code128(value: str) -> str:
+    """Remove chars not allowed in Code128 barcodes."""
+    allowed = set(
+        " !\"#$%&'()*+,-./:;<=>?@[\\]^_`{|}~"
+        "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"
+    )
+    return "".join(c for c in value if c in allowed)
+
+
+def render_barcode_png(value: str) -> bytes:
+    """Returns PNG bytes for a Code128 barcode (no human-readable text below)."""
     clean = _safe_code128(value)
     CODE128 = pybarcode.get_barcode_class("code128")
     buf = io.BytesIO()
-    CODE128(clean, writer=ImageWriter()).write(buf, options={"module_height": 15.0, "font_size": 8, "quiet_zone": 4})
+    CODE128(
+        clean,
+        writer=ImageWriter(),
+    ).write(buf, options={
+        "module_height": 12.0,
+        "font_size": 0,       # hide text — serial is printed separately
+        "text_distance": 1.0,
+        "quiet_zone": 2,
+        "write_text": False,
+    })
     return buf.getvalue()
 
 
@@ -80,70 +105,100 @@ def render_qr_png(value: str) -> bytes:
     return buf.getvalue()
 
 
+# ── Label sheet PDF (matches physical Zebra thermal label format) ──────────────
+
+# Label dimensions: 4" × 2" thermal label, 2 columns per row
+_LABEL_W = 4.0 * inch
+_LABEL_H = 2.0 * inch
+_COLS = 2
+_PAGE_W, _PAGE_H = letter  # 8.5" × 11"
+_H_MARGIN = (_PAGE_W - _COLS * _LABEL_W) / 2   # ~0.25" each side
+_V_MARGIN = 0.5 * inch
+_ROWS_PER_PAGE = int((_PAGE_H - 2 * _V_MARGIN) / _LABEL_H)  # 5 rows = 10 labels/page
+
+
+def _draw_label(c: rl_canvas.Canvas, lbl: dict, x: float, y: float) -> None:
+    """
+    Draw one label at bottom-left (x, y) in PDF coordinate space.
+    lbl keys: title, sku, barcode_value, qr_blob (optional)
+    """
+    W = _LABEL_W
+    H = _LABEL_H
+    pad = 2 * mm
+
+    # ── Border ──
+    c.setStrokeColorRGB(0.75, 0.75, 0.75)
+    c.setLineWidth(0.4)
+    c.rect(x, y, W, H)
+
+    # ── QR code (top-right) ──
+    qr_size = 0.80 * inch
+    qr_x = x + W - qr_size - pad
+    qr_y = y + H - qr_size - pad
+
+    qr_bytes = lbl.get("qr_blob") or render_qr_png(lbl["barcode_value"])
+    qr_reader = ImageReader(io.BytesIO(qr_bytes))
+    c.drawImage(qr_reader, qr_x, qr_y, width=qr_size, height=qr_size, preserveAspectRatio=True)
+
+    # ── Item name (top-left, bold) ──
+    name = lbl.get("title", "")[:28]
+    c.setFont("Helvetica-Bold", 9)
+    c.setFillColorRGB(0, 0, 0)
+    c.drawString(x + pad, y + H - pad - 9, name)
+
+    # ── SKU line ──
+    sku = lbl.get("sku", lbl.get("barcode_value", ""))
+    c.setFont("Helvetica", 7.5)
+    c.setFillColorRGB(0.2, 0.2, 0.2)
+    c.drawString(x + pad, y + H - pad - 9 - 10, f"SKU: {sku}")
+
+    # ── Code128 barcode (center strip) ──
+    bc_h = 0.55 * inch   # barcode image height
+    bc_w = W - 2 * pad
+    bc_y = y + pad + 5 * mm  # above serial text
+
+    bc_bytes = render_barcode_png(lbl["barcode_value"])
+    bc_reader = ImageReader(io.BytesIO(bc_bytes))
+    c.drawImage(bc_reader, x + pad, bc_y, width=bc_w, height=bc_h,
+                preserveAspectRatio=False, mask="auto")
+
+    # ── EPC serial number (below barcode, monospace small) ──
+    c.setFont("Courier", 6.5)
+    c.setFillColorRGB(0.1, 0.1, 0.1)
+    c.drawCentredString(x + W / 2, y + pad, lbl["barcode_value"])
+
+
 def generate_label_sheet_pdf(labels: list[dict]) -> bytes:
     """
-    Generates an Avery 5160-compatible 3x10 label sheet PDF with QR codes.
-    Each label dict: { "title": str, "barcode_value": str, "subtitle": str }
-    Returns PDF bytes suitable for direct browser print.
+    Generates a PDF label sheet with 2×5 = 10 labels per page.
+    Each label matches the physical Zebra thermal format:
+    name+SKU top-left, QR top-right, Code128 barcode center, EPC serial below.
+
+    Each label dict: {
+        "title":         str,           # item name
+        "sku":           str,           # item SKU
+        "barcode_value": str,           # EPC serial (used for both QR and barcode)
+        "qr_blob":       bytes | None,  # pre-rendered QR PNG (optional)
+    }
     """
-    from reportlab.platypus import Image as RLImage
-
     buf = io.BytesIO()
-    doc = SimpleDocTemplate(
-        buf,
-        pagesize=letter,
-        rightMargin=5 * mm,
-        leftMargin=5 * mm,
-        topMargin=13 * mm,
-        bottomMargin=13 * mm,
-    )
-    styles = getSampleStyleSheet()
-    normal = styles["Normal"]
-    normal.fontSize = 7
-    normal.leading = 9
+    c = rl_canvas.Canvas(buf, pagesize=letter)
 
-    label_width = 66.7 * mm
-    label_height = 25.4 * mm
-    cols = 3
+    labels_per_page = _COLS * _ROWS_PER_PAGE
 
-    cells = []
-    for i in range(0, len(labels), cols):
-        row_labels = labels[i : i + cols]
-        row = []
-        for lbl in row_labels:
-            qr_png = lbl.get("qr_blob") or render_qr_png(lbl["barcode_value"])
-            qr_img = RLImage(io.BytesIO(qr_png), width=18 * mm, height=18 * mm)
-            title_p = Paragraph(f"<b>{lbl['title'][:30]}</b>", normal)
-            sub_p = Paragraph(lbl.get("subtitle", "")[:40], normal)
-            text_col = Table([[title_p], [sub_p]], colWidths=[label_width - 24 * mm])
-            text_col.setStyle(TableStyle([
-                ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
-                ("LEFTPADDING", (0, 0), (-1, -1), 1 * mm),
-                ("RIGHTPADDING", (0, 0), (-1, -1), 0),
-                ("TOPPADDING", (0, 0), (-1, -1), 0),
-                ("BOTTOMPADDING", (0, 0), (-1, -1), 0),
-            ]))
-            inner = Table([[qr_img, text_col]], colWidths=[20 * mm, label_width - 24 * mm])
-            inner.setStyle(TableStyle([
-                ("ALIGN", (0, 0), (0, 0), "CENTER"),
-                ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
-                ("LEFTPADDING", (0, 0), (-1, -1), 1 * mm),
-                ("RIGHTPADDING", (0, 0), (-1, -1), 1 * mm),
-                ("TOPPADDING", (0, 0), (-1, -1), 0),
-                ("BOTTOMPADDING", (0, 0), (-1, -1), 0),
-            ]))
-            row.append(inner)
-        while len(row) < cols:
-            row.append("")
-        cells.append(row)
+    for idx, lbl in enumerate(labels):
+        page_idx = idx % labels_per_page
+        col = page_idx % _COLS
+        row = page_idx // _COLS
 
-    table = Table(cells, colWidths=[label_width] * cols)
-    table.setStyle(TableStyle([
-        ("BOX", (0, 0), (-1, -1), 0.25, colors.grey),
-        ("INNERGRID", (0, 0), (-1, -1), 0.25, colors.grey),
-        ("ALIGN", (0, 0), (-1, -1), "CENTER"),
-        ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
-        ("ROWHEIGHT", (0, 0), (-1, -1), label_height),
-    ]))
-    doc.build([table])
+        x = _H_MARGIN + col * _LABEL_W
+        y = _PAGE_H - _V_MARGIN - (row + 1) * _LABEL_H
+
+        _draw_label(c, lbl, x, y)
+
+        # New page after filling current one
+        if (idx + 1) % labels_per_page == 0 and (idx + 1) < len(labels):
+            c.showPage()
+
+    c.save()
     return buf.getvalue()

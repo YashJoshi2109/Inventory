@@ -257,7 +257,7 @@ function ReviewSheet({
   );
 
   return (
-    <div className="fixed inset-0 z-50 flex flex-col" style={{ background: "rgba(3,7,18,0.85)", backdropFilter: "blur(12px)" }}>
+    <div className="fixed inset-0 z-50 flex flex-col" style={{ background: "rgba(3,7,18,0.85)", backdropFilter: "blur(24px) saturate(1.8)" }}>
       {/* Header */}
       <div className="flex items-center gap-3 px-4 pt-5 pb-3 shrink-0"
         style={{ borderBottom: "1px solid rgba(255,255,255,0.07)" }}>
@@ -286,7 +286,7 @@ function ReviewSheet({
             style={{ border: "1px solid rgba(34,211,238,0.15)" }}>
             <img src={imagePreview} alt="Scanned" className="w-full h-full object-cover" />
             <div className="absolute bottom-2 left-2 flex items-center gap-1.5 px-2.5 py-1 rounded-xl text-[11px] font-semibold"
-              style={{ background: "rgba(0,0,0,0.7)", backdropFilter: "blur(8px)", color: "#22d3ee", border: "1px solid rgba(34,211,238,0.25)" }}>
+              style={{ background: "rgba(0,0,0,0.7)", backdropFilter: "blur(24px) saturate(1.8)", color: "#22d3ee", border: "1px solid rgba(34,211,238,0.25)" }}>
               <Sparkles size={11} />
               AI Detected
             </div>
@@ -809,7 +809,7 @@ export function SmartScan() {
                     className="absolute top-3 right-3 w-9 h-9 rounded-2xl flex items-center justify-center transition-all hover:scale-110 active:scale-95"
                     style={{
                       background: "rgba(0,0,0,0.5)",
-                      backdropFilter: "blur(8px)",
+                      backdropFilter: "blur(24px) saturate(1.8)",
                       border: "1px solid rgba(255,255,255,0.12)",
                     }}
                   >
@@ -821,7 +821,7 @@ export function SmartScan() {
                     className="absolute top-3 left-3 flex items-center gap-1.5 px-2.5 py-1 rounded-xl text-xs font-semibold"
                     style={{
                       background: "rgba(0,0,0,0.6)",
-                      backdropFilter: "blur(8px)",
+                      backdropFilter: "blur(24px) saturate(1.8)",
                       color: "#22d3ee",
                       border: "1px solid rgba(34,211,238,0.25)",
                     }}
@@ -1051,7 +1051,7 @@ export function SmartScan() {
                 className="absolute top-3 right-3 w-8 h-8 rounded-xl flex items-center justify-center transition-all hover:scale-110 active:scale-95"
                 style={{
                   background: "rgba(0,0,0,0.6)",
-                  backdropFilter: "blur(8px)",
+                  backdropFilter: "blur(24px) saturate(1.8)",
                   border: "1px solid rgba(255,255,255,0.1)",
                 }}
               >
@@ -1103,7 +1103,7 @@ export function SmartScan() {
                 />
                 <div
                   className="absolute inset-0 flex items-center justify-center"
-                  style={{ background: "rgba(3,7,18,0.55)", backdropFilter: "blur(2px)" }}
+                  style={{ background: "rgba(3,7,18,0.55)", backdropFilter: "blur(24px) saturate(1.8)" }}
                 >
                   <Loader2 size={32} className="text-cyan-400 animate-spin" />
                 </div>
