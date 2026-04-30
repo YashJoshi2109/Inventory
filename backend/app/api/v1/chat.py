@@ -23,6 +23,7 @@ Endpoints:
 from __future__ import annotations
 
 import json
+import tempfile
 import uuid
 from datetime import datetime
 from pathlib import Path
@@ -369,16 +370,35 @@ async def upload_document(
         )
 
     safe_name = f"{uuid.uuid4().hex}_{(file.filename or 'upload').replace(' ', '_')}"
-    dest = UPLOAD_BASE / safe_name
     content = await file.read()
-    dest.write_bytes(content)
+
+    # Write to a temp file so _extract_text_chunks can read it via Path
+    tmp_fd = tempfile.NamedTemporaryFile(
+        suffix=Path(safe_name).suffix, delete=False
+    )
+    tmp_path = Path(tmp_fd.name)
+    tmp_fd.write(content)
+    tmp_fd.close()
+
+    if settings.GCS_BUCKET_NAME:
+        # Upload to Google Cloud Storage; store object key as file_path
+        from google.cloud import storage as gcs_storage  # type: ignore[import]
+        gcs_key = f"knowledge/{safe_name}"
+        gcs_client = gcs_storage.Client()
+        blob = gcs_client.bucket(settings.GCS_BUCKET_NAME).blob(gcs_key)
+        blob.upload_from_string(content, content_type=file.content_type or "application/octet-stream")
+        file_path_str = f"gcs://{settings.GCS_BUCKET_NAME}/{gcs_key}"
+    else:
+        dest = UPLOAD_BASE / safe_name
+        dest.write_bytes(content)
+        file_path_str = str(dest)
 
     doc = KnowledgeDocument(
         title=title or (file.filename or "Untitled"),
         filename=file.filename or safe_name,
         mime_type=file.content_type or "application/octet-stream",
         doc_type=doc_type,
-        file_path=str(dest),
+        file_path=file_path_str,
         uploaded_by=current_user.id,
         status=DocStatus.PENDING,
     )
@@ -387,7 +407,8 @@ async def upload_document(
     await db.refresh(doc)
 
     try:
-        chunks = _extract_text_chunks(dest, file.content_type or "")
+        chunks = _extract_text_chunks(tmp_path, file.content_type or "")
+        tmp_path.unlink(missing_ok=True)  # clean up temp file after extraction
         from app.ai.embeddings import embed_text, vec_to_json
         for i, chunk_text in enumerate(chunks):
             embedding_json: str | None = None
@@ -408,6 +429,7 @@ async def upload_document(
         doc.status = DocStatus.READY
         await db.flush()
     except Exception:
+        tmp_path.unlink(missing_ok=True)
         doc.status = DocStatus.FAILED
         await db.flush()
 
@@ -439,6 +461,27 @@ async def get_document_content(doc_id: int, db: DbSession, current_user: Current
         raise HTTPException(status_code=404, detail="Document not found")
     if not doc.file_path:
         raise HTTPException(status_code=404, detail="No file stored for this document")
+
+    # GCS-backed file: stream bytes from bucket
+    if doc.file_path.startswith("gcs://"):
+        try:
+            from google.cloud import storage as gcs_storage  # type: ignore[import]
+            from fastapi.responses import Response
+            # gcs://bucket/key
+            gcs_path = doc.file_path[len("gcs://"):]
+            bucket_name, _, gcs_key = gcs_path.partition("/")
+            gcs_client = gcs_storage.Client()
+            blob = gcs_client.bucket(bucket_name).blob(gcs_key)
+            data = blob.download_as_bytes()
+            return Response(
+                content=data,
+                media_type=doc.mime_type or "application/octet-stream",
+                headers={"Content-Disposition": f'inline; filename="{doc.filename}"'},
+            )
+        except Exception as exc:
+            raise HTTPException(status_code=404, detail=f"File not found in cloud storage: {exc}") from exc
+
+    # Local disk file
     path = Path(doc.file_path)
     if not path.exists():
         raise HTTPException(status_code=404, detail="File missing from storage")

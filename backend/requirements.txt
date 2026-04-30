@@ -49,6 +49,9 @@ slowapi>=0.1.9
 # Gemini API (primary copilot)
 google-genai==1.68.0
 
+# Google Cloud Storage (file uploads on Cloud Run)
+google-cloud-storage>=2.18.0
+
 # HTTP client (for AI services)
 httpx==0.28.1
 
