@@ -16,8 +16,15 @@ concurrency:
   group: deploy-${{ github.ref }}
   cancel-in-progress: false   # Never cancel in-flight deploys
 
+env:
+  PROJECT: gen-lang-client-0602255200
+  REGION: us-central1
+  IMAGE: us-central1-docker.pkg.dev/gen-lang-client-0602255200/inventory-backend/api
+  CLOUDRUN_SERVICE: inventory-backend
+  RUNTIME_SA: inventory-backend-sa@gen-lang-client-0602255200.iam.gserviceaccount.com
+
 jobs:
-  # ── Verify build passes before deploying ─────────────────────────────────────
+  # ── Verify frontend build passes before deploying ────────────────────────────
   verify:
     name: Verify build
     runs-on: ubuntu-latest
@@ -70,9 +77,9 @@ jobs:
           VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
           VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
 
-  # ── Trigger Render backend redeploy ──────────────────────────────────────────
+  # ── Build + deploy backend to GCP Cloud Run ──────────────────────────────────
   deploy-backend:
-    name: Deploy → Render
+    name: Deploy → GCP Cloud Run
     runs-on: ubuntu-latest
     needs: verify
     if: |
@@ -82,20 +89,88 @@ jobs:
       name: production-backend
 
     steps:
-      - name: Trigger Render deploy hook
+      - uses: actions/checkout@v4
+
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.GCP_SA_KEY }}
+
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+        with:
+          project_id: ${{ env.PROJECT }}
+
+      - name: Configure Docker for Artifact Registry
+        run: gcloud auth configure-docker us-central1-docker.pkg.dev --quiet
+
+      - name: Build and push Docker image
         run: |
-          if [ -z "$RENDER_DEPLOY_HOOK_URL" ]; then
-            echo "RENDER_DEPLOY_HOOK_URL not set — skipping Render deploy"
-            exit 0
-          fi
-          HTTP_STATUS=$(curl -s -o /dev/null -w "%{http_code}" -X POST "$RENDER_DEPLOY_HOOK_URL")
-          echo "Render deploy hook status: $HTTP_STATUS"
-          if [[ "$HTTP_STATUS" != "2"* ]]; then
-            echo "Render deploy hook returned non-2xx: $HTTP_STATUS"
-            exit 1
-          fi
-        env:
-          RENDER_DEPLOY_HOOK_URL: ${{ secrets.RENDER_DEPLOY_HOOK_URL }}
+          docker build \
+            --platform linux/amd64 \
+            -t "$IMAGE:${{ github.sha }}" \
+            -t "$IMAGE:latest" \
+            backend/
+          docker push "$IMAGE:${{ github.sha }}"
+          docker push "$IMAGE:latest"
+
+      - name: Deploy to Cloud Run
+        run: |
+          gcloud run deploy "$CLOUDRUN_SERVICE" \
+            --image="$IMAGE:${{ github.sha }}" \
+            --region="$REGION" \
+            --platform=managed \
+            --allow-unauthenticated \
+            --service-account="$RUNTIME_SA" \
+            --port=8000 \
+            --min-instances=1 \
+            --max-instances=5 \
+            --memory=1Gi \
+            --cpu=1 \
+            --timeout=300 \
+            --concurrency=80 \
+            --command="sh" \
+            --args="-c,alembic upgrade head; uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 1" \
+            --set-env-vars="\
+          DATABASE_SSL=true,\
+          GCS_BUCKET_NAME=sierlab-inv-uploads,\
+          ENVIRONMENT=production,\
+          POSTGRES_HOST=${{ secrets.POSTGRES_HOST }},\
+          POSTGRES_PORT=5432,\
+          POSTGRES_DB=postgres,\
+          POSTGRES_USER=${{ secrets.POSTGRES_USER }},\
+          POSTGRES_PASSWORD=${{ secrets.POSTGRES_PASSWORD }},\
+          SECRET_KEY=${{ secrets.SECRET_KEY }},\
+          GEMINI_API_KEY=${{ secrets.GEMINI_API_KEY }},\
+          GEMINI_CHAT_MODEL=gemini-2.0-flash,\
+          GEMINI_VISION_MODEL=gemini-2.0-flash,\
+          GEMINI_VISION_FALLBACK_MODELS_RAW=gemini-1.5-flash,\
+          OPENROUTER_API_KEY=${{ secrets.OPENROUTER_API_KEY }},\
+          OPENROUTER_MODEL=meta-llama/llama-3.1-8b-instruct:free,\
+          WEBAUTHN_RP_ID=inventory-brown-beta.vercel.app,\
+          WEBAUTHN_ORIGINS=https://inventory-brown-beta.vercel.app,\
+          CORS_ORIGINS=[\"https://inventory-brown-beta.vercel.app\"],\
+          CORS_ORIGIN_REGEX=^https://.*\\.vercel\\.app$,\
+          BREVO_API_KEY=${{ secrets.BREVO_API_KEY }},\
+          BREVO_SENDER_EMAIL=${{ secrets.BREVO_SENDER_EMAIL }},\
+          BREVO_SENDER_NAME=SEAR Lab Inventory,\
+          RESEND_API_KEY=${{ secrets.RESEND_API_KEY }},\
+          RESEND_FROM_EMAIL=onboarding@resend.dev,\
+          RESEND_ENABLE_TRANSFER=true,\
+          SMTP_ENABLED=false,\
+          MQTT_ENABLED=true,\
+          MQTT_BROKER_HOST=${{ secrets.MQTT_BROKER_HOST }},\
+          MQTT_BROKER_PORT=8883,\
+          MQTT_USERNAME=${{ secrets.MQTT_USERNAME }},\
+          MQTT_PASSWORD=${{ secrets.MQTT_PASSWORD }},\
+          MQTT_USE_TLS=true,\
+          MQTT_QOS=1,\
+          MQTT_TOPIC_PREFIX=searlab/inventory,\
+          UPLOAD_DIR=/tmp/uploads,\
+          BARCODE_DIR=/tmp/uploads/barcodes,\
+          AI_ANOMALY_DETECTION_ENABLED=true,\
+          AI_FORECAST_ENABLED=true,\
+          ALERT_EMAIL_ENABLED=false"
 
   # ── Post-deploy smoke test ────────────────────────────────────────────────────
   smoke-test:
@@ -105,19 +180,14 @@ jobs:
     if: always() && (needs.deploy-frontend.result == 'success' || needs.deploy-backend.result == 'success')
 
     steps:
-      - name: Health check backend
+      - name: Health check backend (Cloud Run)
         run: |
-          if [ -z "$BACKEND_URL" ]; then
-            echo "BACKEND_URL not set — skipping smoke test"
-            exit 0
-          fi
+          BACKEND="https://inventory-backend-nqpxz6tuka-uc.a.run.app"
           for i in 1 2 3; do
-            HTTP=$(curl -s -o /dev/null -w "%{http_code}" "$BACKEND_URL/health" || echo "000")
+            HTTP=$(curl -s -o /dev/null -w "%{http_code}" "$BACKEND/ping" || echo "000")
             echo "Attempt $i: $HTTP"
             if [[ "$HTTP" == "200" ]]; then exit 0; fi
             sleep 15
           done
           echo "Backend health check failed after 3 attempts"
           exit 1
-        env:
-          BACKEND_URL: ${{ secrets.BACKEND_URL }}
