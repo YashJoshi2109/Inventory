@@ -571,17 +571,37 @@ function UserRow({
       </td>
       <td className="px-4 py-3">
         <div className="flex items-center gap-3">
-          <div
-            className="w-8 h-8 rounded-xl flex items-center justify-center text-sm font-bold text-white shrink-0"
-            style={{ background: u.is_active ? "linear-gradient(135deg,#0891b2,#22d3ee)" : "rgba(100,116,139,0.4)" }}
-          >
-            {u.full_name[0]?.toUpperCase()}
+          <div className="relative shrink-0">
+            {u.avatar_url ? (
+              <img
+                src={u.avatar_url}
+                alt={u.full_name}
+                className="w-8 h-8 rounded-xl object-cover object-top"
+                style={{ opacity: u.is_active ? 1 : 0.4 }}
+                onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = "none"; (e.currentTarget.nextElementSibling as HTMLElement | null)?.removeAttribute("style"); }}
+              />
+            ) : null}
+            <div
+              className="w-8 h-8 rounded-xl flex items-center justify-center text-sm font-bold text-white"
+              style={{
+                background: u.is_active ? "linear-gradient(135deg,#0891b2,#22d3ee)" : "rgba(100,116,139,0.4)",
+                display: u.avatar_url ? "none" : "flex",
+              }}
+            >
+              {u.full_name[0]?.toUpperCase()}
+            </div>
+            {u.is_superuser && (
+              <span className="absolute -top-1 -right-1 text-[9px]" title="Superuser">👑</span>
+            )}
           </div>
           <div className="min-w-0">
             <p className="text-sm font-semibold truncate" style={{ color: "var(--text-primary)" }}>
               {u.full_name} {isSelf && <span className="text-[10px] text-brand-400 font-normal">(you)</span>}
             </p>
             <p className="text-xs truncate" style={{ color: "var(--text-muted)" }}>@{u.username}</p>
+            {u.bio && (
+              <p className="text-[10px] truncate max-w-[160px]" style={{ color: "var(--text-muted)", opacity: 0.7 }} title={u.bio}>{u.bio}</p>
+            )}
           </div>
         </div>
       </td>

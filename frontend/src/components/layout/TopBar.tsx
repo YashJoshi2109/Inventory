@@ -6,6 +6,7 @@ import { useQuery } from "@tanstack/react-query";
 import { useAuthStore } from "@/store/auth";
 import { dashboardApi } from "@/api/dashboard";
 import { useThemeStore } from "@/store/theme";
+import { ProfessorCard } from "./ProfessorCard";
 
 const titles: Record<string, string> = {
   "/dashboard":    "Dashboard",
@@ -75,6 +76,9 @@ export function TopBar() {
       >
         {title}
       </h1>
+
+      {/* Professor notch */}
+      <ProfessorCard />
 
       <div className="flex-1" />
 
