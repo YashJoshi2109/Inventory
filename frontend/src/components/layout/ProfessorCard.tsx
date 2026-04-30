@@ -161,18 +161,16 @@ export function ProfessorCard() {
               {/* avatar (overlaps header) */}
               <div className="absolute left-4 bottom-[-22px] z-10">
                 <div
-                  className="w-14 h-14 rounded-2xl overflow-hidden"
+                  className="w-14 h-14 rounded-2xl flex items-center justify-center"
                   style={{
+                    background: "linear-gradient(135deg, #0e7490 0%, #1d4ed8 100%)",
                     border: "2.5px solid rgba(255,255,255,0.2)",
                     boxShadow: "0 8px 24px rgba(0,0,0,0.45)",
                   }}
                 >
-                  <img
-                    src={PROF.avatar}
-                    alt={PROF.name}
-                    className="w-full h-full object-cover object-top"
-                    draggable={false}
-                  />
+                  <span className="text-lg font-bold text-white select-none">
+                    {PROF.initials}
+                  </span>
                 </div>
               </div>
 
