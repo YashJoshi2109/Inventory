@@ -63,4 +63,8 @@ export const usersApi = {
   resetPassword: async (id: number, newPassword: string): Promise<void> => {
     await apiClient.post(`/users/${id}/reset-password`, { new_password: newPassword });
   },
+
+  bulkDelete: async (ids: number[]): Promise<void> => {
+    await apiClient.delete("/users/bulk", { data: ids });
+  },
 };
