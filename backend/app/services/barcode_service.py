@@ -1,24 +1,40 @@
 """
 Barcode + QR code generation and printing label service.
 
-Label format (matches physical Zebra thermal labels):
-  ┌─────────────────────────────────┐
-  │ ITEM NAME              [QR QR]  │
-  │ SKU: FE-ITEM-001       [QR QR]  │
-  │  ▌▌▌▌▌▌▌▌▌▌▌▌▌▌▌▌▌▌▌▌▌▌▌▌▌▌   │
-  │  E280111222233344440034         │
-  └─────────────────────────────────┘
+SEAR Lab Standard Label Format (4" × 2" at 203 dpi):
+  ┌─────────────────────────────────────────────────────┐
+  │ ITEM NAME                              [QR  QR  QR] │
+  │ Description subtitle                  [QR  QR  QR] │
+  │ GTIN: 242041150003                    [QR  QR  QR] │
+  │ Serial: SN-0001                       [QR  QR  QR] │
+  │  ▌▌▌▌▌▌▌▌▌▌▌▌▌▌▌▌▌▌▌▌▌▌▌▌▌▌▌▌▌▌▌▌▌             │
+  │  242041150003                                       │
+  └─────────────────────────────────────────────────────┘
 
-EPC Serial Strategy
-===================
-Items:     E280111222233344440{item_id:03d}   e.g. E280111222233344440034
-Locations: LOC:{location_code}
+Barcode (Code 128) encodes: GTIN-14 (00242041150003)
+QR code encodes: GS1 Digital Link URL
+  → https://rfid.uta.edu/01/00242041150003/21/SN-0001?desc=Item_Name
 
-Both Code128 barcode AND QR code encode the EPC serial → scanner reads either.
-Scan lookup: barcode_value exact match → item found.
-SKU fallback: if no barcode record matches, try direct SKU match.
+GTIN Strategy
+=============
+Company prefix (GCP):  0024204115  (10-digit SEAR Lab prefix)
+Item reference:        {item_id:03d}  (3 digits, supports up to 999 items)
+Check digit:           GS1 mod-10 algorithm
+GTIN-14:               {GCP}{item_ref}{check}  (14 digits total)
+
+Serial:                SN-{item_id:04d}
+
+Scan resolution
+===============
+• GTIN-12/13/14 from Code 128  → normalize to GTIN-14 → look up in item_barcodes
+• GS1 Digital Link URL         → extract GTIN-14 → look up in item_barcodes
+• LOC:{code}                   → location lookup
+• EPC serial (E28...)          → legacy fallback for existing items
+• Direct SKU                   → last-resort fallback
 """
 import io
+import re
+import urllib.parse
 from pathlib import Path
 
 import barcode as pybarcode
@@ -37,24 +53,101 @@ from app.core.config import settings
 BARCODE_DIR = Path(settings.BARCODE_DIR)
 BARCODE_DIR.mkdir(parents=True, exist_ok=True)
 
-# Lab EPC company prefix (matches physical labels)
+# ── SEAR Lab GS1 constants ────────────────────────────────────────────────────
+
+# 10-digit GS1 Company Prefix assigned to SEAR Lab (matches lab's physical labels)
+SEAR_LAB_GCP = "0024204115"
+
+# GS1 Digital Link base URL (matches rfid.uta.edu standard)
+GS1_DL_BASE = "https://rfid.uta.edu"
+
+# Legacy EPC prefix kept for backward compatibility with existing items
 EPC_PREFIX = "E280111222233344440"
 
 
+# ── GTIN helpers ──────────────────────────────────────────────────────────────
+
+def _gtin14_check_digit(digits_13: str) -> int:
+    """Compute GS1 check digit from first 13 digits of a GTIN-14."""
+    total = sum(
+        int(d) * (3 if i % 2 == 0 else 1)
+        for i, d in enumerate(digits_13)
+    )
+    return (10 - (total % 10)) % 10
+
+
+def gtin14_for_item(item_id: int) -> str:
+    """Return the 14-digit GS1 GTIN for this item."""
+    prefix_13 = f"{SEAR_LAB_GCP}{item_id:03d}"   # 10 + 3 = 13 digits
+    check = _gtin14_check_digit(prefix_13)
+    return f"{prefix_13}{check}"                   # 14 digits total
+
+
+def gtin12_for_item(item_id: int) -> str:
+    """Return the 12-digit display GTIN (strips 2 leading zeros from GTIN-14)."""
+    return gtin14_for_item(item_id)[2:]            # GTIN-14 always starts with "00"
+
+
+def serial_for_item(item_id: int) -> str:
+    """Return the GS1 serial number for this item."""
+    return f"SN-{item_id:04d}"
+
+
+def gs1_digital_link_url(item_id: int, item_name: str = "") -> str:
+    """
+    Build a GS1 Digital Link URL for an item.
+    Format: {base}/01/{gtin14}/21/{serial}?desc={name}
+    """
+    gtin14 = gtin14_for_item(item_id)
+    serial = serial_for_item(item_id)
+    desc = urllib.parse.quote(item_name.replace(" ", "_"), safe="")
+    url = f"{GS1_DL_BASE}/01/{gtin14}/21/{serial}"
+    if desc:
+        url += f"?desc={desc}"
+    return url
+
+
+def parse_gs1_digital_link(value: str) -> str | None:
+    """
+    Extract the GTIN-14 from a GS1 Digital Link URL.
+    Matches: {any_host}/01/{gtin}/21/{serial}?...
+    Returns the 14-digit GTIN string, or None if not a GS1 URL.
+    """
+    m = re.search(r"/01/(\d{8,14})/", value)
+    if m:
+        raw = m.group(1)
+        return raw.zfill(14)          # normalize to 14 digits
+    return None
+
+
+def normalize_gtin(value: str) -> str | None:
+    """
+    If value looks like a bare GTIN (all digits, 12–14 chars), return
+    zero-padded to 14 digits. Returns None if it doesn't look like a GTIN.
+    """
+    if re.fullmatch(r"\d{12,14}", value):
+        return value.zfill(14)
+    return None
+
+
+# ── Legacy EPC helpers (backward compat) ─────────────────────────────────────
+
 def generate_epc_serial(item_id: int) -> str:
-    """Generate EPC-style serial: lab prefix + 3-digit item_id."""
+    """Generate EPC-style serial (legacy format for existing items)."""
     return f"{EPC_PREFIX}{item_id:03d}"
 
 
-def generate_item_barcode_value(item_id: int, sku: str) -> str:
-    """Primary barcode value = EPC serial.  SKU is the human-readable fallback."""
-    return generate_epc_serial(item_id)
+def generate_item_barcode_value(item_id: int, sku: str = "") -> str:
+    """Primary barcode value = GTIN-14."""
+    return gtin14_for_item(item_id)
 
 
 def generate_location_barcode_value(location_code: str) -> str:
     """Primary barcode value for a location."""
     return f"LOC:{location_code.upper()}"
 
+
+# ── Code 128 barcode rendering ────────────────────────────────────────────────
 
 def _safe_code128(value: str) -> str:
     """Remove chars not allowed in Code128 barcodes."""
@@ -75,13 +168,15 @@ def render_barcode_png(value: str) -> bytes:
         writer=ImageWriter(),
     ).write(buf, options={
         "module_height": 12.0,
-        "font_size": 0,       # hide text — serial is printed separately
+        "font_size": 0,
         "text_distance": 1.0,
         "quiet_zone": 2,
         "write_text": False,
     })
     return buf.getvalue()
 
+
+# ── QR code rendering ─────────────────────────────────────────────────────────
 
 def render_qr_svg(value: str) -> bytes:
     """Returns SVG bytes for a QR code — used for location labels."""
@@ -105,22 +200,31 @@ def render_qr_png(value: str) -> bytes:
     return buf.getvalue()
 
 
-# ── Label sheet PDF (matches physical Zebra thermal label format) ──────────────
+# ── Label sheet PDF (SEAR Lab Standard) ──────────────────────────────────────
 
 # Label dimensions: 4" × 2" thermal label, 2 columns per row
 _LABEL_W = 4.0 * inch
 _LABEL_H = 2.0 * inch
 _COLS = 2
-_PAGE_W, _PAGE_H = letter  # 8.5" × 11"
-_H_MARGIN = (_PAGE_W - _COLS * _LABEL_W) / 2   # ~0.25" each side
+_PAGE_W, _PAGE_H = letter
+_H_MARGIN = (_PAGE_W - _COLS * _LABEL_W) / 2
 _V_MARGIN = 0.5 * inch
-_ROWS_PER_PAGE = int((_PAGE_H - 2 * _V_MARGIN) / _LABEL_H)  # 5 rows = 10 labels/page
+_ROWS_PER_PAGE = int((_PAGE_H - 2 * _V_MARGIN) / _LABEL_H)
 
 
 def _draw_label(c: rl_canvas.Canvas, lbl: dict, x: float, y: float) -> None:
     """
-    Draw one label at bottom-left (x, y) in PDF coordinate space.
-    lbl keys: title, sku, barcode_value, qr_blob (optional)
+    Draw one SEAR Lab Standard label at bottom-left (x, y).
+
+    lbl keys:
+        title          str   item name
+        sku            str   item SKU
+        barcode_value  str   GTIN-14 (used for Code128 barcode)
+        gtin_display   str   GTIN-12 to print as text (optional)
+        serial         str   serial number, e.g. SN-0001 (optional)
+        description    str   short description line (optional)
+        qr_blob        bytes pre-rendered QR PNG encoding GS1 URL (optional)
+        qr_value       str   GS1 Digital Link URL (fallback if no qr_blob)
     """
     W = _LABEL_W
     H = _LABEL_H
@@ -131,55 +235,81 @@ def _draw_label(c: rl_canvas.Canvas, lbl: dict, x: float, y: float) -> None:
     c.setLineWidth(0.4)
     c.rect(x, y, W, H)
 
-    # ── QR code (top-right) ──
-    qr_size = 0.80 * inch
+    # ── QR code (right zone: 2.9"–3.9" from label left) ──
+    qr_size = 0.85 * inch
     qr_x = x + W - qr_size - pad
-    qr_y = y + H - qr_size - pad
+    qr_y = y + (H - qr_size) / 2   # vertically centered
 
-    qr_bytes = lbl.get("qr_blob") or render_qr_png(lbl["barcode_value"])
+    qr_value = lbl.get("qr_value") or lbl.get("barcode_value", "")
+    qr_bytes = lbl.get("qr_blob") or render_qr_png(qr_value)
     qr_reader = ImageReader(io.BytesIO(qr_bytes))
     c.drawImage(qr_reader, qr_x, qr_y, width=qr_size, height=qr_size, preserveAspectRatio=True)
 
-    # ── Item name (top-left, bold) ──
-    name = lbl.get("title", "")[:28]
-    c.setFont("Helvetica-Bold", 9)
+    # ── Text zone (left zone: up to 2.8" from label left) ──
+    text_right = x + W - qr_size - 2 * pad   # keep clear of QR
+    text_x = x + pad
+
+    # Item name (bold, largest)
+    name = lbl.get("title", "")[:32]
+    c.setFont("Helvetica-Bold", 8.5)
     c.setFillColorRGB(0, 0, 0)
-    c.drawString(x + pad, y + H - pad - 9, name)
+    c.drawString(text_x, y + H - pad - 9, name)
 
-    # ── SKU line ──
-    sku = lbl.get("sku", lbl.get("barcode_value", ""))
-    c.setFont("Helvetica", 7.5)
-    c.setFillColorRGB(0.2, 0.2, 0.2)
-    c.drawString(x + pad, y + H - pad - 9 - 10, f"SKU: {sku}")
+    # Description (smaller, italic-style)
+    desc = lbl.get("description", "")
+    if desc:
+        c.setFont("Helvetica-Oblique", 6.5)
+        c.setFillColorRGB(0.25, 0.25, 0.25)
+        c.drawString(text_x, y + H - pad - 9 - 9, desc[:40])
+        gtin_y_offset = 9 + 9 + 8
+    else:
+        gtin_y_offset = 9 + 9
 
-    # ── Code128 barcode (center strip) ──
-    bc_h = 0.55 * inch   # barcode image height
-    bc_w = W - 2 * pad
-    bc_y = y + pad + 5 * mm  # above serial text
+    # GTIN line
+    gtin_display = lbl.get("gtin_display") or lbl.get("barcode_value", "")[2:]  # strip 00 prefix
+    c.setFont("Helvetica", 6.5)
+    c.setFillColorRGB(0.1, 0.1, 0.1)
+    c.drawString(text_x, y + H - pad - gtin_y_offset, f"GTIN: {gtin_display}")
+
+    # Serial line
+    serial = lbl.get("serial", "")
+    if serial:
+        c.setFont("Helvetica", 6.5)
+        c.drawString(text_x, y + H - pad - gtin_y_offset - 8, f"Serial: {serial}")
+
+    # ── Code 128 barcode (left zone, bottom portion) ──
+    bc_h = 0.52 * inch
+    bc_w = W - qr_size - 3 * pad    # stays in left zone
+    bc_y = y + pad + 5 * mm         # above GTIN text
 
     bc_bytes = render_barcode_png(lbl["barcode_value"])
     bc_reader = ImageReader(io.BytesIO(bc_bytes))
-    c.drawImage(bc_reader, x + pad, bc_y, width=bc_w, height=bc_h,
+    c.drawImage(bc_reader, text_x, bc_y, width=bc_w, height=bc_h,
                 preserveAspectRatio=False, mask="auto")
 
-    # ── EPC serial number (below barcode, monospace small) ──
-    c.setFont("Courier", 6.5)
+    # ── GTIN display number (below barcode, centered in left zone) ──
+    c.setFont("Courier", 6)
     c.setFillColorRGB(0.1, 0.1, 0.1)
-    c.drawCentredString(x + W / 2, y + pad, lbl["barcode_value"])
+    c.drawCentredString(text_x + bc_w / 2, y + pad, gtin_display)
 
 
 def generate_label_sheet_pdf(labels: list[dict]) -> bytes:
     """
     Generates a PDF label sheet with 2×5 = 10 labels per page.
-    Each label matches the physical Zebra thermal format:
-    name+SKU top-left, QR top-right, Code128 barcode center, EPC serial below.
 
-    Each label dict: {
-        "title":         str,           # item name
-        "sku":           str,           # item SKU
-        "barcode_value": str,           # EPC serial (used for both QR and barcode)
-        "qr_blob":       bytes | None,  # pre-rendered QR PNG (optional)
-    }
+    SEAR Lab Standard format:
+    - Left zone: item name, description, GTIN, Serial + Code 128 barcode (GTIN)
+    - Right zone: QR code (GS1 Digital Link URL)
+
+    Each label dict:
+        title          str   item name
+        sku            str   item SKU
+        barcode_value  str   GTIN-14 (for Code128)
+        gtin_display   str   GTIN-12 display text (optional, derived from barcode_value)
+        serial         str   serial number (optional)
+        description    str   short description (optional)
+        qr_blob        bytes pre-rendered QR PNG (optional)
+        qr_value       str   GS1 Digital Link URL (fallback if no qr_blob)
     """
     buf = io.BytesIO()
     c = rl_canvas.Canvas(buf, pagesize=letter)
@@ -196,7 +326,6 @@ def generate_label_sheet_pdf(labels: list[dict]) -> bytes:
 
         _draw_label(c, lbl, x, y)
 
-        # New page after filling current one
         if (idx + 1) % labels_per_page == 0 and (idx + 1) < len(labels):
             c.showPage()
 

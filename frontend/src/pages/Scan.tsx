@@ -9,7 +9,8 @@ import toast from "react-hot-toast";
 import {
   ArrowUpRight, ArrowDownRight, ArrowLeftRight, Settings2,
   CheckCircle2, RotateCcw, Package, MapPin, QrCode,
-  ChevronRight, Loader2, Plus, PenLine, Zap, List, Mail,
+  ChevronRight, Loader2, Plus, PenLine, Zap, List, Mail, ScanLine,
+  AlertCircle, Boxes,
 } from "lucide-react";
 import { BarcodeScanner } from "@/components/scanner/BarcodeScanner";
 import { Button } from "@/components/ui/Button";
@@ -495,8 +496,8 @@ export interface SmartScanPrefill {
   supplier: string;
 }
 
-type AddSubType = "add-stock" | "new-item";
-type AddStep = "select-subtype" | "scan-item" | "scan-rack" | "confirm" | "fill-details";
+type AddSubType = "add-stock" | "new-item" | "lookup";
+type AddStep = "select-subtype" | "scan-item" | "scan-rack" | "confirm" | "fill-details" | "lookup-scan" | "lookup-result";
 
 function AddFlow({
   onReset,
@@ -543,13 +544,65 @@ function AddFlow({
     }
   }, [subtype, categories.length, prefill]);
 
+  const [lookupResult, setLookupResult] = useState<{
+    found: boolean;
+    name?: string;
+    sku?: string;
+    category?: string;
+    totalQty?: number;
+    unit?: string;
+    reorderLevel?: number;
+    stockLevels?: { location_name: string; quantity: number }[];
+    scannedCode?: string;
+  } | null>(null);
+
   const go = (newStep: AddStep) => { setStep(newStep); onPhaseChange?.(newStep); };
 
   const pickSubtype = (st: AddSubType) => {
     setSubtype(st);
-    // add-stock: scan item first; new-item: scan rack first
-    go(st === "add-stock" ? "scan-item" : "scan-rack");
+    if (st === "add-stock") go("scan-item");
+    else if (st === "new-item") go("scan-rack");
+    else go("lookup-scan");
   };
+
+  // ── lookup: scan any code ─────────────────────────────────────────────────────
+  const doLookupScan = useCallback(async (value: string) => {
+    if (processingRef.current) return;
+    processingRef.current = true;
+    setLoading(true);
+    try {
+      const result = await scanApi.lookup(value);
+      if (result.result_type === "item" && result.id) {
+        const levels = await safeStockLevels(result.id);
+        setLookupResult({
+          found: true,
+          name: result.name,
+          sku: result.code,
+          category: result.details?.category as string | undefined,
+          totalQty: result.details?.total_quantity as number | undefined,
+          unit: result.details?.unit as string | undefined,
+          reorderLevel: result.details?.reorder_level as number | undefined,
+          stockLevels: levels.filter(l => l.quantity > 0).map(l => ({
+            location_name: l.location_name,
+            quantity: l.quantity,
+          })),
+          scannedCode: value,
+        });
+      } else if (result.result_type === "location") {
+        toast.success(`Location: ${result.name} (${result.code})`);
+        return;
+      } else {
+        setLookupResult({ found: false, scannedCode: value });
+      }
+      go("lookup-result");
+    } catch {
+      toast.error("Lookup failed. Try again.");
+    } finally {
+      setLoading(false);
+      setTimeout(() => { processingRef.current = false; }, 500);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [onPhaseChange]);
 
   // ── add-stock: scan item QR first ────────────────────────────────────────────
   const doItemScan = useCallback(async (value: string) => {
@@ -658,42 +711,194 @@ function AddFlow({
 
       {/* ── Step 0: choose subtype ── */}
       {step === "select-subtype" && (
-        <div className="grid grid-cols-2 gap-3 mt-2">
-          {[
-            {
-              id: "add-stock" as AddSubType,
-              icon: <QrCode size={28} className="text-emerald-400" />,
-              title: "Add stock",
-              desc: "Scan item QR, then shelf QR",
-              accent: "#34d399",
-              border: "rgba(52,211,153,0.25)",
-              bg: "rgba(52,211,153,0.06)",
-            },
-            {
-              id: "new-item" as AddSubType,
-              icon: <Plus size={28} style={{ color: "var(--accent)" }} />,
-              title: "New Item",
-              desc: "Scan shelf → details → QR",
-              accent: "#22d3ee",
-              border: "rgba(34,211,238,0.25)",
-              bg: "rgba(34,211,238,0.06)",
-            },
-          ].map((opt) => (
-            <button key={opt.id} onClick={() => pickSubtype(opt.id)}
-              className="group relative flex flex-col items-center justify-center gap-3 rounded-2xl border py-6 px-4 transition-all duration-300 hover:scale-[1.03] active:scale-[0.97] overflow-hidden"
-              style={{ borderColor: opt.border, background: opt.bg, boxShadow: `0 4px 24px -6px ${opt.accent}30` }}>
-              <div className="absolute inset-x-0 bottom-0 h-1/2 pointer-events-none opacity-20 group-hover:opacity-50 transition-opacity"
-                style={{ background: `radial-gradient(ellipse 80% 60% at 50% 100%,${opt.accent}80,transparent)` }} />
-              <div className="w-14 h-14 rounded-2xl flex items-center justify-center transition-transform duration-300 group-hover:scale-110 group-hover:-rotate-3"
-                style={{ background: opt.bg, border: `1.5px solid ${opt.border}` }}>
-                {opt.icon}
+        <div className="space-y-3 mt-2">
+          {/* top row: add-stock + new-item */}
+          <div className="grid grid-cols-2 gap-3">
+            {[
+              {
+                id: "add-stock" as AddSubType,
+                icon: <QrCode size={28} className="text-emerald-400" />,
+                title: "Add stock",
+                desc: "Scan item QR, then shelf QR",
+                accent: "#34d399",
+                border: "rgba(52,211,153,0.25)",
+                bg: "rgba(52,211,153,0.06)",
+              },
+              {
+                id: "new-item" as AddSubType,
+                icon: <Plus size={28} style={{ color: "var(--accent)" }} />,
+                title: "New Item",
+                desc: "Scan shelf → details → QR",
+                accent: "#22d3ee",
+                border: "rgba(34,211,238,0.25)",
+                bg: "rgba(34,211,238,0.06)",
+              },
+            ].map((opt) => (
+              <button key={opt.id} onClick={() => pickSubtype(opt.id)}
+                className="group relative flex flex-col items-center justify-center gap-3 rounded-2xl border py-6 px-4 transition-all duration-300 hover:scale-[1.03] active:scale-[0.97] overflow-hidden"
+                style={{ borderColor: opt.border, background: opt.bg, boxShadow: `0 4px 24px -6px ${opt.accent}30` }}>
+                <div className="absolute inset-x-0 bottom-0 h-1/2 pointer-events-none opacity-20 group-hover:opacity-50 transition-opacity"
+                  style={{ background: `radial-gradient(ellipse 80% 60% at 50% 100%,${opt.accent}80,transparent)` }} />
+                <div className="w-14 h-14 rounded-2xl flex items-center justify-center transition-transform duration-300 group-hover:scale-110 group-hover:-rotate-3"
+                  style={{ background: opt.bg, border: `1.5px solid ${opt.border}` }}>
+                  {opt.icon}
+                </div>
+                <div className="text-center">
+                  <p className="text-[15px] font-black tracking-wide" style={{ color: "var(--text-primary)" }}>{opt.title}</p>
+                  <p className="text-[11px] mt-1 transition-colors" style={{ color: "var(--text-muted)" }}>{opt.desc}</p>
+                </div>
+              </button>
+            ))}
+          </div>
+
+          {/* Quick Lookup — full width */}
+          <button
+            onClick={() => pickSubtype("lookup")}
+            className="group relative w-full flex items-center gap-4 px-5 py-4 rounded-2xl border transition-all duration-300 hover:scale-[1.01] active:scale-[0.99] overflow-hidden"
+            style={{
+              borderColor: "rgba(251,191,36,0.28)",
+              background: "rgba(251,191,36,0.05)",
+              boxShadow: "0 4px 24px -6px rgba(251,191,36,0.18)",
+            }}
+          >
+            <div className="absolute inset-x-0 bottom-0 h-1/2 pointer-events-none opacity-20 group-hover:opacity-50 transition-opacity"
+              style={{ background: "radial-gradient(ellipse 80% 60% at 50% 100%, rgba(251,191,36,0.6), transparent)" }} />
+            <div
+              className="w-12 h-12 rounded-xl flex items-center justify-center shrink-0 transition-transform duration-300 group-hover:scale-110 group-hover:-rotate-3"
+              style={{ background: "rgba(251,191,36,0.08)", border: "1.5px solid rgba(251,191,36,0.28)" }}
+            >
+              <ScanLine size={22} style={{ color: "#fbbf24" }} />
+            </div>
+            <div className="text-left z-10">
+              <p className="text-[14px] font-black tracking-wide" style={{ color: "var(--text-primary)" }}>Quick Lookup</p>
+              <p className="text-[11px] mt-0.5" style={{ color: "var(--text-muted)" }}>Scan any code — see item info &amp; stock locations</p>
+            </div>
+            <ChevronRight size={16} className="ml-auto shrink-0 z-10" style={{ color: "rgba(251,191,36,0.5)" }} />
+          </button>
+        </div>
+      )}
+
+      {/* ── lookup: scan ── */}
+      {step === "lookup-scan" && (
+        <div className="space-y-3">
+          <ScanPrompt
+            label="Scan any barcode or QR code"
+            hint="Scan item barcode, QR code, or GTIN"
+            onScan={doLookupScan}
+            loading={loading}
+          />
+          <button onClick={() => go("select-subtype")} className="w-full text-center text-xs transition-colors" style={{ color: "var(--text-muted)" }}>
+            ← Back
+          </button>
+        </div>
+      )}
+
+      {/* ── lookup: result ── */}
+      {step === "lookup-result" && lookupResult && (
+        <div className="space-y-3">
+          {lookupResult.found ? (
+            <div className="space-y-3">
+              {/* Item info card */}
+              <div
+                className="rounded-xl p-4 space-y-2"
+                style={{ background: "rgba(251,191,36,0.06)", border: "1px solid rgba(251,191,36,0.22)" }}
+              >
+                <div className="flex items-center gap-2 mb-1">
+                  <Package size={14} style={{ color: "#fbbf24" }} />
+                  <span className="text-[10px] font-bold uppercase tracking-wider" style={{ color: "#fbbf24" }}>Item Found</span>
+                </div>
+                <p className="text-base font-bold" style={{ color: "var(--text-primary)" }}>{lookupResult.name}</p>
+                <p className="text-xs font-mono" style={{ color: "var(--text-muted)" }}>{lookupResult.sku}</p>
+                {lookupResult.category && (
+                  <span className="inline-block text-[10px] px-2 py-0.5 rounded-full font-medium"
+                    style={{ background: "rgba(251,191,36,0.12)", color: "#fbbf24" }}>
+                    {lookupResult.category}
+                  </span>
+                )}
+                <div className="flex items-baseline gap-2 pt-1">
+                  <span className="text-2xl font-black" style={{ color: "var(--text-primary)" }}>{lookupResult.totalQty ?? 0}</span>
+                  <span className="text-sm" style={{ color: "var(--text-muted)" }}>{lookupResult.unit ?? "units"} total in stock</span>
+                  {typeof lookupResult.reorderLevel === "number" && lookupResult.reorderLevel > 0 && (
+                    <span className="text-[10px] ml-auto px-2 py-0.5 rounded-full"
+                      style={{
+                        background: (lookupResult.totalQty ?? 0) <= lookupResult.reorderLevel
+                          ? "rgba(239,68,68,0.1)" : "rgba(34,197,94,0.1)",
+                        color: (lookupResult.totalQty ?? 0) <= lookupResult.reorderLevel ? "#ef4444" : "#22c55e",
+                      }}>
+                      Reorder @ {lookupResult.reorderLevel}
+                    </span>
+                  )}
+                </div>
               </div>
-              <div className="text-center">
-                <p className="text-[15px] font-black tracking-wide" style={{ color: "var(--text-primary)" }}>{opt.title}</p>
-                <p className="text-[11px] mt-1 transition-colors" style={{ color: "var(--text-muted)" }}>{opt.desc}</p>
+
+              {/* Stock by location */}
+              {lookupResult.stockLevels && lookupResult.stockLevels.length > 0 ? (
+                <div className="space-y-1.5">
+                  <div className="flex items-center gap-2">
+                    <MapPin size={12} style={{ color: "var(--text-muted)" }} />
+                    <p className="text-xs font-semibold uppercase tracking-wide" style={{ color: "var(--text-muted)" }}>Stock locations</p>
+                  </div>
+                  {lookupResult.stockLevels.map((sl, i) => (
+                    <div key={i}
+                      className="flex items-center justify-between px-3 py-2.5 rounded-xl"
+                      style={{ background: "var(--bg-card)", border: "1px solid var(--border-card)" }}
+                    >
+                      <div className="flex items-center gap-2">
+                        <div className="w-6 h-6 rounded-lg flex items-center justify-center"
+                          style={{ background: "rgba(37,99,235,0.10)" }}>
+                          <MapPin size={11} style={{ color: "var(--accent)" }} />
+                        </div>
+                        <span className="text-sm font-medium" style={{ color: "var(--text-primary)" }}>{sl.location_name}</span>
+                      </div>
+                      <span className="text-sm font-bold" style={{ color: "var(--accent)" }}>{sl.quantity}</span>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="flex items-center gap-2 px-3 py-2.5 rounded-xl"
+                  style={{ background: "rgba(239,68,68,0.06)", border: "1px solid rgba(239,68,68,0.18)" }}>
+                  <AlertCircle size={14} style={{ color: "#ef4444" }} />
+                  <p className="text-xs" style={{ color: "var(--text-muted)" }}>Not stocked in any location</p>
+                </div>
+              )}
+            </div>
+          ) : (
+            /* Not found */
+            <div className="flex flex-col items-center gap-4 py-6 px-4 rounded-2xl"
+              style={{ background: "rgba(239,68,68,0.04)", border: "1px solid rgba(239,68,68,0.18)" }}>
+              <div className="w-14 h-14 rounded-2xl flex items-center justify-center"
+                style={{ background: "rgba(239,68,68,0.08)", border: "1.5px solid rgba(239,68,68,0.25)" }}>
+                <Boxes size={24} style={{ color: "#ef4444" }} />
               </div>
+              <div className="text-center space-y-1.5">
+                <p className="text-sm font-bold" style={{ color: "var(--text-primary)" }}>Not in inventory</p>
+                <p className="text-xs font-mono px-3 py-1.5 rounded-lg"
+                  style={{ color: "#ef4444", background: "rgba(239,68,68,0.08)", border: "1px solid rgba(239,68,68,0.18)" }}>
+                  {lookupResult.scannedCode}
+                </p>
+                <p className="text-[11px]" style={{ color: "var(--text-muted)" }}>
+                  This code is not registered in the system.
+                </p>
+              </div>
+            </div>
+          )}
+
+          <div className="flex gap-2 pt-1">
+            <button
+              onClick={() => { setLookupResult(null); go("lookup-scan"); }}
+              className="flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl text-sm font-medium transition-all"
+              style={{ background: "rgba(251,191,36,0.08)", border: "1px solid rgba(251,191,36,0.25)", color: "#fbbf24" }}
+            >
+              <ScanLine size={14} /> Scan another
             </button>
-          ))}
+            <button
+              onClick={() => { setLookupResult(null); go("select-subtype"); }}
+              className="flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl text-sm font-medium transition-all"
+              style={{ background: "var(--bg-card)", border: "1px solid var(--border-card)", color: "var(--text-muted)" }}
+            >
+              ← Back
+            </button>
+          </div>
         </div>
       )}
 

@@ -1,9 +1,18 @@
 """
 Scan resolution service.
 
-Decodes a raw barcode string and resolves it to an Item or Location,
-returning enough context for the frontend scan workflow to proceed.
+Decodes a raw barcode/QR string and resolves it to an Item or Location.
+
+Resolution order
+================
+1. Location  — "LOC:{code}" prefix or raw location barcode
+2. GS1 Digital Link URL  — https://rfid.uta.edu/01/{gtin14}/21/{serial}?desc=...
+3. GTIN (bare digits, 12-14 chars)  — normalize to GTIN-14 and look up
+4. Item barcode registry  — exact barcode_value match (GTIN-14 or legacy EPC)
+5. Direct SKU match  — human-typed or legacy barcodes
+6. JSON QR payload  — {"sku":..., "epc":...} from legacy labels (pipe-separated or JSON)
 """
+import re
 from dataclasses import dataclass
 from enum import StrEnum
 
@@ -11,6 +20,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.repositories.item_repo import ItemRepository
 from app.repositories.location_repo import LocationRepository
+from app.services.barcode_service import parse_gs1_digital_link, normalize_gtin
 
 
 class ScanResultType(StrEnum):
@@ -33,30 +43,26 @@ class ScanService:
         self._item_repo = ItemRepository(session)
         self._loc_repo = LocationRepository(session)
 
+    async def _item_result(self, item) -> ScanResult:
+        total_qty = await self._item_repo.get_total_quantity(item.id)
+        return ScanResult(
+            result_type=ScanResultType.ITEM,
+            id=item.id,
+            code=item.sku,
+            name=item.name,
+            details={
+                "unit": item.unit,
+                "category": item.category.name if item.category else "",
+                "total_quantity": float(total_qty),
+                "reorder_level": float(item.reorder_level),
+                "unit_cost": float(item.unit_cost),
+            },
+        )
+
     async def resolve(self, barcode_value: str) -> ScanResult:
-        """
-        Resolution order:
-        1. Location barcode  (prefix LOC: or direct location code)
-        2. Item barcode      (EPC serial or registered barcode_value)
-        3. JSON QR payload   ({"sku":..., "epc":...} from printed labels)
-        4. Direct SKU match  (human-typed or legacy barcodes)
-        """
         clean = barcode_value.strip()
 
-        # Handle JSON QR payloads ({"sku":"...", "epc":"..."})
-        if clean.startswith("{"):
-            try:
-                import json as _json
-                payload = _json.loads(clean)
-                # Try EPC first, then SKU from payload
-                if "epc" in payload:
-                    clean = payload["epc"]
-                elif "sku" in payload:
-                    clean = payload["sku"]
-            except Exception:
-                pass  # not JSON, continue with original value
-
-        # Location barcode (QR contains "LOC:{code}")
+        # ── 1. Location barcode ───────────────────────────────────────────────
         if clean.upper().startswith("LOC:"):
             loc_code = clean[4:].strip()
             location = await self._loc_repo.get_by_code(loc_code)
@@ -72,7 +78,7 @@ class ScanService:
                     },
                 )
 
-        # Try location by raw barcode value
+        # Try raw location barcode lookup
         location = await self._loc_repo.get_by_barcode(clean)
         if location:
             return ScanResult(
@@ -83,25 +89,38 @@ class ScanService:
                 details={"area_name": location.area.name if location.area else ""},
             )
 
-        # Try item by barcode registry
+        # ── 2. GS1 Digital Link URL ───────────────────────────────────────────
+        # Matches: https://{host}/01/{gtin}/21/{serial}?desc=...
+        if clean.startswith("http"):
+            gtin14 = parse_gs1_digital_link(clean)
+            if gtin14:
+                item = await self._item_repo.get_by_barcode(gtin14)
+                if item:
+                    return await self._item_result(item)
+                # Also try GTIN-12 (drop leading 00)
+                if gtin14.startswith("00"):
+                    item = await self._item_repo.get_by_barcode(gtin14[2:])
+                    if item:
+                        return await self._item_result(item)
+
+        # ── 3. Bare GTIN (12–14 all-digit string) ────────────────────────────
+        gtin14 = normalize_gtin(clean)
+        if gtin14:
+            item = await self._item_repo.get_by_barcode(gtin14)
+            if item:
+                return await self._item_result(item)
+            # Also try without leading 00 for items stored as GTIN-12
+            if gtin14.startswith("00"):
+                item = await self._item_repo.get_by_barcode(gtin14[2:])
+                if item:
+                    return await self._item_result(item)
+
+        # ── 4. Exact barcode registry match (GTIN-14 or legacy EPC) ──────────
         item = await self._item_repo.get_by_barcode(clean)
         if item:
-            total_qty = await self._item_repo.get_total_quantity(item.id)
-            return ScanResult(
-                result_type=ScanResultType.ITEM,
-                id=item.id,
-                code=item.sku,
-                name=item.name,
-                details={
-                    "unit": item.unit,
-                    "category": item.category.name if item.category else "",
-                    "total_quantity": float(total_qty),
-                    "reorder_level": float(item.reorder_level),
-                    "unit_cost": float(item.unit_cost),
-                },
-            )
+            return await self._item_result(item)
 
-        # Try direct SKU match
+        # ── 5. Direct SKU match ───────────────────────────────────────────────
         item = await self._item_repo.get_by_sku(clean)
         if item:
             total_qty = await self._item_repo.get_total_quantity(item.id)
@@ -116,6 +135,37 @@ class ScanService:
                     "unit_cost": float(item.unit_cost),
                 },
             )
+
+        # ── 6. Legacy formats ─────────────────────────────────────────────────
+        # JSON payload: {"sku":"...", "epc":"..."}
+        if clean.startswith("{"):
+            try:
+                import json as _json
+                payload = _json.loads(clean)
+                probe = payload.get("epc") or payload.get("sku")
+                if probe:
+                    item = await self._item_repo.get_by_barcode(probe)
+                    if not item:
+                        item = await self._item_repo.get_by_sku(probe)
+                    if item:
+                        return await self._item_result(item)
+            except Exception:
+                pass
+
+        # Pipe-separated "bad label" format: "SKU: X | EPC: Y | Name: Z"
+        if "|" in clean:
+            for part in clean.split("|"):
+                part = part.strip()
+                if part.upper().startswith("SKU:"):
+                    sku_val = part[4:].strip()
+                    item = await self._item_repo.get_by_sku(sku_val)
+                    if item:
+                        return await self._item_result(item)
+                elif part.upper().startswith("EPC:"):
+                    epc_val = part[4:].strip()
+                    item = await self._item_repo.get_by_barcode(epc_val)
+                    if item:
+                        return await self._item_result(item)
 
         return ScanResult(
             result_type=ScanResultType.UNKNOWN,

@@ -55,6 +55,7 @@ export function TopBar() {
         height: 58,
         borderBottom: "1px solid var(--border-subtle)",
         transition: "background 0.25s ease",
+        zIndex: 50,
       }}
     >
       {/* Page title */}

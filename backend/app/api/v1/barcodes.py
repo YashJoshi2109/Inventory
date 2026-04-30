@@ -14,6 +14,10 @@ from app.repositories.transaction_repo import StockLevelRepository
 from app.services.barcode_service import (
     generate_label_sheet_pdf,
     generate_epc_serial,
+    gtin14_for_item,
+    gtin12_for_item,
+    serial_for_item,
+    gs1_digital_link_url,
     render_qr_png,
     render_qr_svg,
 )
@@ -37,9 +41,9 @@ async def item_qr_png(item_id: int, session: DbSession, current_user: CurrentUse
     primary = next((b for b in item.barcodes if b.is_primary), None)
     if primary and primary.qr_image:
         return Response(content=primary.qr_image, media_type="image/png")
-    # Fallback: generate QR from EPC serial (or barcode_value, or EPC from item_id)
-    barcode_value = (primary.barcode_value if primary else None) or generate_epc_serial(item.id)
-    png_bytes = render_qr_png(barcode_value)
+    # Fallback: generate QR from GS1 Digital Link URL (SEAR Lab standard)
+    gs1_url = gs1_digital_link_url(item.id, item.name)
+    png_bytes = render_qr_png(gs1_url)
     return Response(content=png_bytes, media_type="image/png")
 
 
@@ -109,19 +113,28 @@ async def location_qr_svg(location_id: int, session: DbSession, current_user: Cu
 
 
 def _item_to_label(item) -> dict:
-    """Build a label dict from an Item ORM instance with loaded barcodes + category."""
+    """Build a SEAR Lab Standard label dict from an Item ORM instance."""
     primary = next((b for b in item.barcodes if b.is_primary), None)
-    # Use stored EPC barcode_value; fall back to generating one from item_id
-    barcode_value = (
-        primary.barcode_value
-        if primary and primary.barcode_value
-        else generate_epc_serial(item.id)
-    )
+    # Use stored GTIN-14 barcode_value; fall back to generating from item_id
+    stored_bv = primary.barcode_value if primary and primary.barcode_value else None
+    # Detect legacy EPC values (start with E28) and regenerate GTIN for new labels
+    if stored_bv and stored_bv.startswith("E28"):
+        stored_bv = None   # force GTIN generation
+    barcode_value = stored_bv or gtin14_for_item(item.id)
+    gtin12 = gtin12_for_item(item.id)
+    serial = serial_for_item(item.id)
+    gs1_url = gs1_digital_link_url(item.id, item.name)
+    # Use stored QR only if it was generated with GTIN/GS1 (not legacy EPC)
+    qr_blob = primary.qr_image if primary and stored_bv else None
     return {
         "title": item.name,
         "sku": item.sku,
         "barcode_value": barcode_value,
-        "qr_blob": primary.qr_image if primary else None,
+        "gtin_display": gtin12,
+        "serial": serial,
+        "description": (item.description or "")[:40] if item.description else "",
+        "qr_blob": qr_blob,
+        "qr_value": gs1_url,
     }
 
 

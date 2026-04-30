@@ -135,18 +135,25 @@ async def create_item(body: ItemCreate, session: DbSession, current_user: Curren
     if await repo.get_by_sku(body.sku):
         raise HTTPException(status_code=409, detail=f"SKU '{body.sku}' already exists")
 
-    from app.services.barcode_service import render_qr_png, generate_epc_serial
+    from app.services.barcode_service import (
+        render_qr_png,
+        gtin14_for_item,
+        gtin12_for_item,
+        serial_for_item,
+        gs1_digital_link_url,
+    )
     item = Item(**body.model_dump())
     session.add(item)
     await session.flush()
 
-    # EPC serial = lab prefix + zero-padded item_id (matches physical label format)
-    epc = generate_epc_serial(item.id)
-    qr_bytes = render_qr_png(epc)   # QR encodes the EPC serial
+    # SEAR Lab Standard: Code128 encodes GTIN-14; QR encodes GS1 Digital Link URL
+    gtin14 = gtin14_for_item(item.id)
+    gs1_url = gs1_digital_link_url(item.id, item.name)
+    qr_bytes = render_qr_png(gs1_url)   # QR encodes the GS1 Digital Link URL
     bc = ItemBarcode(
         item_id=item.id,
         barcode_type="qr+code128",
-        barcode_value=epc,           # both QR and Code128 encode this value
+        barcode_value=gtin14,        # Code128 encodes GTIN-14; lookup key for scanner
         qr_image=qr_bytes,
         is_primary=True,
     )
