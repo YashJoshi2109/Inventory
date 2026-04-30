@@ -152,6 +152,43 @@ async def deactivate_user(
     return MessageResponse(message=f"User '{user.username}' deactivated successfully")
 
 
+@router.delete("/bulk", response_model=MessageResponse)
+async def bulk_delete_users(
+    user_ids: list[int],
+    session: DbSession,
+    current_user: CurrentUser,
+) -> MessageResponse:
+    """Hard-delete multiple users (admin only). Cascades: passkeys, role assignments, sessions."""
+    if not _is_admin(current_user):
+        raise HTTPException(status_code=403, detail="Admin role required to permanently delete users")
+
+    if current_user.id in user_ids:
+        raise HTTPException(status_code=400, detail="Cannot delete your own account")
+
+    from sqlalchemy import select as sa_select
+    result = await session.execute(
+        sa_select(User).where(User.id.in_(user_ids))
+    )
+    users = result.scalars().all()
+
+    superusers = [u for u in users if u.is_superuser]
+    if superusers:
+        raise HTTPException(
+            status_code=403,
+            detail=f"Cannot delete superuser accounts: {', '.join(u.username for u in superusers)}",
+        )
+
+    deleted = []
+    for user in users:
+        deleted.append(user.username)
+        await session.delete(user)
+
+    await session.flush()
+    return MessageResponse(
+        message=f"Permanently deleted {len(deleted)} user(s): {', '.join(deleted)}"
+    )
+
+
 @router.post("/{user_id}/change-password", response_model=MessageResponse)
 async def change_password(
     user_id: int, body: PasswordChangeRequest, session: DbSession, current_user: CurrentUser

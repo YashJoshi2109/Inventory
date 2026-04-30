@@ -358,7 +358,7 @@ function ActivityFlowChart({ activity }: { activity: InventoryEvent[] }) {
 
   return (
     <div
-      className="rounded-2xl overflow-hidden flex flex-col"
+      className="rounded-2xl overflow-hidden flex flex-col h-full"
       style={{
         background: "var(--bg-card)",
         border: "1px solid var(--border-card)",
@@ -432,7 +432,15 @@ function ActivityFlowChart({ activity }: { activity: InventoryEvent[] }) {
           ))}
         </div>
 
-        <div style={{ height: 220 }}>
+        <div className="flex-1" style={{ minHeight: 180 }}>
+        {chartData.every((d) => d.in === 0 && d.out === 0) ? (
+          <div className="h-full flex flex-col items-center justify-center gap-2" style={{ minHeight: 180 }}>
+            <Activity size={28} style={{ color: "var(--text-muted)", opacity: 0.4 }} />
+            <p className="text-xs" style={{ color: "var(--text-muted)", fontFamily: "'Outfit', sans-serif" }}>
+              No stock movements in this period
+            </p>
+          </div>
+        ) : (
         <ResponsiveContainer width="100%" height="100%">
           <AreaChart data={chartData} margin={{ top: 12, right: 20, left: -8, bottom: 0 }}>
             <defs>
@@ -472,6 +480,7 @@ function ActivityFlowChart({ activity }: { activity: InventoryEvent[] }) {
               }}
               width={36}
               allowDecimals={false}
+              domain={[0, (max: number) => Math.max(max, 5)]}
             />
             <Tooltip content={<ChartTooltip />} />
             <Area
@@ -494,6 +503,7 @@ function ActivityFlowChart({ activity }: { activity: InventoryEvent[] }) {
             />
           </AreaChart>
         </ResponsiveContainer>
+        )}
         </div>
       </div>
     </div>
@@ -1138,17 +1148,15 @@ export function Dashboard() {
       {/* ── Charts row ── */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 items-stretch">
         {/* Activity flow — 2 cols */}
-        <div className="lg:col-span-2 flex flex-col">
-          <motion.div
-            className="flex-1 flex flex-col"
-            variants={animationVariants.fadeInUp}
-            initial="hidden"
-            whileInView="visible"
-            viewport={{ once: true, margin: "-50px" }}
-          >
-            <ActivityFlowChart activity={stats.recent_activity} />
-          </motion.div>
-        </div>
+        <motion.div
+          className="lg:col-span-2 flex flex-col"
+          variants={animationVariants.fadeInUp}
+          initial="hidden"
+          whileInView="visible"
+          viewport={{ once: true, margin: "-50px" }}
+        >
+          <ActivityFlowChart activity={stats.recent_activity} />
+        </motion.div>
 
         {/* Category donut — 1 col */}
         <motion.div

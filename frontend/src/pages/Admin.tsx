@@ -10,7 +10,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   Shield, Users, UserPlus, Edit3, Trash2, KeyRound,
   CheckCircle2, AlertCircle, Loader2, X, Eye, EyeOff,
-  ToggleLeft, ToggleRight, RefreshCw, Search,
+  ToggleLeft, ToggleRight, RefreshCw, Search, AlertTriangle,
 } from "lucide-react";
 import { clsx } from "clsx";
 import toast from "react-hot-toast";
@@ -445,22 +445,108 @@ function UserModal({
   );
 }
 
+// ── Bulk Delete Confirmation Modal ────────────────────────────────────────────
+
+function BulkDeleteModal({
+  open,
+  users,
+  onConfirm,
+  onCancel,
+  isPending,
+}: {
+  open: boolean;
+  users: UserRecord[];
+  onConfirm: () => void;
+  onCancel: () => void;
+  isPending: boolean;
+}) {
+  if (!open) return null;
+  return (
+    <AnimatePresence>
+      <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+        <motion.div
+          initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+          className="absolute inset-0"
+          style={{ background: "rgba(0,0,0,0.65)", backdropFilter: "blur(24px) saturate(1.8)" }}
+          onClick={onCancel}
+        />
+        <motion.div
+          initial={{ opacity: 0, scale: 0.93 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.93 }}
+          className="relative w-full max-w-sm rounded-2xl overflow-hidden z-10"
+          style={{ background: "var(--bg-card)", border: "1px solid rgba(248,113,113,0.3)" }}
+        >
+          <div className="px-5 py-5 text-center">
+            <div className="w-12 h-12 rounded-2xl flex items-center justify-center mx-auto mb-3"
+              style={{ background: "rgba(248,113,113,0.12)", border: "1px solid rgba(248,113,113,0.25)" }}>
+              <AlertTriangle size={22} style={{ color: "#f87171" }} />
+            </div>
+            <h3 className="text-base font-bold mb-1" style={{ color: "var(--text-primary)" }}>
+              Permanently Delete {users.length} User{users.length !== 1 ? "s" : ""}?
+            </h3>
+            <p className="text-sm mb-4" style={{ color: "var(--text-muted)" }}>
+              This cannot be undone. All passkeys, sessions, and data will be erased. They must re-register from scratch.
+            </p>
+
+            <div className="rounded-xl p-3 mb-5 text-left space-y-1.5 max-h-36 overflow-y-auto"
+              style={{ background: "rgba(248,113,113,0.06)", border: "1px solid rgba(248,113,113,0.15)" }}>
+              {users.map((u) => (
+                <div key={u.id} className="flex items-center gap-2">
+                  <div className="w-6 h-6 rounded-lg flex items-center justify-center text-[10px] font-bold text-white shrink-0"
+                    style={{ background: "rgba(248,113,113,0.3)" }}>
+                    {u.full_name[0]?.toUpperCase()}
+                  </div>
+                  <span className="text-xs font-medium" style={{ color: "var(--text-primary)" }}>{u.full_name}</span>
+                  <span className="text-xs ml-auto" style={{ color: "var(--text-muted)" }}>{u.email}</span>
+                </div>
+              ))}
+            </div>
+
+            <div className="flex gap-2">
+              <button
+                onClick={onCancel}
+                className="flex-1 py-2.5 rounded-xl text-sm font-semibold"
+                style={{ background: "rgba(255,255,255,0.04)", border: "1px solid var(--border-card)", color: "var(--text-muted)" }}
+              >
+                Cancel
+              </button>
+              <button
+                onClick={onConfirm}
+                disabled={isPending}
+                className="flex-1 py-2.5 rounded-xl text-sm font-semibold flex items-center justify-center gap-2"
+                style={{ background: "rgba(248,113,113,0.15)", border: "1px solid rgba(248,113,113,0.35)", color: "#f87171" }}
+              >
+                {isPending ? <Loader2 size={14} className="animate-spin" /> : <Trash2 size={14} />}
+                {isPending ? "Deleting…" : "Delete Forever"}
+              </button>
+            </div>
+          </div>
+        </motion.div>
+      </div>
+    </AnimatePresence>
+  );
+}
+
 // ── User Row ──────────────────────────────────────────────────────────────────
 
 function UserRow({
   u,
   me,
+  selected,
+  onSelect,
   onEdit,
   onToggle,
   toggling,
 }: {
   u: UserRecord;
   me: { id: number; is_superuser?: boolean } | null;
+  selected: boolean;
+  onSelect: (id: number) => void;
   onEdit: (u: UserRecord) => void;
   onToggle: (u: UserRecord) => void;
   toggling: boolean;
 }) {
   const isSelf = me?.id === u.id;
+  const canSelect = !isSelf && !u.is_superuser;
   return (
     <motion.tr
       layout
@@ -468,8 +554,21 @@ function UserRow({
       animate={{ opacity: 1 }}
       exit={{ opacity: 0 }}
       className="border-b transition-colors"
-      style={{ borderColor: "var(--border-subtle)" }}
+      style={{
+        borderColor: "var(--border-subtle)",
+        background: selected ? "rgba(248,113,113,0.05)" : undefined,
+      }}
     >
+      <td className="pl-4 py-3 w-8">
+        {canSelect && (
+          <input
+            type="checkbox"
+            checked={selected}
+            onChange={() => onSelect(u.id)}
+            className="w-3.5 h-3.5 rounded accent-red-400 cursor-pointer"
+          />
+        )}
+      </td>
       <td className="px-4 py-3">
         <div className="flex items-center gap-3">
           <div
@@ -544,6 +643,8 @@ export function Admin() {
   const [editUser, setEditUser] = useState<UserRecord | null>(null);
   const [search, setSearch] = useState("");
   const [togglingId, setTogglingId] = useState<number | null>(null);
+  const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
+  const [deleteModalOpen, setDeleteModalOpen] = useState(false);
 
   const { data: users = [], isLoading: usersLoading } = useQuery({
     queryKey: ["admin-users"],
@@ -557,6 +658,19 @@ export function Admin() {
     queryFn: usersApi.listRoles,
     enabled: verified && isAllowed,
     staleTime: 5 * 60_000,
+  });
+
+  const bulkDeleteMut = useMutation({
+    mutationFn: () => usersApi.bulkDelete([...selectedIds]),
+    onSuccess: () => {
+      toast.success(`Deleted ${selectedIds.size} user${selectedIds.size !== 1 ? "s" : ""}`);
+      setSelectedIds(new Set());
+      setDeleteModalOpen(false);
+      void qc.invalidateQueries({ queryKey: ["admin-users"] });
+    },
+    onError: (err: { response?: { data?: { detail?: string } } }) => {
+      toast.error(err?.response?.data?.detail ?? "Failed to delete users");
+    },
   });
 
   const toggleMut = useMutation({
@@ -597,6 +711,31 @@ export function Admin() {
       u.email.toLowerCase().includes(q)
     );
   });
+
+  // only non-self, non-superuser rows are selectable
+  const selectableIds = filtered
+    .filter((u) => u.id !== me?.id && !u.is_superuser)
+    .map((u) => u.id);
+  const allSelected = selectableIds.length > 0 && selectableIds.every((id) => selectedIds.has(id));
+  const someSelected = selectedIds.size > 0;
+
+  function toggleAll() {
+    if (allSelected) {
+      setSelectedIds(new Set());
+    } else {
+      setSelectedIds(new Set(selectableIds));
+    }
+  }
+
+  function toggleOne(id: number) {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  }
+
+  const selectedUsers = users.filter((u) => selectedIds.has(u.id));
 
   return (
     <div className="p-4 lg:p-6 pb-24 lg:pb-10">
@@ -646,6 +785,38 @@ export function Admin() {
           />
         </div>
 
+        {/* Bulk action bar */}
+        <AnimatePresence>
+          {someSelected && (
+            <motion.div
+              initial={{ opacity: 0, y: -8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -8 }}
+              className="flex items-center justify-between gap-3 px-4 py-3 rounded-xl"
+              style={{ background: "rgba(248,113,113,0.08)", border: "1px solid rgba(248,113,113,0.25)" }}
+            >
+              <span className="text-sm font-semibold" style={{ color: "#f87171" }}>
+                {selectedIds.size} user{selectedIds.size !== 1 ? "s" : ""} selected
+              </span>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => setSelectedIds(new Set())}
+                  className="text-xs px-3 py-1.5 rounded-lg"
+                  style={{ color: "var(--text-muted)", background: "rgba(255,255,255,0.04)", border: "1px solid var(--border-card)" }}
+                >
+                  Clear
+                </button>
+                <button
+                  onClick={() => setDeleteModalOpen(true)}
+                  className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg font-semibold"
+                  style={{ background: "rgba(248,113,113,0.15)", border: "1px solid rgba(248,113,113,0.35)", color: "#f87171" }}
+                >
+                  <Trash2 size={13} />
+                  Delete Selected
+                </button>
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+
         {/* Table */}
         <div className="rounded-2xl overflow-hidden" style={{ background: "var(--bg-card)", border: "1px solid var(--border-card)" }}>
           {usersLoading ? (
@@ -664,6 +835,14 @@ export function Admin() {
               <table className="w-full">
                 <thead>
                   <tr style={{ borderBottom: "1px solid var(--border-subtle)" }}>
+                    <th className="pl-4 py-3 w-8">
+                      <input
+                        type="checkbox"
+                        checked={allSelected}
+                        onChange={toggleAll}
+                        className="w-3.5 h-3.5 rounded accent-red-400 cursor-pointer"
+                      />
+                    </th>
                     {["User", "Email", "Roles", "Last Login", "Status", "Actions"].map((h) => (
                       <th key={h} className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide" style={{ color: "var(--text-muted)" }}>
                         {h}
@@ -678,6 +857,8 @@ export function Admin() {
                         key={u.id}
                         u={u}
                         me={me}
+                        selected={selectedIds.has(u.id)}
+                        onSelect={toggleOne}
                         onEdit={(u) => { setEditUser(u); setModalOpen(true); }}
                         onToggle={(u) => toggleMut.mutate(u)}
                         toggling={togglingId === u.id}
@@ -715,6 +896,14 @@ export function Admin() {
         onClose={() => { setModalOpen(false); setEditUser(null); }}
         editUser={editUser}
         roles={roles}
+      />
+
+      <BulkDeleteModal
+        open={deleteModalOpen}
+        users={selectedUsers}
+        onConfirm={() => bulkDeleteMut.mutate()}
+        onCancel={() => setDeleteModalOpen(false)}
+        isPending={bulkDeleteMut.isPending}
       />
     </div>
   );
