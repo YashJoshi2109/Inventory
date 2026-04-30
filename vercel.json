@@ -11,25 +11,30 @@
   "rewrites": [
     {
       "source": "/api/v1/:path*",
-      "destination": "https://sierlab-inventory-backend.onrender.com/api/v1/:path*"
+      "destination": "https://inventory-backend-nqpxz6tuka-uc.a.run.app/api/v1/:path*"
     },
     {
       "source": "/api/v1/:path*/",
-      "destination": "https://sierlab-inventory-backend.onrender.com/api/v1/:path*/"
+      "destination": "https://inventory-backend-nqpxz6tuka-uc.a.run.app/api/v1/:path*/"
     },
     {
       "source": "/uploads/:path*",
-      "destination": "https://sierlab-inventory-backend.onrender.com/uploads/:path*"
+      "destination": "https://storage.googleapis.com/sierlab-inv-uploads/:path*"
     },
     {
       "source": "/uploads/:path*/",
-      "destination": "https://sierlab-inventory-backend.onrender.com/uploads/:path*/"
+      "destination": "https://storage.googleapis.com/sierlab-inv-uploads/:path*/"
     },
+    { "source": "/api/ping", "destination": "https://inventory-backend-nqpxz6tuka-uc.a.run.app/ping" },
     { "source": "/(.*)", "destination": "/index.html" }
   ],
   "headers": [
     {
       "source": "/assets/(.*)",
+      "headers": [{ "key": "Cache-Control", "value": "public, max-age=31536000, immutable" }]
+    },
+    {
+      "source": "/(.*)\\.(?:js|css|woff2|png|svg|ico)",
       "headers": [{ "key": "Cache-Control", "value": "public, max-age=31536000, immutable" }]
     }
   ]
