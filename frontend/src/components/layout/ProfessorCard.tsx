@@ -142,7 +142,7 @@ export function ProfessorCard() {
           >
             {/* ── header gradient strip ─────────────────────────────── */}
             <div
-              className="relative h-20 flex items-end pb-0 overflow-hidden"
+              className="relative h-20 flex items-end pb-0"
               style={{
                 background:
                   "linear-gradient(135deg, #0e7490 0%, #1d4ed8 55%, #7c3aed 100%)",
