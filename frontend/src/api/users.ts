@@ -15,6 +15,9 @@ export interface UserRecord {
   is_superuser: boolean;
   email_verified: boolean;
   avatar_url?: string | null;
+  bio?: string | null;
+  linkedin_url?: string | null;
+  portfolio_url?: string | null;
   last_login_at?: string | null;
   created_at: string;
   roles: UserRole[];

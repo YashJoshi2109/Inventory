@@ -24,6 +24,10 @@ class UserUpdate(OrmBase):
     email: EmailStr | None = None
     is_active: bool | None = None
     role_ids: list[int] | None = None
+    bio: str | None = None
+    linkedin_url: str | None = None
+    portfolio_url: str | None = None
+    avatar_url: str | None = None
 
 
 class UserRead(OrmBase):
@@ -35,6 +39,9 @@ class UserRead(OrmBase):
     is_superuser: bool
     email_verified: bool = False
     avatar_url: str | None = None
+    bio: str | None = None
+    linkedin_url: str | None = None
+    portfolio_url: str | None = None
     last_login_at: datetime | None = None
     created_at: datetime
     roles: list[RoleRead] = []
