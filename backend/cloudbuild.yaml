@@ -1,0 +1,31 @@
+steps:
+  # Build Docker image
+  - name: 'gcr.io/cloud-builders/docker'
+    args:
+      - build
+      - '-t'
+      - 'us-central1-docker.pkg.dev/$PROJECT_ID/inventory-backend/api:$COMMIT_SHA'
+      - '-t'
+      - 'us-central1-docker.pkg.dev/$PROJECT_ID/inventory-backend/api:latest'
+      - '.'
+
+  # Push both tags
+  - name: 'gcr.io/cloud-builders/docker'
+    args:
+      - push
+      - '--all-tags'
+      - 'us-central1-docker.pkg.dev/$PROJECT_ID/inventory-backend/api'
+
+  # Deploy to Cloud Run
+  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+    entrypoint: gcloud
+    args:
+      - run
+      - deploy
+      - inventory-backend
+      - '--image=us-central1-docker.pkg.dev/$PROJECT_ID/inventory-backend/api:$COMMIT_SHA'
+      - '--region=us-central1'
+      - '--platform=managed'
+
+options:
+  logging: CLOUD_LOGGING_ONLY
