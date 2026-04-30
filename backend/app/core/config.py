@@ -89,10 +89,13 @@ class Settings(BaseSettings):
     # prefer a regex. Example: r"^https://.*\.vercel\.app$"
     CORS_ORIGIN_REGEX: str | None = r"^https://.*\.vercel\.app$"
 
-    # File storage
+    # File storage — local disk (dev) or GCS (Cloud Run prod)
     UPLOAD_DIR: str = "./uploads"
     BARCODE_DIR: str = "./uploads/barcodes"
     MAX_UPLOAD_SIZE_MB: int = 50
+    # When set, use Google Cloud Storage instead of local disk for knowledge docs + barcodes.
+    # Value: GCS bucket name (e.g. "sierlab-inventory-uploads"). Leave empty for local disk.
+    GCS_BUCKET_NAME: str = ""
 
     # MQTT — domain events to external subscribers (analytics, IoT, ERP)
     MQTT_ENABLED: bool = False
