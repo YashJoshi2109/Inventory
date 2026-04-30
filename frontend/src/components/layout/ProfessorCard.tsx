@@ -12,10 +12,7 @@ import {
   FlaskConical,
   X,
   MapPin,
-  Cpu,
-  Zap,
-  Truck,
-  Leaf,
+  Mail,
 } from "lucide-react";
 import { useThemeStore } from "@/store/theme";
 
@@ -32,12 +29,7 @@ const PROF = {
   avatar: "/eric-jones.png",
   linkedin: "https://www.linkedin.com/in/erickjones2/",
   website: "https://www.erickjonesphd.com/",
-  research: [
-    { icon: Truck,        label: "Supply Chain Resilience" },
-    { icon: Zap,          label: "Energy Systems & Optimization" },
-    { icon: Cpu,          label: "Critical Technology Impact" },
-    { icon: Leaf,         label: "Climate Change Mitigation" },
-  ],
+  email: "erick.jones@uta.edu",
   bio: "Texas-born engineer and educator committed to making the world better through research, teaching, and service. Combines multi-systems optimization modeling with real-world experimentation.",
 };
 
@@ -106,37 +98,16 @@ export function ProfessorCard() {
             : "1px solid var(--border-subtle)",
         }}
       >
-        {/* avatar circle */}
-        <div className="relative w-7 h-7 shrink-0">
-          <img
-            src={PROF.avatar}
-            alt={PROF.name}
-            className="w-7 h-7 rounded-lg object-cover object-top"
-            draggable={false}
-            onError={(e) => {
-              const img = e.currentTarget;
-              img.style.display = "none";
-              const fb = img.nextElementSibling as HTMLElement | null;
-              if (fb) fb.style.display = "flex";
-            }}
-          />
-          <div
-            className="w-7 h-7 rounded-lg items-center justify-center text-[11px] font-bold text-white"
-            style={{
-              display: "none",
-              background: "linear-gradient(135deg,#0891b2,#1d4ed8)",
-            }}
-          >
-            {PROF.initials}
-          </div>
-          {/* live indicator */}
-          <span
-            className="absolute -bottom-0.5 -right-0.5 w-2 h-2 rounded-full border-[1.5px]"
-            style={{
-              background: "#22c55e",
-              borderColor: "var(--bg-card, #0f172a)",
-            }}
-          />
+        {/* icon */}
+        <div
+          className="w-6 h-6 rounded-lg flex items-center justify-center shrink-0"
+          style={{
+            background: open
+              ? "rgba(34,211,238,0.15)"
+              : "rgba(34,211,238,0.08)",
+          }}
+        >
+          <FlaskConical size={12} style={{ color: "#22d3ee" }} />
         </div>
 
         {/* label — hidden on very small screens */}
@@ -298,32 +269,6 @@ export function ProfessorCard() {
                 {PROF.bio}
               </p>
 
-              {/* research chips */}
-              <div>
-                <p
-                  className="text-[10px] font-semibold uppercase tracking-wide mb-1.5"
-                  style={{ color: "var(--text-muted)" }}
-                >
-                  Research Focus
-                </p>
-                <div className="flex flex-wrap gap-1.5">
-                  {PROF.research.map(({ icon: Icon, label }) => (
-                    <span
-                      key={label}
-                      className="flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium"
-                      style={{
-                        background: "rgba(99,102,241,0.10)",
-                        border: "1px solid rgba(99,102,241,0.22)",
-                        color: "#a5b4fc",
-                      }}
-                    >
-                      <Icon size={9} />
-                      {label}
-                    </span>
-                  ))}
-                </div>
-              </div>
-
               {/* divider */}
               <div
                 style={{
@@ -333,7 +278,7 @@ export function ProfessorCard() {
                 }}
               />
 
-              {/* links */}
+              {/* links + contact */}
               <div className="flex gap-2">
                 <a
                   href={PROF.website}
@@ -380,6 +325,28 @@ export function ProfessorCard() {
                   LinkedIn
                 </a>
               </div>
+
+              {/* Contact Admin */}
+              <a
+                href={`mailto:${PROF.email}?subject=SEAR Lab Inventory — Admin Request`}
+                className="flex items-center justify-center gap-2 py-2.5 rounded-xl text-[11px] font-semibold w-full transition-all duration-150"
+                style={{
+                  background: "rgba(168,85,247,0.10)",
+                  border: "1px solid rgba(168,85,247,0.25)",
+                  color: "#c084fc",
+                }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.background = "rgba(168,85,247,0.18)";
+                  e.currentTarget.style.borderColor = "rgba(168,85,247,0.45)";
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.background = "rgba(168,85,247,0.10)";
+                  e.currentTarget.style.borderColor = "rgba(168,85,247,0.25)";
+                }}
+              >
+                <Mail size={11} />
+                Contact Admin
+              </a>
             </div>
 
             {/* ── liquid glass shimmer line ─────────────────────────── */}

@@ -110,11 +110,14 @@ export const chatApi = {
     const token = useAuthStore.getState().accessToken;
     const url = `${BASE_URL}/chat/sessions/${sessionId}/messages`;
 
-    const form = new FormData();
-    form.append("content", content);
-    if (image) form.append("image", image);
+    const buildForm = () => {
+      const form = new FormData();
+      form.append("content", content);
+      if (image) form.append("image", image);
+      return form;
+    };
 
-    const doRequest = () => fetch(url, {
+    const doRequest = (form: FormData) => fetch(url, {
       method: "POST",
       headers: {
         Accept: "text/event-stream",
@@ -125,19 +128,35 @@ export const chatApi = {
       signal,
     });
 
-    let response: Response;
-    try {
-      response = await doRequest();
-    } catch (netErr) {
-      // Network-level failure (backend sleeping, CORS, offline)
-      onEvent({ type: "error", message: "Cannot reach the server. The backend may be starting up — please wait a moment and try again." });
-      return;
+    // Auto-retry on transient server errors (cold start / overload) — up to 2 retries
+    const RETRYABLE = new Set([502, 503, 504]);
+    const MAX_RETRIES = 2;
+    const RETRY_DELAY_MS = 4000;
+
+    let response: Response | null = null;
+    for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+      try {
+        response = await doRequest(buildForm());
+      } catch {
+        // Network-level failure — immediate failure, no retry
+        onEvent({ type: "error", message: "Cannot reach the server. Check your network connection and try again." });
+        return;
+      }
+
+      if (RETRYABLE.has(response.status) && attempt < MAX_RETRIES) {
+        // Notify UI of transient failure, then retry silently
+        onEvent({ type: "error", message: `Server busy, retrying… (${attempt + 1}/${MAX_RETRIES})` });
+        await new Promise(res => setTimeout(res, RETRY_DELAY_MS));
+        continue;
+      }
+
+      break; // success or non-retryable error
     }
 
-    // 523 = Cloudflare "Origin Unreachable" (Render sleeping)
-    // 502/503/504 = backend cold-starting or overloaded
-    if (response.status === 523 || response.status === 502 || response.status === 503 || response.status === 504) {
-      onEvent({ type: "error", message: "The server is waking up (cold start). Please try again in 15–30 seconds." });
+    if (!response) return;
+
+    if (RETRYABLE.has(response.status)) {
+      onEvent({ type: "error", message: "The server is temporarily unavailable. Please try again in a few seconds." });
       return;
     }
 

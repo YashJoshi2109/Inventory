@@ -25,14 +25,14 @@ gcloud run deploy inventory-backend \
   --allow-unauthenticated \
   --service-account="$SA" \
   --port=8000 \
-  --min-instances=0 \
+  --min-instances=1 \
   --max-instances=5 \
   --memory=1Gi \
   --cpu=1 \
   --timeout=300 \
   --concurrency=80 \
   --command="sh" \
-  --args="-c,alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 1" \
+  --args="-c,alembic upgrade head; uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 1" \
   --set-env-vars="DATABASE_SSL=true,GCS_BUCKET_NAME=sierlab-inv-uploads,MQTT_ENABLED=false,ENVIRONMENT=production,POSTGRES_HOST=$POSTGRES_HOST,POSTGRES_PORT=$POSTGRES_PORT,POSTGRES_DB=$POSTGRES_DB,POSTGRES_USER=$POSTGRES_USER,WEBAUTHN_RP_ID=inventory-brown-beta.vercel.app,WEBAUTHN_ORIGINS=https://inventory-brown-beta.vercel.app,CORS_ORIGINS=[\"https://inventory-brown-beta.vercel.app\"],CORS_ORIGIN_REGEX=^https://.*\.vercel\.app$,GEMINI_API_KEY=$GEMINI_API_KEY,SECRET_KEY=$SECRET_KEY,POSTGRES_PASSWORD=$POSTGRES_PASSWORD"
 
 echo ""
