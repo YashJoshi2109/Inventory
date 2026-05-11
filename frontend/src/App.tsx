@@ -19,7 +19,6 @@ const Alerts        = lazy(() => import("@/pages/Alerts").then((m) => ({ default
 const AiInsights    = lazy(() => import("@/pages/AiInsights").then((m) => ({ default: m.AiInsights })));
 const AiCopilot     = lazy(() => import("@/pages/AiCopilot").then((m) => ({ default: m.AiCopilot })));
 const SmartScan     = lazy(() => import("@/pages/SmartScan").then((m) => ({ default: m.SmartScan })));
-const RfidScan      = lazy(() => import("@/pages/RfidScan").then((m) => ({ default: m.RfidScan })));
 const Settings      = lazy(() => import("@/pages/Settings").then((m) => ({ default: m.Settings })));
 const Admin         = lazy(() => import("@/pages/Admin").then((m) => ({ default: m.Admin })));
 const EnergyDashboard = lazy(() => import("@/pages/EnergyDashboard").then((m) => ({ default: m.EnergyDashboard })));
@@ -155,7 +154,6 @@ export default function App() {
                 <Route path="ai" element={<Suspense fallback={<PageSpinner />}><AiInsights /></Suspense>} />
                 <Route path="copilot" element={<Suspense fallback={<PageSpinner />}><AiCopilot /></Suspense>} />
                 <Route path="smart-scan" element={<Suspense fallback={<PageSpinner />}><SmartScan /></Suspense>} />
-                <Route path="rfid-scan" element={<Suspense fallback={<PageSpinner />}><RfidScan /></Suspense>} />
                 <Route path="settings" element={<Suspense fallback={<PageSpinner />}><Settings /></Suspense>} />
                 <Route path="users" element={<Suspense fallback={<PageSpinner />}><Admin /></Suspense>} />
                 <Route path="energy" element={<Suspense fallback={<PageSpinner />}><EnergyDashboard /></Suspense>} />
