@@ -62,7 +62,7 @@ SEAR_LAB_GCP = "0024204115"
 GS1_DL_BASE = "https://rfid.uta.edu"
 
 # Legacy EPC prefix kept for backward compatibility with existing items
-EPC_PREFIX = "E280111222233344440"
+EPC_PREFIX = "E28011122223333344440"
 
 
 # ── GTIN helpers ──────────────────────────────────────────────────────────────

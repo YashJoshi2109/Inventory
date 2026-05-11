@@ -198,6 +198,9 @@ class Settings(BaseSettings):
     RESEND_ENABLE_TRANSFER: bool = True
     ALERT_EMAIL_RECIPIENT_ROLES: list[str] = ["admin", "manager"]
 
+    # RFID webhook — shared secret for external integrations (leave empty to disable)
+    RFID_WEBHOOK_API_KEY: str = ""
+
     # WebAuthn / Passkeys — biometric login (Face ID, Touch ID, FIDO2 keys)
     # RP_ID: bare domain only — no scheme, no port (e.g. "localhost" or "inventory-brown-beta.vercel.app")
     WEBAUTHN_RP_ID: str = "localhost"

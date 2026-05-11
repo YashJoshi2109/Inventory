@@ -141,6 +141,7 @@ async def create_item(body: ItemCreate, session: DbSession, current_user: Curren
         gtin12_for_item,
         serial_for_item,
         gs1_digital_link_url,
+        generate_epc_serial,
     )
     item = Item(**body.model_dump())
     session.add(item)
@@ -158,6 +159,14 @@ async def create_item(body: ItemCreate, session: DbSession, current_user: Curren
         is_primary=True,
     )
     session.add(bc)
+
+    # RFID EPC — RP902 HID scan resolves via scan_service exact barcode match
+    session.add(ItemBarcode(
+        item_id=item.id,
+        barcode_type="rfid_epc",
+        barcode_value=generate_epc_serial(item.id),
+        is_primary=False,
+    ))
     await session.flush()
     await session.refresh(item)
 

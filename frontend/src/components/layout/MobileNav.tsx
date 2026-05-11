@@ -1,5 +1,5 @@
 import { NavLink, useLocation, useNavigate } from "react-router-dom";
-import { LayoutDashboard, Package, QrCode, Bell, BrainCircuit, MapPin, MoreHorizontal, LogOut, Settings, Camera, Shield, MessageSquareHeart, Upload } from "lucide-react";
+import { LayoutDashboard, Package, QrCode, Bell, BrainCircuit, MapPin, MoreHorizontal, LogOut, Settings, Camera, Shield, MessageSquareHeart, Upload, Radio } from "lucide-react";
 import { clsx } from "clsx";
 import { useQuery } from "@tanstack/react-query";
 import { transactionsApi } from "@/api/transactions";
@@ -10,7 +10,8 @@ import { useEffect, useMemo, useState } from "react";
 const primaryNav = [
   { to: "/dashboard", label: "Home",      icon: LayoutDashboard },
   { to: "/inventory", label: "Items",     icon: Package },
-  { to: "/scan",      label: "Scan",      icon: QrCode, highlight: true },
+  { to: "/scan",      label: "Scan",      icon: QrCode,  highlight: true },
+  { to: "/rfid-scan", label: "RFID",      icon: Radio,   highlight: true },
   { to: "/locations", label: "Locations", icon: MapPin },
 ] as const;
 

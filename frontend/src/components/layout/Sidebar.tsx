@@ -2,7 +2,7 @@ import { NavLink } from "react-router-dom";
 import {
   LayoutDashboard, Package, MapPin, QrCode,
   ClipboardList, Upload, Users,
-  Beaker, BrainCircuit, Bell, LogOut, Bot, Settings, Camera, Zap,
+  Beaker, BrainCircuit, Bell, LogOut, Bot, Settings, Camera, Zap, Radio,
 } from "lucide-react";
 import { clsx } from "clsx";
 import { useAuthStore } from "@/store/auth";
@@ -26,6 +26,7 @@ const navItems: NavItem[] = [
   { to: "/inventory",    label: "Inventory",    icon: Package },
   { to: "/scan",         label: "Scan",         icon: QrCode,        highlight: true,  group: "Tools" },
   { to: "/smart-scan",   label: "Smart Scan",   icon: Camera,        highlight: true },
+  { to: "/rfid-scan",    label: "RFID Scan",    icon: Radio,         highlight: true },
   { to: "/copilot",      label: "AI Copilot",   icon: Bot,           highlight2: true },
   { to: "/ai",           label: "AI Insights",  icon: BrainCircuit },
   { to: "/transactions", label: "Transactions", icon: ClipboardList, group: "Manage" },
