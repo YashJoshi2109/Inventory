@@ -280,36 +280,48 @@ export function Login() {
                 </AnimatePresence>
 
                 <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
-                  <Input
-                    label="Username"
-                    placeholder="your.username"
-                    error={errors.username?.message}
-                    autoComplete="username"
-                    disabled={busy}
-                    {...register("username", { required: "Username is required" })}
-                  />
+                  {(() => {
+                    const { onChange: onUChange, ...usernameReg } = register("username", { required: "Username is required" });
+                    return (
+                      <Input
+                        label="Username"
+                        placeholder="your.username"
+                        error={errors.username?.message}
+                        autoComplete="username"
+                        disabled={busy}
+                        onChange={(e) => { e.target.value = e.target.value.toLowerCase().replace(/\s/g, ""); onUChange(e); }}
+                        {...usernameReg}
+                      />
+                    );
+                  })()}
 
                   <div className="space-y-1">
-                    <Input
-                      label="Password"
-                      type={showPw ? "text" : "password"}
-                      placeholder="••••••••"
-                      error={errors.password?.message}
-                      autoComplete="current-password"
-                      disabled={busy}
-                      rightIcon={
-                        <button
-                          type="button"
+                    {(() => {
+                      const { onChange: onPwChange, ...pwReg } = register("password", { required: "Password is required" });
+                      return (
+                        <Input
+                          label="Password"
+                          type={showPw ? "text" : "password"}
+                          placeholder="••••••••"
+                          error={errors.password?.message}
+                          autoComplete="current-password"
                           disabled={busy}
-                          onClick={() => setShowPw((p) => !p)}
-                          style={{ color: "var(--text-muted)" }}
-                          className="hover:opacity-70 disabled:opacity-40 transition-opacity"
-                        >
-                          {showPw ? <EyeOff size={16} /> : <Eye size={16} />}
-                        </button>
-                      }
-                      {...register("password", { required: "Password is required" })}
-                    />
+                          onChange={(e) => { e.target.value = e.target.value.replace(/\s/g, ""); onPwChange(e); }}
+                          rightIcon={
+                            <button
+                              type="button"
+                              disabled={busy}
+                              onClick={() => setShowPw((p) => !p)}
+                              style={{ color: "var(--text-muted)" }}
+                              className="hover:opacity-70 disabled:opacity-40 transition-opacity"
+                            >
+                              {showPw ? <EyeOff size={16} /> : <Eye size={16} />}
+                            </button>
+                          }
+                          {...pwReg}
+                        />
+                      );
+                    })()}
                     <div className="flex justify-end">
                       <Link
                         to="/forgot-password"

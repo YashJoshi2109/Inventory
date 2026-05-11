@@ -369,18 +369,24 @@ export function Register() {
                       disabled={registerBusy}
                       {...register("full_name", { required: "Full name is required" })}
                     />
-                    <Input
-                      label="Username"
-                      placeholder="jane.smith"
-                      error={errors.username?.message}
-                      autoComplete="username"
-                      disabled={registerBusy}
-                      {...register("username", {
+                    {(() => {
+                      const { onChange: onUChange, ...usernameReg } = register("username", {
                         required: "Username is required",
                         minLength: { value: 3, message: "Min 3 characters" },
-                        pattern: { value: /^[a-zA-Z0-9_.-]+$/, message: "Letters, numbers, _ . - only" },
-                      })}
-                    />
+                        pattern: { value: /^[a-z0-9_.-]+$/, message: "Lowercase letters, numbers, _ . - only" },
+                      });
+                      return (
+                        <Input
+                          label="Username"
+                          placeholder="jane.smith"
+                          error={errors.username?.message}
+                          autoComplete="username"
+                          disabled={registerBusy}
+                          onChange={(e) => { e.target.value = e.target.value.toLowerCase().replace(/\s/g, ""); onUChange(e); }}
+                          {...usernameReg}
+                        />
+                      );
+                    })()}
                   </div>
 
                   <Input
@@ -415,10 +421,13 @@ export function Register() {
                           {showPw ? <EyeOff size={15} /> : <Eye size={15} />}
                         </button>
                       }
-                      {...register("password", {
-                        required: "Password is required",
-                        minLength: { value: 8, message: "Min 8 characters" },
-                      })}
+                      {...(() => {
+                        const { onChange: onPwChange, ...pwReg } = register("password", {
+                          required: "Password is required",
+                          minLength: { value: 8, message: "Min 8 characters" },
+                        });
+                        return { onChange: (e: React.ChangeEvent<HTMLInputElement>) => { e.target.value = e.target.value.replace(/\s/g, ""); onPwChange(e); }, ...pwReg };
+                      })()}
                     />
                     <Input
                       label="Confirm Password"
@@ -427,10 +436,13 @@ export function Register() {
                       error={errors.confirm_password?.message}
                       autoComplete="new-password"
                       disabled={registerBusy}
-                      {...register("confirm_password", {
-                        required: "Please confirm",
-                        validate: (v) => v === pw || "Passwords do not match",
-                      })}
+                      {...(() => {
+                        const { onChange: onCpChange, ...cpReg } = register("confirm_password", {
+                          required: "Please confirm",
+                          validate: (v) => v === pw || "Passwords do not match",
+                        });
+                        return { onChange: (e: React.ChangeEvent<HTMLInputElement>) => { e.target.value = e.target.value.replace(/\s/g, ""); onCpChange(e); }, ...cpReg };
+                      })()}
                     />
                   </div>
 
