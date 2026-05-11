@@ -30,6 +30,9 @@ frontend/blob-report/
 # ─── Vercel ───────────────────────────────────────────────────────────────────
 .vercel
 
+# ─── Playwright MCP (browser console/network captures — may contain 3rd-party keys) ──
+.playwright-mcp/
+
 # ─── OS ───────────────────────────────────────────────────────────────────────
 .DS_Store
 Thumbs.db
