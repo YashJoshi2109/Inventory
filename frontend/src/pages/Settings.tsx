@@ -200,6 +200,14 @@ export function Settings() {
   const [addError, setAddError] = useState<string | null>(null);
   const [deletingId, setDeletingId] = useState<number | null>(null);
   const [profileLoadError, setProfileLoadError] = useState<string | null>(null);
+
+  // Profile edit state
+  const [editingProfile, setEditingProfile] = useState(false);
+  const [editName, setEditName] = useState("");
+  const [editUsername, setEditUsername] = useState("");
+  const [editEmail, setEditEmail] = useState("");
+  const [profileSaving, setProfileSaving] = useState(false);
+  const [profileEditError, setProfileEditError] = useState<string | null>(null);
   const [profilePhoto, setProfilePhoto] = useState<string | null>(() => {
     try {
       return localStorage.getItem("settings.profilePhoto");
@@ -415,6 +423,141 @@ export function Settings() {
                 )}
               </div>
             </div>
+          </div>
+        </motion.div>
+
+        {/* ── Edit Profile ── */}
+        <motion.div variants={fadeUp} className="rounded-2xl overflow-hidden" style={{ background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.08)" }}>
+          <div className="px-5 py-4 flex items-center justify-between" style={{ borderBottom: "1px solid rgba(255,255,255,0.06)" }}>
+            <div className="flex items-center gap-2">
+              <User2 size={15} className="text-brand-400" />
+              <span className="text-sm font-semibold text-white">Edit Profile</span>
+            </div>
+            {!editingProfile && (
+              <button
+                onClick={() => { setEditName(user.full_name); setEditUsername(user.username); setEditEmail(user.email); setProfileEditError(null); setEditingProfile(true); }}
+                className="text-xs px-3 py-1.5 rounded-lg font-semibold transition-colors"
+                style={{ background: "rgba(37,99,235,0.12)", color: "var(--accent)", border: "1px solid rgba(37,99,235,0.25)" }}
+              >
+                Edit
+              </button>
+            )}
+          </div>
+          <div className="px-5 py-4 space-y-4">
+            {editingProfile ? (
+              <>
+                <div className="space-y-1.5">
+                  <label className="text-xs font-medium text-slate-400">Full Name</label>
+                  <input
+                    value={editName}
+                    onChange={(e) => setEditName(e.target.value)}
+                    className="w-full px-3 py-2 rounded-xl text-sm text-white outline-none focus:ring-1 focus:ring-brand-500"
+                    style={{ background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.12)" }}
+                    placeholder="Full name"
+                    maxLength={255}
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <label className="text-xs font-medium text-slate-400">Username</label>
+                  <input
+                    value={editUsername}
+                    onChange={(e) => setEditUsername(e.target.value.toLowerCase().replace(/[^a-z0-9_-]/g, ""))}
+                    className="w-full px-3 py-2 rounded-xl text-sm text-white outline-none focus:ring-1 focus:ring-brand-500"
+                    style={{ background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.12)" }}
+                    placeholder="username"
+                    minLength={3}
+                    maxLength={50}
+                  />
+                  <p className="text-[11px] text-slate-500">3–50 chars, letters / digits / _ / - only. Must be unique.</p>
+                </div>
+                {user.is_superuser && (
+                  <div className="space-y-1.5">
+                    <label className="text-xs font-medium text-slate-400 flex items-center gap-1.5">
+                      Email
+                      <span className="px-1.5 py-0.5 rounded text-[9px] font-bold uppercase tracking-wider bg-cyan-500/15 text-cyan-400 border border-cyan-500/20">superuser only</span>
+                    </label>
+                    <input
+                      type="email"
+                      value={editEmail}
+                      onChange={(e) => setEditEmail(e.target.value)}
+                      className="w-full px-3 py-2 rounded-xl text-sm text-white outline-none focus:ring-1 focus:ring-brand-500"
+                      style={{ background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.12)" }}
+                      placeholder="email@example.com"
+                    />
+                  </div>
+                )}
+                {profileEditError && (
+                  <p className="text-xs text-red-400 flex items-center gap-1"><AlertCircle size={12} />{profileEditError}</p>
+                )}
+                <div className="flex gap-2 pt-1">
+                  <button
+                    onClick={async () => {
+                      const name = editName.trim();
+                      const uname = editUsername.trim();
+                      if (!name) { setProfileEditError("Name cannot be empty"); return; }
+                      if (uname.length < 3) { setProfileEditError("Username must be at least 3 characters"); return; }
+                      setProfileSaving(true);
+                      setProfileEditError(null);
+                      try {
+                        const emailTrimmed = editEmail.trim();
+                        const updated = await authApi.updateProfile({
+                          full_name: name !== user.full_name ? name : undefined,
+                          username: uname !== user.username ? uname : undefined,
+                          email: user.is_superuser && emailTrimmed !== user.email ? emailTrimmed : undefined,
+                        });
+                        setUser(updated);
+                        setEditingProfile(false);
+                        qc.invalidateQueries({ queryKey: ["me"] });
+                      } catch (err: unknown) {
+                        const detail = (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail;
+                        setProfileEditError(detail ?? "Failed to save. Try again.");
+                      } finally {
+                        setProfileSaving(false);
+                      }
+                    }}
+                    disabled={profileSaving}
+                    className="flex-1 py-2 rounded-xl text-sm font-semibold text-white disabled:opacity-50 transition-colors"
+                    style={{ background: "rgba(37,99,235,0.85)" }}
+                  >
+                    {profileSaving ? "Saving…" : "Save Changes"}
+                  </button>
+                  <button
+                    onClick={() => { setEditingProfile(false); setProfileEditError(null); }}
+                    className="px-4 py-2 rounded-xl text-sm font-semibold text-slate-400 transition-colors"
+                    style={{ background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.08)" }}
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </>
+            ) : (
+              <div className="space-y-3">
+                <div className="flex items-center gap-3">
+                  <User2 size={14} className="text-slate-500 shrink-0" />
+                  <div>
+                    <p className="text-[11px] text-slate-500 uppercase tracking-wider">Full Name</p>
+                    <p className="text-sm text-white font-medium">{user.full_name}</p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-3">
+                  <AtSign size={14} className="text-slate-500 shrink-0" />
+                  <div>
+                    <p className="text-[11px] text-slate-500 uppercase tracking-wider">Username</p>
+                    <p className="text-sm text-white font-medium">@{user.username}</p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-3">
+                  <Mail size={14} className="text-slate-500 shrink-0" />
+                  <div>
+                    <p className="text-[11px] text-slate-500 uppercase tracking-wider flex items-center gap-1.5">
+                      Email
+                      {!user.is_superuser && <span className="text-[9px] text-slate-600">(read-only)</span>}
+                    </p>
+                    <p className="text-sm text-white font-medium">{user.email}</p>
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
         </motion.div>
 

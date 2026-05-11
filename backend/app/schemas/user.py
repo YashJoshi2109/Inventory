@@ -30,6 +30,12 @@ class UserUpdate(OrmBase):
     avatar_url: str | None = None
 
 
+class ProfileUpdateRequest(OrmBase):
+    full_name: str | None = Field(default=None, min_length=1, max_length=255)
+    username: str | None = Field(default=None, min_length=3, max_length=50, pattern=r"^[a-zA-Z0-9_-]+$")
+    email: EmailStr | None = None
+
+
 class UserRead(OrmBase):
     id: int
     email: str

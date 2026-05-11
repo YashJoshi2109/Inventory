@@ -31,6 +31,7 @@ from app.schemas.user import (
     OTPVerifyRequest,
     PasswordResetRequest,
     PasswordResetConfirm,
+    ProfileUpdateRequest,
     RefreshRequest,
     TokenResponse,
     UserRead,
@@ -699,5 +700,28 @@ async def refresh_token(body: RefreshRequest, session: DbSession) -> TokenRespon
 @router.get("/me", response_model=UserRead)
 async def get_me(current_user: CurrentUser, session: DbSession) -> UserRead:
     repo = UserRepository(session)
+    user = await repo.get_with_roles(current_user.id)
+    return UserRead.model_validate(user)
+
+
+@router.patch("/me", response_model=UserRead)
+async def update_me(body: ProfileUpdateRequest, current_user: CurrentUser, session: DbSession) -> UserRead:
+    repo = UserRepository(session)
+    if body.username and body.username != current_user.username:
+        existing = await repo.get_by_username(body.username)
+        if existing:
+            raise HTTPException(status_code=409, detail=f"Username '{body.username}' is already taken")
+        current_user.username = body.username
+    if body.full_name is not None:
+        current_user.full_name = body.full_name
+    if body.email is not None:
+        if not current_user.is_superuser:
+            raise HTTPException(status_code=403, detail="Only superusers can change their email")
+        existing = await repo.get_by_email(str(body.email))
+        if existing and existing.id != current_user.id:
+            raise HTTPException(status_code=409, detail="Email is already in use")
+        current_user.email = str(body.email)
+    await session.flush()
+    await session.refresh(current_user)
     user = await repo.get_with_roles(current_user.id)
     return UserRead.model_validate(user)

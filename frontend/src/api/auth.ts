@@ -74,6 +74,11 @@ export const authApi = {
     });
     return data;
   },
+
+  updateProfile: async (payload: { full_name?: string; username?: string; email?: string }): Promise<User> => {
+    const { data } = await apiClient.patch<User>("/auth/me", payload);
+    return data;
+  },
 };
 
 export const roleRequestApi = {
