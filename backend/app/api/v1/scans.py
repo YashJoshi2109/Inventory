@@ -20,8 +20,11 @@ from app.core.events import DomainEvent, EventType, event_bus
 from app.schemas.transaction import (
     AdjustmentRequest,
     BarcodeScanApplyRequest,
+    CandidateSource,
     InventoryEventRead,
     ScanLookupRequest,
+    SmartApplyRequest,
+    SmartApplyResponse,
     StockInRequest,
     StockOutRequest,
     TransferRequest,
@@ -139,6 +142,145 @@ async def apply_scan_event(
     event = await svc.apply_barcode_scan(body, current_user.id, actor_roles)
     await session.refresh(event, ["item", "from_location", "to_location", "actor"])
     return _event_to_read(event, session)
+
+
+@router.post(
+    "/smart-apply",
+    response_model=SmartApplyResponse,
+    status_code=status.HTTP_200_OK,
+)
+async def smart_apply(
+    body: SmartApplyRequest,
+    session: DbSession,
+    current_user: CurrentUser,
+) -> SmartApplyResponse:
+    """
+    Context-aware stock action.
+
+    Decision rules:
+      qty at scanned location > 0              → stock_out
+      qty at scanned location = 0, no stock anywhere → stock_in
+      qty at scanned location = 0, stock elsewhere   → transfer
+
+    dry_run=True  → preview only, no write
+    dry_run=False → execute atomically
+    """
+    from app.repositories.transaction_repo import StockLevelRepository
+
+    stock_repo = StockLevelRepository(session)
+    svc = InventoryService(session)
+    actor_roles = [ur.role.name for ur in current_user.roles if ur.role]
+
+    all_levels = await stock_repo.list_by_item(body.item_id)
+    target = next((l for l in all_levels if l.location_id == body.location_id), None)
+    target_qty = int(target.quantity) if target else 0
+    other_sources = [l for l in all_levels if l.location_id != body.location_id and int(l.quantity) > 0]
+    qty = int(body.quantity)
+
+    if target_qty > 0:
+        action = "stock_out"
+    elif not other_sources:
+        action = "stock_in"
+    else:
+        action = "transfer"
+
+    # ── stock_out ─────────────────────────────────────────────────────────────
+    if action == "stock_out":
+        new_qty = max(0, target_qty - qty)
+        if body.dry_run:
+            return SmartApplyResponse(action="stock_out", previous_quantity=target_qty, new_quantity=new_qty)
+        req = StockOutRequest(
+            item_id=body.item_id,
+            location_id=body.location_id,
+            quantity=body.quantity,
+            reason="Smart scan removal",
+            notes=body.notes,
+            scan_session_id=body.scan_session_id,
+            source=body.source,
+        )
+        event = await svc.stock_out(req, current_user.id, actor_roles)
+        await session.refresh(event, ["item", "from_location", "actor"])
+        return SmartApplyResponse(
+            action="stock_out", previous_quantity=target_qty, new_quantity=new_qty,
+            event=_event_to_read(event, session),
+        )
+
+    # ── stock_in ──────────────────────────────────────────────────────────────
+    if action == "stock_in":
+        new_qty = target_qty + qty
+        if body.dry_run:
+            return SmartApplyResponse(action="stock_in", previous_quantity=target_qty, new_quantity=new_qty)
+        req = StockInRequest(
+            item_id=body.item_id,
+            location_id=body.location_id,
+            quantity=body.quantity,
+            notes=body.notes,
+            scan_session_id=body.scan_session_id,
+            source=body.source,
+        )
+        event = await svc.stock_in(req, current_user.id)
+        await session.refresh(event, ["item", "to_location", "actor"])
+        return SmartApplyResponse(
+            action="stock_in", previous_quantity=target_qty, new_quantity=new_qty,
+            event=_event_to_read(event, session),
+        )
+
+    # ── transfer ──────────────────────────────────────────────────────────────
+    candidates = [
+        CandidateSource(
+            location_id=l.location_id,
+            location_name=l.location.name if l.location else f"Loc {l.location_id}",
+            location_code=l.location.code if l.location else "",
+            quantity=int(l.quantity),
+        )
+        for l in other_sources
+    ]
+
+    chosen_source_id = body.source_location_id
+    if chosen_source_id is None and len(candidates) == 1:
+        chosen_source_id = candidates[0].location_id
+
+    if chosen_source_id is None:
+        if body.dry_run:
+            return SmartApplyResponse(
+                action="transfer", previous_quantity=target_qty, new_quantity=target_qty,
+                requires_source_selection=True, candidate_sources=candidates,
+            )
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="source_location_id is required for transfer when multiple sources exist",
+        )
+
+    chosen = next((c for c in candidates if c.location_id == chosen_source_id), None)
+    if chosen is None or chosen.quantity < qty:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Source location does not have sufficient stock (have {chosen.quantity if chosen else 0}, need {qty})",
+        )
+
+    new_qty = target_qty + qty
+    if body.dry_run:
+        return SmartApplyResponse(
+            action="transfer", previous_quantity=target_qty, new_quantity=new_qty,
+            source_location_id=chosen.location_id, source_location_name=chosen.location_name,
+            candidate_sources=candidates,
+        )
+
+    req = TransferRequest(
+        item_id=body.item_id,
+        from_location_id=chosen.location_id,
+        to_location_id=body.location_id,
+        quantity=body.quantity,
+        notes=body.notes,
+        scan_session_id=body.scan_session_id,
+    )
+    event = await svc.transfer(req, current_user.id)
+    await session.refresh(event, ["item", "from_location", "to_location", "actor"])
+    return SmartApplyResponse(
+        action="transfer", previous_quantity=target_qty, new_quantity=new_qty,
+        source_location_id=chosen.location_id, source_location_name=chosen.location_name,
+        event=_event_to_read(event, session),
+    )
 
 
 class ModifyItemRequest(BaseModel):

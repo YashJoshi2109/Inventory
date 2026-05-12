@@ -152,6 +152,15 @@ class StockLevelRepository(BaseRepository[StockLevel]):
         await self.session.flush()
         return sl
 
+    async def list_by_item(self, item_id: int) -> list[StockLevel]:
+        """All StockLevel rows for an item, with location eagerly loaded."""
+        result = await self.session.execute(
+            select(StockLevel)
+            .where(StockLevel.item_id == item_id)
+            .options(selectinload(StockLevel.location))
+        )
+        return list(result.scalars().all())
+
     async def get_total_for_item(self, item_id: int) -> Decimal:
         result = await self.session.execute(
             select(func.coalesce(func.sum(StockLevel.quantity), 0))
