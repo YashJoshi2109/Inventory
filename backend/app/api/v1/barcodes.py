@@ -18,6 +18,7 @@ from app.services.barcode_service import (
     gtin12_for_item,
     serial_for_item,
     gs1_digital_link_url,
+    render_barcode_png,
     render_qr_png,
     render_qr_svg,
 )
@@ -76,29 +77,29 @@ async def item_qr_send_email(item_id: int, session: DbSession, current_user: Cur
 
 @router.get("/item/{item_id}/png")
 async def item_barcode_png(item_id: int, session: DbSession, current_user: CurrentUser) -> Response:
-    """Alias for QR PNG — we use QR-only workflow."""
-    return await item_qr_png(item_id, session, current_user)
+    """Code 128 barcode PNG for this item (encodes GTIN-14)."""
+    repo = ItemRepository(session)
+    item = await repo.get_with_details(item_id)
+    if not item:
+        raise HTTPException(status_code=404, detail="Item not found")
+    primary = next((b for b in item.barcodes if b.is_primary), None)
+    stored_bv = primary.barcode_value if primary and primary.barcode_value else None
+    if stored_bv and stored_bv.startswith("E28"):
+        stored_bv = None
+    barcode_value = stored_bv or gtin14_for_item(item_id)
+    png_bytes = render_barcode_png(barcode_value)
+    return Response(content=png_bytes, media_type="image/png")
 
 
 @router.get("/location/{location_id}/qr/png")
 async def location_qr_png(location_id: int, session: DbSession, current_user: CurrentUser) -> Response:
+    """Code 128 barcode PNG for this location (encodes LOC:{code})."""
     repo = LocationRepository(session)
     loc = await repo.get_by_id(location_id)
     if not loc:
         raise HTTPException(status_code=404, detail="Location not found")
-    # Load barcodes relationship
-    from sqlalchemy import select
-    from sqlalchemy.orm import selectinload
-    from app.models.location import Location
-    result = await session.execute(
-        select(Location).where(Location.id == location_id).options(selectinload(Location.barcodes))
-    )
-    loc_full = result.scalar_one_or_none()
-    if loc_full and loc_full.barcodes:
-        primary = loc_full.barcodes[0]
-        if primary.qr_image:
-            return Response(content=primary.qr_image, media_type="image/png")
-    png_bytes = render_qr_png(f"LOC:{loc.code.upper()}")
+    barcode_value = f"LOC:{loc.code.upper()}"
+    png_bytes = render_barcode_png(barcode_value)
     return Response(content=png_bytes, media_type="image/png")
 
 
@@ -132,6 +133,7 @@ def _item_to_label(item) -> dict:
         "barcode_value": barcode_value,
         "gtin_display": gtin12,
         "serial": serial,
+        "epc_hex": generate_epc_serial(item.id),
         "description": (item.description or "")[:40] if item.description else "",
         "qr_blob": qr_blob,
         "qr_value": gs1_url,

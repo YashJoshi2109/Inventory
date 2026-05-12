@@ -20,7 +20,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.repositories.item_repo import ItemRepository
 from app.repositories.location_repo import LocationRepository
-from app.services.barcode_service import parse_gs1_digital_link, normalize_gtin
+from app.services.barcode_service import parse_gs1_digital_link, normalize_gtin, SEAR_LAB_GCP
 
 
 class ScanResultType(StrEnum):
@@ -114,6 +114,17 @@ class ScanService:
                 item = await self._item_repo.get_by_barcode(gtin14[2:])
                 if item:
                     return await self._item_result(item)
+
+        # ── 3b. Reverse SEAR Lab GTIN-14 → item_id (labels not yet in DB) ──────
+        # Generated labels use gtin14_for_item(id) but may not be stored in item_barcodes yet.
+        if gtin14 and gtin14[:len(SEAR_LAB_GCP)] == SEAR_LAB_GCP:
+            try:
+                derived_id = int(gtin14[len(SEAR_LAB_GCP):len(SEAR_LAB_GCP) + 3])
+                item = await self._item_repo.get_by_id(derived_id)
+                if item:
+                    return await self._item_result(item)
+            except (ValueError, IndexError):
+                pass
 
         # ── 4. Exact barcode registry match (GTIN-14 or legacy EPC) ──────────
         item = await self._item_repo.get_by_barcode(clean)

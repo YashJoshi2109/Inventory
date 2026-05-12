@@ -277,6 +277,13 @@ def _draw_label(c: rl_canvas.Canvas, lbl: dict, x: float, y: float) -> None:
         c.setFont("Helvetica", 6.5)
         c.drawString(text_x, y + H - pad - gtin_y_offset - 8, f"Serial: {serial}")
 
+    # EPC hex line (RFID tag identifier)
+    epc_hex = lbl.get("epc_hex", "")
+    if epc_hex and serial:
+        c.setFont("Courier", 5.5)
+        c.setFillColorRGB(0.35, 0.35, 0.35)
+        c.drawString(text_x, y + H - pad - gtin_y_offset - 16, f"EPC: {epc_hex}")
+
     # ── Code 128 barcode (left zone, bottom portion) ──
     bc_h = 0.52 * inch
     bc_w = W - qr_size - 3 * pad    # stays in left zone
