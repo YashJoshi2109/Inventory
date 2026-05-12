@@ -13,7 +13,7 @@ export function Skeleton({ className, rounded = "lg", style }: SkeletonProps) {
     <div
       style={style}
       className={clsx(
-        "animate-pulse bg-slate-800/70",
+        "animate-pulse skeleton-base",
         {
           "rounded-sm": rounded === "sm",
           "rounded-md": rounded === "md",

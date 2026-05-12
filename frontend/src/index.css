@@ -764,4 +764,60 @@
   .surface-hover:hover {
     background: var(--bg-hover);
   }
+
+  /* ── Skeleton base — theme-aware ── */
+  .skeleton-base {
+    background: rgba(var(--accent-rgb), 0.08);
+  }
+  [data-theme="dark"] .skeleton-base {
+    background: rgba(255, 255, 255, 0.08);
+  }
+
+  /* ── Light-mode: remap hardcoded Tailwind slate text classes ── */
+  /* slate-100/200/300 are near-white — invisible on light bg */
+  :root:not([data-theme="dark"]) .text-slate-100,
+  :root:not([data-theme="dark"]) .text-slate-200 {
+    color: var(--text-primary) !important;
+  }
+  :root:not([data-theme="dark"]) .text-slate-300 {
+    color: var(--text-secondary) !important;
+  }
+  :root:not([data-theme="dark"]) .text-slate-400 {
+    color: var(--text-secondary) !important;
+  }
+  :root:not([data-theme="dark"]) .text-slate-500 {
+    color: var(--text-muted) !important;
+  }
+  /* border-slate in light mode */
+  :root:not([data-theme="dark"]) .border-slate-700,
+  :root:not([data-theme="dark"]) .border-slate-800 {
+    border-color: var(--border-card) !important;
+  }
+  /* bg-slate dark shades in light mode */
+  :root:not([data-theme="dark"]) .bg-slate-800\/70,
+  :root:not([data-theme="dark"]) .bg-slate-800,
+  :root:not([data-theme="dark"]) .bg-slate-900,
+  :root:not([data-theme="dark"]) .bg-slate-950\/88,
+  :root:not([data-theme="dark"]) .bg-slate-700 {
+    background-color: rgba(37, 99, 235, 0.06) !important;
+  }
+  /* surface utility classes used in SkeletonCard/SkeletonTableRow */
+  :root:not([data-theme="dark"]) .bg-surface-card {
+    background: var(--bg-card) !important;
+  }
+  :root:not([data-theme="dark"]) .bg-surface {
+    background: var(--bg-page) !important;
+  }
+  :root:not([data-theme="dark"]) .border-surface-border {
+    border-color: var(--border-card) !important;
+  }
+  :root:not([data-theme="dark"]) .text-slate-100 {
+    color: var(--text-primary) !important;
+  }
+
+  /* ── Light mode: inline dark rgba backgrounds used in page components ── */
+  /* surface-hover divs often use rgba(255,255,255,0.04) which is invisible */
+  :root:not([data-theme="dark"]) .bg-white\/4 {
+    background-color: rgba(37, 99, 235, 0.04) !important;
+  }
 }

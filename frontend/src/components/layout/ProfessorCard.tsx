@@ -1,7 +1,6 @@
 /**
  * ProfessorCard — floating profile snapshot for Prof. Erick C. Jones Jr.
- * Triggered by a small avatar notch in the TopBar.
- * Glass / liquid-glass aesthetic, dark + light theme aware.
+ * Desktop: absolute popover. Mobile: fixed bottom sheet.
  */
 import { useState, useRef, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
@@ -16,7 +15,6 @@ import {
 } from "lucide-react";
 import { useThemeStore } from "@/store/theme";
 
-/* ── static data ─────────────────────────────────────────────────────────── */
 const PROF = {
   name: "Erick C. Jones Jr.",
   initials: "EJ",
@@ -26,14 +24,12 @@ const PROF = {
   lab: "SEAR Lab",
   labFull: "Sustainable & Equitable Allocation of Resources",
   location: "Arlington, TX",
-  avatar: "/eric-jones.png",
   linkedin: "https://www.linkedin.com/in/erickjones2/",
   website: "https://www.erickjonesphd.com/",
   email: "erick.jones@uta.edu",
   bio: "Texas-born engineer and educator committed to making the world better through research, teaching, and service. Combines multi-systems optimization modeling with real-world experimentation.",
 };
 
-/* ── animation presets ───────────────────────────────────────────────────── */
 const popover = {
   hidden: { opacity: 0, scale: 0.88, y: -8, filter: "blur(6px)" },
   visible: {
@@ -46,10 +42,147 @@ const popover = {
   },
 };
 
+const sheet = {
+  hidden: { opacity: 0, y: "100%" },
+  visible: {
+    opacity: 1, y: 0,
+    transition: { type: "spring", stiffness: 380, damping: 32 },
+  },
+  exit: {
+    opacity: 0, y: "100%",
+    transition: { duration: 0.22, ease: "easeIn" },
+  },
+};
+
 const chip = {
   hidden: { opacity: 0, x: -6 },
   visible: { opacity: 1, x: 0, transition: { delay: 0.08, duration: 0.25 } },
 };
+
+/* ── shared card body ──────────────────────────────────────────────────────── */
+function CardBody({ isDark, onClose }: { isDark: boolean; onClose: () => void }) {
+  const cardBg = isDark
+    ? "linear-gradient(145deg, rgba(12,18,48,0.88) 0%, rgba(8,14,38,0.80) 100%)"
+    : "linear-gradient(145deg, rgba(255,255,255,0.92) 0%, rgba(240,248,255,0.88) 100%)";
+
+  return (
+    <div
+      className="w-full rounded-2xl overflow-hidden"
+      style={{
+        background: cardBg,
+        backdropFilter: "blur(32px) saturate(2.0) brightness(1.06)",
+        WebkitBackdropFilter: "blur(32px) saturate(2.0) brightness(1.06)",
+        border: isDark
+          ? "1px solid rgba(34,211,238,0.18)"
+          : "1px solid rgba(14,116,144,0.22)",
+        boxShadow: isDark
+          ? "0 24px 60px rgba(0,0,0,0.45), 0 0 0 1px rgba(255,255,255,0.04) inset, 0 1px 0 rgba(255,255,255,0.08) inset"
+          : "0 16px 48px rgba(0,0,0,0.12), 0 1px 0 rgba(255,255,255,0.9) inset",
+      }}
+    >
+      {/* header gradient strip */}
+      <div
+        className="relative h-20"
+        style={{ background: "linear-gradient(135deg, #0e7490 0%, #1d4ed8 55%, #7c3aed 100%)" }}
+      >
+        <div className="absolute top-[-20px] right-[-20px] w-28 h-28 rounded-full opacity-25 blur-2xl" style={{ background: "#22d3ee" }} />
+        <div className="absolute bottom-[-30px] left-[20px] w-20 h-20 rounded-full opacity-20 blur-xl" style={{ background: "#818cf8" }} />
+
+        {/* avatar */}
+        <div className="absolute left-4 bottom-[-22px] z-10">
+          <div
+            className="w-14 h-14 rounded-2xl flex items-center justify-center"
+            style={{
+              background: "linear-gradient(135deg, #0e7490 0%, #1d4ed8 100%)",
+              border: "2.5px solid rgba(255,255,255,0.2)",
+              boxShadow: "0 8px 24px rgba(0,0,0,0.45)",
+            }}
+          >
+            <span className="text-lg font-bold text-white select-none">{PROF.initials}</span>
+          </div>
+        </div>
+
+        {/* close */}
+        <button
+          onClick={onClose}
+          className="absolute top-2 right-2 p-1 rounded-lg transition-colors"
+          style={{ color: "rgba(255,255,255,0.6)", background: "rgba(0,0,0,0.15)" }}
+          aria-label="Close"
+        >
+          <X size={13} />
+        </button>
+
+        {/* lab chip */}
+        <motion.div
+          variants={chip} initial="hidden" animate="visible"
+          className="absolute right-3 bottom-3 flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-bold tracking-wide uppercase"
+          style={{ background: "rgba(0,0,0,0.30)", backdropFilter: "blur(8px)", border: "1px solid rgba(255,255,255,0.18)", color: "#e0f2fe", letterSpacing: "0.06em" }}
+        >
+          <FlaskConical size={10} />
+          {PROF.lab}
+        </motion.div>
+      </div>
+
+      {/* body */}
+      <div className="px-4 pt-8 pb-4 space-y-3">
+        <div>
+          <h2 className="text-base font-bold leading-tight" style={{ color: "var(--text-primary)" }}>{PROF.name}</h2>
+          <p className="text-[11px] mt-0.5" style={{ color: "#22d3ee" }}>{PROF.title}</p>
+          <div className="flex items-start gap-1 mt-1" style={{ color: "var(--text-muted)" }}>
+            <GraduationCap size={11} className="mt-0.5 shrink-0" />
+            <span className="text-[11px] leading-snug">{PROF.dept}</span>
+          </div>
+          <div className="flex items-center gap-1 mt-0.5" style={{ color: "var(--text-muted)" }}>
+            <MapPin size={10} className="shrink-0" />
+            <span className="text-[10px]">{PROF.university} · {PROF.location}</span>
+          </div>
+        </div>
+
+        <div
+          className="flex items-center gap-2 px-3 py-2 rounded-xl"
+          style={{ background: "rgba(34,211,238,0.07)", border: "1px solid rgba(34,211,238,0.15)" }}
+        >
+          <FlaskConical size={13} style={{ color: "#22d3ee", flexShrink: 0 }} />
+          <div>
+            <p className="text-[11px] font-bold" style={{ color: "#22d3ee" }}>{PROF.lab}</p>
+            <p className="text-[10px]" style={{ color: "var(--text-muted)" }}>{PROF.labFull}</p>
+          </div>
+        </div>
+
+        <p className="text-[11px] leading-relaxed" style={{ color: "var(--text-secondary)" }}>{PROF.bio}</p>
+
+        <div style={{ height: 1, background: "linear-gradient(90deg, transparent, rgba(var(--accent-rgb),0.15), transparent)" }} />
+
+        <div className="flex gap-2">
+          <a
+            href={PROF.website} target="_blank" rel="noopener noreferrer"
+            className="flex-1 flex items-center justify-center gap-1.5 py-2 rounded-xl text-[11px] font-semibold transition-all duration-150"
+            style={{ background: "rgba(34,211,238,0.10)", border: "1px solid rgba(34,211,238,0.25)", color: "#22d3ee" }}
+          >
+            <ExternalLink size={11} /> Portfolio
+          </a>
+          <a
+            href={PROF.linkedin} target="_blank" rel="noopener noreferrer"
+            className="flex-1 flex items-center justify-center gap-1.5 py-2 rounded-xl text-[11px] font-semibold transition-all duration-150"
+            style={{ background: "rgba(59,130,246,0.10)", border: "1px solid rgba(59,130,246,0.25)", color: "#60a5fa" }}
+          >
+            <Linkedin size={11} /> LinkedIn
+          </a>
+        </div>
+
+        <a
+          href={`mailto:${PROF.email}?subject=SEAR Lab Inventory — Admin Request`}
+          className="flex items-center justify-center gap-2 py-2.5 rounded-xl text-[11px] font-semibold w-full transition-all duration-150"
+          style={{ background: "rgba(168,85,247,0.10)", border: "1px solid rgba(168,85,247,0.25)", color: "#c084fc" }}
+        >
+          <Mail size={11} /> Contact Admin
+        </a>
+      </div>
+
+      <div className="h-px w-full" style={{ background: "linear-gradient(90deg, transparent 0%, rgba(34,211,238,0.4) 50%, transparent 100%)" }} />
+    </div>
+  );
+}
 
 /* ── component ───────────────────────────────────────────────────────────── */
 export function ProfessorCard() {
@@ -58,11 +191,6 @@ export function ProfessorCard() {
   const { theme } = useThemeStore();
   const isDark = theme === "dark";
 
-  const cardBg = isDark
-    ? "linear-gradient(145deg, rgba(12,18,48,0.88) 0%, rgba(8,14,38,0.80) 100%)"
-    : "linear-gradient(145deg, rgba(255,255,255,0.88) 0%, rgba(240,248,255,0.82) 100%)";
-
-  /* close on outside click */
   useEffect(() => {
     if (!open) return;
     function onDown(e: MouseEvent) {
@@ -72,45 +200,40 @@ export function ProfessorCard() {
     return () => document.removeEventListener("mousedown", onDown);
   }, [open]);
 
-  /* close on Escape */
   useEffect(() => {
     function onKey(e: KeyboardEvent) { if (e.key === "Escape") setOpen(false); }
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
   }, []);
 
+  /* lock body scroll when sheet open on mobile */
+  useEffect(() => {
+    if (open) document.body.style.overflow = "hidden";
+    else document.body.style.overflow = "";
+    return () => { document.body.style.overflow = ""; };
+  }, [open]);
+
   return (
     <div ref={ref} className="relative flex items-center shrink-0">
-      {/* ── Trigger notch ──────────────────────────────────────────────── */}
+      {/* trigger */}
       <motion.button
         onClick={() => setOpen((v) => !v)}
         aria-label="Professor info"
         aria-expanded={open}
         whileHover={{ scale: 1.04 }}
         whileTap={{ scale: 0.96 }}
-        className="flex items-center gap-2 px-1.5 py-1 rounded-xl transition-all duration-200 relative group"
+        className="flex items-center gap-2 px-1.5 py-1 rounded-xl transition-all duration-200"
         style={{
-          background: open
-            ? "rgba(34,211,238,0.10)"
-            : "rgba(255,255,255,0.04)",
-          border: open
-            ? "1px solid rgba(34,211,238,0.35)"
-            : "1px solid var(--border-subtle)",
+          background: open ? "rgba(34,211,238,0.10)" : "rgba(255,255,255,0.04)",
+          border: open ? "1px solid rgba(34,211,238,0.35)" : "1px solid var(--border-subtle)",
         }}
       >
-        {/* icon */}
         <div
           className="w-6 h-6 rounded-lg flex items-center justify-center shrink-0"
-          style={{
-            background: open
-              ? "rgba(34,211,238,0.15)"
-              : "rgba(34,211,238,0.08)",
-          }}
+          style={{ background: open ? "rgba(34,211,238,0.15)" : "rgba(34,211,238,0.08)" }}
         >
           <FlaskConical size={12} style={{ color: "#22d3ee" }} />
         </div>
-
-        {/* label — hidden on very small screens */}
         <span
           className="hidden sm:block text-[11px] font-semibold leading-tight pr-0.5"
           style={{ color: open ? "#22d3ee" : "var(--text-secondary)" }}
@@ -119,243 +242,49 @@ export function ProfessorCard() {
         </span>
       </motion.button>
 
-      {/* ── Floating card ──────────────────────────────────────────────── */}
+      {/* ── Desktop popover (sm+) ──────────────────────────────────────── */}
       <AnimatePresence>
         {open && (
-          <motion.div
-            variants={popover}
-            initial="hidden"
-            animate="visible"
-            exit="exit"
-            className="absolute top-[calc(100%+10px)] left-0 z-[200] w-80 rounded-2xl overflow-hidden"
-            style={{
-              background: cardBg,
-              backdropFilter: "blur(32px) saturate(2.0) brightness(1.06)",
-              WebkitBackdropFilter: "blur(32px) saturate(2.0) brightness(1.06)",
-              border: isDark
-                ? "1px solid rgba(34,211,238,0.18)"
-                : "1px solid rgba(14,116,144,0.22)",
-              boxShadow: isDark
-                ? "0 24px 60px rgba(0,0,0,0.45), 0 0 0 1px rgba(255,255,255,0.04) inset, 0 1px 0 rgba(255,255,255,0.08) inset"
-                : "0 16px 48px rgba(0,0,0,0.12), 0 1px 0 rgba(255,255,255,0.9) inset",
-            }}
-          >
-            {/* ── header gradient strip ─────────────────────────────── */}
-            <div
-              className="relative h-20 flex items-end pb-0"
-              style={{
-                background:
-                  "linear-gradient(135deg, #0e7490 0%, #1d4ed8 55%, #7c3aed 100%)",
-              }}
+          <>
+            {/* hidden on mobile, visible on sm+ */}
+            <motion.div
+              variants={popover}
+              initial="hidden"
+              animate="visible"
+              exit="exit"
+              className="hidden sm:block absolute top-[calc(100%+10px)] left-0 z-[200] w-80"
             >
-              {/* bokeh blobs */}
-              <div
-                className="absolute top-[-20px] right-[-20px] w-28 h-28 rounded-full opacity-25 blur-2xl"
-                style={{ background: "#22d3ee" }}
-              />
-              <div
-                className="absolute bottom-[-30px] left-[20px] w-20 h-20 rounded-full opacity-20 blur-xl"
-                style={{ background: "#818cf8" }}
-              />
+              <CardBody isDark={isDark} onClose={() => setOpen(false)} />
+            </motion.div>
 
-              {/* avatar (overlaps header) */}
-              <div className="absolute left-4 bottom-[-22px] z-10">
-                <div
-                  className="w-14 h-14 rounded-2xl flex items-center justify-center"
-                  style={{
-                    background: "linear-gradient(135deg, #0e7490 0%, #1d4ed8 100%)",
-                    border: "2.5px solid rgba(255,255,255,0.2)",
-                    boxShadow: "0 8px 24px rgba(0,0,0,0.45)",
-                  }}
-                >
-                  <span className="text-lg font-bold text-white select-none">
-                    {PROF.initials}
-                  </span>
-                </div>
-              </div>
-
-              {/* close btn */}
-              <button
-                onClick={() => setOpen(false)}
-                className="absolute top-2 right-2 p-1 rounded-lg transition-colors"
-                style={{
-                  color: "rgba(255,255,255,0.6)",
-                  background: "rgba(0,0,0,0.15)",
-                }}
-                aria-label="Close"
-              >
-                <X size={13} />
-              </button>
-
-              {/* lab name chip */}
+            {/* ── Mobile bottom sheet (below sm) ────────────────────── */}
+            <div className="sm:hidden">
+              {/* backdrop */}
               <motion.div
-                variants={chip}
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                className="fixed inset-0 z-[199]"
+                style={{ background: "rgba(0,0,0,0.45)", backdropFilter: "blur(4px)" }}
+                onClick={() => setOpen(false)}
+              />
+              {/* sheet */}
+              <motion.div
+                variants={sheet}
                 initial="hidden"
                 animate="visible"
-                className="absolute right-3 bottom-3 flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-bold tracking-wide uppercase"
-                style={{
-                  background: "rgba(0,0,0,0.30)",
-                  backdropFilter: "blur(8px)",
-                  border: "1px solid rgba(255,255,255,0.18)",
-                  color: "#e0f2fe",
-                  letterSpacing: "0.06em",
-                }}
+                exit="exit"
+                className="fixed bottom-0 left-0 right-0 z-[200] px-3 pb-6 pt-2"
+                style={{ maxHeight: "92dvh", overflowY: "auto" }}
               >
-                <FlaskConical size={10} />
-                {PROF.lab}
+                {/* drag handle */}
+                <div className="flex justify-center mb-2">
+                  <div className="w-10 h-1 rounded-full" style={{ background: "rgba(255,255,255,0.25)" }} />
+                </div>
+                <CardBody isDark={isDark} onClose={() => setOpen(false)} />
               </motion.div>
             </div>
-
-            {/* ── body ──────────────────────────────────────────────── */}
-            <div className="px-4 pt-8 pb-4 space-y-3">
-              {/* name + title */}
-              <div>
-                <h2
-                  className="text-base font-bold leading-tight"
-                  style={{ color: "var(--text-primary)" }}
-                >
-                  {PROF.name}
-                </h2>
-                <p className="text-[11px] mt-0.5" style={{ color: "#22d3ee" }}>
-                  {PROF.title}
-                </p>
-                <div
-                  className="flex items-start gap-1 mt-1"
-                  style={{ color: "var(--text-muted)" }}
-                >
-                  <GraduationCap size={11} className="mt-0.5 shrink-0" />
-                  <span className="text-[11px] leading-snug">{PROF.dept}</span>
-                </div>
-                <div
-                  className="flex items-center gap-1 mt-0.5"
-                  style={{ color: "var(--text-muted)" }}
-                >
-                  <MapPin size={10} className="shrink-0" />
-                  <span className="text-[10px]">
-                    {PROF.university} · {PROF.location}
-                  </span>
-                </div>
-              </div>
-
-              {/* lab full name */}
-              <div
-                className="flex items-center gap-2 px-3 py-2 rounded-xl"
-                style={{
-                  background: "rgba(34,211,238,0.07)",
-                  border: "1px solid rgba(34,211,238,0.15)",
-                }}
-              >
-                <FlaskConical size={13} style={{ color: "#22d3ee", flexShrink: 0 }} />
-                <div>
-                  <p
-                    className="text-[11px] font-bold"
-                    style={{ color: "#22d3ee" }}
-                  >
-                    {PROF.lab}
-                  </p>
-                  <p className="text-[10px]" style={{ color: "var(--text-muted)" }}>
-                    {PROF.labFull}
-                  </p>
-                </div>
-              </div>
-
-              {/* bio */}
-              <p
-                className="text-[11px] leading-relaxed"
-                style={{ color: "var(--text-secondary)" }}
-              >
-                {PROF.bio}
-              </p>
-
-              {/* divider */}
-              <div
-                style={{
-                  height: 1,
-                  background:
-                    "linear-gradient(90deg, transparent, rgba(255,255,255,0.08), transparent)",
-                }}
-              />
-
-              {/* links + contact */}
-              <div className="flex gap-2">
-                <a
-                  href={PROF.website}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="flex-1 flex items-center justify-center gap-1.5 py-2 rounded-xl text-[11px] font-semibold transition-all duration-150"
-                  style={{
-                    background: "rgba(34,211,238,0.10)",
-                    border: "1px solid rgba(34,211,238,0.25)",
-                    color: "#22d3ee",
-                  }}
-                  onMouseEnter={(e) => {
-                    e.currentTarget.style.background = "rgba(34,211,238,0.18)";
-                    e.currentTarget.style.borderColor = "rgba(34,211,238,0.45)";
-                  }}
-                  onMouseLeave={(e) => {
-                    e.currentTarget.style.background = "rgba(34,211,238,0.10)";
-                    e.currentTarget.style.borderColor = "rgba(34,211,238,0.25)";
-                  }}
-                >
-                  <ExternalLink size={11} />
-                  Portfolio
-                </a>
-                <a
-                  href={PROF.linkedin}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="flex-1 flex items-center justify-center gap-1.5 py-2 rounded-xl text-[11px] font-semibold transition-all duration-150"
-                  style={{
-                    background: "rgba(59,130,246,0.10)",
-                    border: "1px solid rgba(59,130,246,0.25)",
-                    color: "#60a5fa",
-                  }}
-                  onMouseEnter={(e) => {
-                    e.currentTarget.style.background = "rgba(59,130,246,0.18)";
-                    e.currentTarget.style.borderColor = "rgba(59,130,246,0.45)";
-                  }}
-                  onMouseLeave={(e) => {
-                    e.currentTarget.style.background = "rgba(59,130,246,0.10)";
-                    e.currentTarget.style.borderColor = "rgba(59,130,246,0.25)";
-                  }}
-                >
-                  <Linkedin size={11} />
-                  LinkedIn
-                </a>
-              </div>
-
-              {/* Contact Admin */}
-              <a
-                href={`mailto:${PROF.email}?subject=SEAR Lab Inventory — Admin Request`}
-                className="flex items-center justify-center gap-2 py-2.5 rounded-xl text-[11px] font-semibold w-full transition-all duration-150"
-                style={{
-                  background: "rgba(168,85,247,0.10)",
-                  border: "1px solid rgba(168,85,247,0.25)",
-                  color: "#c084fc",
-                }}
-                onMouseEnter={(e) => {
-                  e.currentTarget.style.background = "rgba(168,85,247,0.18)";
-                  e.currentTarget.style.borderColor = "rgba(168,85,247,0.45)";
-                }}
-                onMouseLeave={(e) => {
-                  e.currentTarget.style.background = "rgba(168,85,247,0.10)";
-                  e.currentTarget.style.borderColor = "rgba(168,85,247,0.25)";
-                }}
-              >
-                <Mail size={11} />
-                Contact Admin
-              </a>
-            </div>
-
-            {/* ── liquid glass shimmer line ─────────────────────────── */}
-            <div
-              className="h-px w-full"
-              style={{
-                background:
-                  "linear-gradient(90deg, transparent 0%, rgba(34,211,238,0.4) 50%, transparent 100%)",
-              }}
-            />
-          </motion.div>
+          </>
         )}
       </AnimatePresence>
     </div>
