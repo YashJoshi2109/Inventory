@@ -18,7 +18,7 @@ const Import        = lazy(() => import("@/pages/Import").then((m) => ({ default
 const Alerts        = lazy(() => import("@/pages/Alerts").then((m) => ({ default: m.Alerts })));
 const AiInsights    = lazy(() => import("@/pages/AiInsights").then((m) => ({ default: m.AiInsights })));
 const AiCopilot     = lazy(() => import("@/pages/AiCopilot").then((m) => ({ default: m.AiCopilot })));
-const SmartScan     = lazy(() => import("@/pages/SmartScan").then((m) => ({ default: m.SmartScan })));
+const SmartScan     = lazy(() => import("@/pages/SmartScan"));
 const Settings      = lazy(() => import("@/pages/Settings").then((m) => ({ default: m.Settings })));
 const Admin         = lazy(() => import("@/pages/Admin").then((m) => ({ default: m.Admin })));
 const EnergyDashboard = lazy(() => import("@/pages/EnergyDashboard").then((m) => ({ default: m.EnergyDashboard })));
