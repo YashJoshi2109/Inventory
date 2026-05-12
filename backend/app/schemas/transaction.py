@@ -142,3 +142,35 @@ class EmailServiceStatusRead(OrmBase):
     daily_limit_hint: int | None = None
     brevo_credits_remaining: int | None = None
     note: str = ""
+
+
+class CandidateSource(OrmBase):
+    """Location holding stock for an item — returned when transfer source is ambiguous."""
+    location_id: int
+    location_name: str
+    location_code: str
+    quantity: int
+
+
+class SmartApplyRequest(OrmBase):
+    """Context-aware stock action: backend decides stock_in / stock_out / transfer."""
+    item_id: int
+    location_id: int  # the location the user scanned
+    quantity: Decimal = Field(default=Decimal("1"), gt=0)
+    notes: str | None = None
+    scan_session_id: str | None = None
+    source: str = "smart_scan"
+    dry_run: bool = False
+    source_location_id: int | None = None  # required when dry_run=False and action=transfer with multiple candidates
+
+
+class SmartApplyResponse(OrmBase):
+    """Preview (dry_run=True) or committed result (dry_run=False)."""
+    action: Literal["stock_in", "stock_out", "transfer"]
+    previous_quantity: int
+    new_quantity: int
+    source_location_id: int | None = None
+    source_location_name: str | None = None
+    requires_source_selection: bool = False
+    candidate_sources: list[CandidateSource] = Field(default_factory=list)
+    event: InventoryEventRead | None = None
