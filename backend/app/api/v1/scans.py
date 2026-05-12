@@ -177,7 +177,9 @@ async def smart_apply(
     other_sources = [l for l in all_levels if l.location_id != body.location_id and int(l.quantity) > 0]
     qty = int(body.quantity)
 
-    if target_qty > 0:
+    if body.force_action:
+        action = body.force_action
+    elif target_qty > 0:
         action = "stock_out"
     elif not other_sources:
         action = "stock_in"

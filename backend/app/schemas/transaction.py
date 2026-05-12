@@ -162,6 +162,7 @@ class SmartApplyRequest(OrmBase):
     source: str = "smart_scan"
     dry_run: bool = False
     source_location_id: int | None = None  # required when dry_run=False and action=transfer with multiple candidates
+    force_action: Literal["stock_in", "stock_out", "transfer"] | None = None  # user override of auto-detection
 
 
 class SmartApplyResponse(OrmBase):

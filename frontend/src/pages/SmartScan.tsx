@@ -29,6 +29,9 @@ interface SmartState {
   selectedSourceId?: number | null;
   quantity: number;
   errorMsg?: string;
+  actionOverride?: SmartAction | null;
+  autoAction?: SmartAction;           // first auto-detected action — persists across overrides
+  storedCandidates?: CandidateSource[]; // candidates from initial transfer preview
 }
 
 const ACTION_COLOR: Record<SmartAction, string> = {
@@ -162,6 +165,7 @@ export default function SmartScan() {
     location: ScanResult,
     quantity: number,
     sourceLocationId?: number,
+    forceAction?: SmartAction,
   ) => {
     scanning.current = false;
     try {
@@ -171,12 +175,17 @@ export default function SmartScan() {
         quantity,
         dry_run: true,
         source_location_id: sourceLocationId,
+        force_action: forceAction,
       });
       setState((s) => ({
         ...s,
         phase: "previewing",
         item, location, preview, quantity,
         selectedSourceId: sourceLocationId ?? preview.source_location_id ?? null,
+        actionOverride: forceAction ?? null,
+        // preserve auto-detection from first scan; update candidates only on natural (non-forced) calls
+        autoAction: forceAction == null ? preview.action : (s.autoAction ?? preview.action),
+        storedCandidates: forceAction == null ? preview.candidate_sources : s.storedCandidates,
       }));
     } catch (err) {
       setState((s) => ({ ...s, phase: "error", errorMsg: apiErrMsg(err) }));
@@ -193,6 +202,7 @@ export default function SmartScan() {
         quantity: state.quantity,
         dry_run: false,
         source_location_id: state.selectedSourceId ?? undefined,
+        force_action: state.actionOverride ?? undefined,
       });
       setState((s) => ({ ...s, phase: "success", preview: result }));
     } catch (err) {
@@ -205,7 +215,7 @@ export default function SmartScan() {
     const needsRefetch =
       state.preview?.requires_source_selection && state.selectedSourceId != null;
     if (needsRefetch) {
-      fetchPreview(state.item, state.location, state.quantity, state.selectedSourceId ?? undefined);
+      fetchPreview(state.item, state.location, state.quantity, state.selectedSourceId ?? undefined, state.actionOverride ?? undefined);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [state.selectedSourceId]);
@@ -272,9 +282,9 @@ export default function SmartScan() {
     const n = Math.min(raw, maxQty);
     setState((s) => ({ ...s, quantity: n }));
     if (state.item && state.location) {
-      fetchPreview(state.item, state.location, n, state.selectedSourceId ?? undefined);
+      fetchPreview(state.item, state.location, n, state.selectedSourceId ?? undefined, state.actionOverride ?? undefined);
     }
-  }, [state.item, state.location, state.selectedSourceId, fetchPreview, maxQty]);
+  }, [state.item, state.location, state.selectedSourceId, state.actionOverride, fetchPreview, maxQty]);
 
   const itemDone = !!state.item;
   const locationDone = !!state.location;
@@ -379,16 +389,57 @@ export default function SmartScan() {
               </div>
             )}
 
-            {/* Transfer reason — explains WHY system chose transfer */}
-            {state.preview.action === "transfer" && state.preview.source_location_name && (
-              <div
-                className="flex items-center gap-2 rounded-lg px-3 py-2 text-xs"
-                style={{ background: isDark ? "rgba(37,99,235,0.10)" : "rgba(37,99,235,0.07)", border: "1px solid rgba(37,99,235,0.20)" }}
-              >
-                <ArrowLeftRight size={12} style={{ color: "#2563EB", flexShrink: 0 }} />
-                <span style={{ color: "var(--text-muted)" }}>
-                  No stock here — has stock at <strong style={{ color: "var(--text-primary)" }}>{state.preview.source_location_name}</strong>
-                </span>
+            {/* Action override toggle — shown when auto-detected as transfer (stock elsewhere, not here) */}
+            {state.autoAction === "transfer" && (state.storedCandidates?.length ?? 0) > 0 && (
+              <div className="space-y-2">
+                <div
+                  className="flex items-center gap-2 rounded-lg px-3 py-2 text-xs"
+                  style={{ background: isDark ? "rgba(37,99,235,0.10)" : "rgba(37,99,235,0.07)", border: "1px solid rgba(37,99,235,0.20)" }}
+                >
+                  <ArrowLeftRight size={12} style={{ color: "#2563EB", flexShrink: 0 }} />
+                  <span style={{ color: "var(--text-muted)" }}>
+                    No stock here — has stock at{" "}
+                    <strong style={{ color: "var(--text-primary)" }}>
+                      {state.storedCandidates?.[0]?.location_name ?? "another location"}
+                    </strong>
+                  </span>
+                </div>
+                <div
+                  className="flex rounded-xl overflow-hidden"
+                  style={{ border: "1px solid var(--border-card)" }}
+                >
+                  <button
+                    onClick={() => {
+                      if (state.actionOverride !== "transfer" && state.actionOverride != null) {
+                        fetchPreview(state.item!, state.location!, state.quantity, state.selectedSourceId ?? undefined, "transfer");
+                      }
+                    }}
+                    className="flex-1 py-2 text-xs font-semibold transition-all"
+                    style={{
+                      background: (state.actionOverride == null || state.actionOverride === "transfer")
+                        ? "#2563EB" : (isDark ? "rgba(255,255,255,0.05)" : "rgba(0,0,0,0.03)"),
+                      color: (state.actionOverride == null || state.actionOverride === "transfer") ? "#fff" : "var(--text-muted)",
+                    }}
+                  >
+                    ↔ Move here
+                  </button>
+                  <button
+                    onClick={() => {
+                      if (state.actionOverride !== "stock_in") {
+                        fetchPreview(state.item!, state.location!, state.quantity, undefined, "stock_in");
+                      }
+                    }}
+                    className="flex-1 py-2 text-xs font-semibold transition-all"
+                    style={{
+                      background: state.actionOverride === "stock_in"
+                        ? "#059669" : (isDark ? "rgba(255,255,255,0.05)" : "rgba(0,0,0,0.03)"),
+                      color: state.actionOverride === "stock_in" ? "#fff" : "var(--text-muted)",
+                      borderLeft: "1px solid var(--border-card)",
+                    }}
+                  >
+                    + Add new stock
+                  </button>
+                </div>
               </div>
             )}
 

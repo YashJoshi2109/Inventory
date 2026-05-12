@@ -161,6 +161,7 @@ export const scanApi = {
     scan_session_id?: string;
     dry_run?: boolean;
     source_location_id?: number;
+    force_action?: SmartAction;
   }): Promise<SmartApplyResponse> => {
     const { data } = await apiClient.post("/scans/smart-apply", { quantity: 1, dry_run: false, ...payload });
     return data;
