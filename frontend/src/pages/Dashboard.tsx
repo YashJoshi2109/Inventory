@@ -1201,8 +1201,11 @@ export function Dashboard() {
               </button>
             </div>
 
-            {/* activity list */}
-            <div className="px-5">
+            {/* activity list — 5 visible, rest scrollable */}
+            <div
+              className="px-5 overflow-y-auto"
+              style={{ maxHeight: "calc(5 * 52px)", scrollbarWidth: "thin", scrollbarColor: "var(--border-card) transparent" }}
+            >
               {stats.recent_activity.length === 0 ? (
                 <div className="py-12 text-center">
                   <Layers
@@ -1226,30 +1229,13 @@ export function Dashboard() {
                   initial="hidden"
                   animate="visible"
                 >
-                  {stats.recent_activity.slice(0, 8).map((event) => (
+                  {stats.recent_activity.map((event) => (
                     <ActivityRow key={event.id} event={event} />
                   ))}
                 </motion.div>
               )}
             </div>
 
-            {/* mobile "show more" button */}
-            {stats.recent_activity.length > 5 && (
-              <div className="px-5 pb-4 pt-2 lg:hidden">
-                <button
-                  onClick={() => navigate("/transactions")}
-                  className="w-full py-2.5 rounded-xl text-sm font-semibold transition-all hover:opacity-90"
-                  style={{
-                    background: "rgba(var(--accent-rgb), 0.08)",
-                    border: "1px solid rgba(var(--accent-rgb), 0.18)",
-                    color: "var(--accent)",
-                    fontFamily: "'Outfit', sans-serif",
-                  }}
-                >
-                  Show all activity
-                </button>
-              </div>
-            )}
           </div>
         </motion.div>
 
