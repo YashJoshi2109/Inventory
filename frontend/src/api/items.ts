@@ -106,6 +106,21 @@ export const itemsApi = {
     return data;
   },
 
+  downloadLocationGs1QrPng: async (locationId: number): Promise<Blob> => {
+    const { data } = await apiClient.get(`/barcodes/location/${locationId}/gs1-qr/png`, { responseType: "blob" });
+    return data;
+  },
+
+  getBarcodeMeta: async (id: number): Promise<{ gtin14: string; gtin12: string; serial: string; epc_hex: string; gs1_url: string }> => {
+    const { data } = await apiClient.get(`/barcodes/item/${id}/meta`);
+    return data;
+  },
+
+  getLocationBarcodeMeta: async (id: number): Promise<{ gln13: string; epc_hex: string; code128_value: string; gs1_url: string }> => {
+    const { data } = await apiClient.get(`/barcodes/location/${id}/meta`);
+    return data;
+  },
+
   sendQrToEmail: async (itemId: number): Promise<{ message: string; success: boolean }> => {
     const { data } = await apiClient.post(`/barcodes/item/${itemId}/qr/send-email`);
     return data;

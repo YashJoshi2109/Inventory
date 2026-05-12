@@ -3,6 +3,7 @@ import logging
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import Response
+from pydantic import BaseModel
 
 from app.api.v1.auth import CurrentUser, require_roles
 from app.core.database import DbSession
@@ -26,6 +27,21 @@ from app.services.barcode_service import (
     render_qr_svg,
 )
 from app.schemas.common import MessageResponse
+
+
+class ItemBarcodeMeta(BaseModel):
+    gtin14: str
+    gtin12: str
+    serial: str
+    epc_hex: str
+    gs1_url: str
+
+
+class LocationBarcodeMeta(BaseModel):
+    gln13: str
+    epc_hex: str
+    code128_value: str
+    gs1_url: str
 
 logger = logging.getLogger(__name__)
 
@@ -78,6 +94,18 @@ async def item_qr_send_email(item_id: int, session: DbSession, current_user: Cur
     return MessageResponse(message=email_msg, success=False)
 
 
+@router.get("/item/{item_id}/meta", response_model=ItemBarcodeMeta)
+async def item_barcode_meta(item_id: int, session: DbSession, current_user: CurrentUser) -> ItemBarcodeMeta:
+    """Barcode identifiers for an item — GTIN-14, serial, EPC hex (SGTIN-96), GS1 URL."""
+    return ItemBarcodeMeta(
+        gtin14=gtin14_for_item(item_id),
+        gtin12=gtin12_for_item(item_id),
+        serial=serial_for_item(item_id),
+        epc_hex=sgtin96_epc_hex(item_id),
+        gs1_url=gs1_digital_link_url(item_id, ""),
+    )
+
+
 @router.get("/item/{item_id}/png")
 async def item_barcode_png(item_id: int, session: DbSession, current_user: CurrentUser) -> Response:
     """Code 128 barcode PNG for this item (encodes GTIN-14)."""
@@ -92,6 +120,21 @@ async def item_barcode_png(item_id: int, session: DbSession, current_user: Curre
     barcode_value = stored_bv or gtin14_for_item(item_id)
     png_bytes = render_barcode_png(barcode_value)
     return Response(content=png_bytes, media_type="image/png")
+
+
+@router.get("/location/{location_id}/meta", response_model=LocationBarcodeMeta)
+async def location_barcode_meta(location_id: int, session: DbSession, current_user: CurrentUser) -> LocationBarcodeMeta:
+    """Barcode identifiers for a location — GLN-13, EPC hex (SGLN-96), Code128 value, GS1 URL."""
+    repo = LocationRepository(session)
+    loc = await repo.get_by_id(location_id)
+    if not loc:
+        raise HTTPException(status_code=404, detail="Location not found")
+    return LocationBarcodeMeta(
+        gln13=gln13_for_location(location_id),
+        epc_hex=sgln96_epc_hex(location_id),
+        code128_value=f"LOC:{loc.code.upper()}",
+        gs1_url=gs1_location_url(location_id, loc.code),
+    )
 
 
 @router.get("/location/{location_id}/qr/png")

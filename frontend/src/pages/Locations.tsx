@@ -266,9 +266,18 @@ export function Locations() {
   );
 }
 
+interface LocationModal {
+  barcodeUrl: string;
+  gs1QrUrl: string;
+  name: string;
+  code: string;
+  locId: number;
+  meta: { gln13: string; epc_hex: string; code128_value: string; gs1_url: string } | null;
+}
+
 function AreaCard({ area }: { area: Area }) {
   const [expanded, setExpanded] = useState(false);
-  const [qrModal, setQrModal] = useState<{ url: string; name: string; code: string } | null>(null);
+  const [locModal, setLocModal] = useState<LocationModal | null>(null);
 
   const { data: locations } = useQuery<Location[]>({
     queryKey: ["locations", area.id],
@@ -278,6 +287,34 @@ function AreaCard({ area }: { area: Area }) {
     },
     enabled: expanded,
   });
+
+  const closeModal = () => {
+    if (locModal) {
+      URL.revokeObjectURL(locModal.barcodeUrl);
+      URL.revokeObjectURL(locModal.gs1QrUrl);
+      setLocModal(null);
+    }
+  };
+
+  const openLocModal = async (loc: Location) => {
+    try {
+      const [barcodeBlob, gs1Blob, meta] = await Promise.all([
+        itemsApi.downloadLocationQrPng(loc.id),     // Code128 barcode (LOC:CODE)
+        itemsApi.downloadLocationGs1QrPng(loc.id),  // GS1 Digital Link QR
+        itemsApi.getLocationBarcodeMeta(loc.id),
+      ]);
+      setLocModal({
+        barcodeUrl: URL.createObjectURL(barcodeBlob),
+        gs1QrUrl: URL.createObjectURL(gs1Blob),
+        name: loc.name,
+        code: loc.code,
+        locId: loc.id,
+        meta,
+      });
+    } catch {
+      toast.error("Failed to load location labels");
+    }
+  };
 
   return (
     <Card>
@@ -324,17 +361,9 @@ function AreaCard({ area }: { area: Area }) {
                     <p className="text-sm" style={{ color: "var(--text-primary)" }}>{loc.name}</p>
                   </div>
                   <button
-                    onClick={async () => {
-                      try {
-                        const blob = await itemsApi.downloadLocationQrPng(loc.id);
-                        const url = URL.createObjectURL(blob);
-                        setQrModal({ url, name: loc.name, code: loc.code });
-                      } catch {
-                        toast.error("Failed to load QR code");
-                      }
-                    }}
+                    onClick={() => openLocModal(loc)}
                     className="p-1.5 rounded-lg hover:bg-surface-hover transition-colors" style={{ color: "var(--text-secondary)" }}
-                    title="View QR label"
+                    title="View barcode & QR label"
                   >
                     <QrCode size={15} />
                   </button>
@@ -345,42 +374,79 @@ function AreaCard({ area }: { area: Area }) {
         </div>
       )}
 
-      {/* ── QR Code modal ────────────────────────────────────────────────── */}
-      {qrModal && (
+      {/* ── Location label modal — barcode + QR + EPC ────────────────────── */}
+      {locModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm"
-          onClick={() => { URL.revokeObjectURL(qrModal.url); setQrModal(null); }}>
+          onClick={closeModal}>
           <div
-            className="relative flex flex-col items-center gap-5 p-6 rounded-2xl shadow-2xl w-full max-w-xs"
+            className="relative flex flex-col gap-4 p-6 rounded-2xl shadow-2xl w-full max-w-sm"
             style={{ background: "var(--bg-topbar)", border: "1px solid var(--border-card)" }}
             onClick={e => e.stopPropagation()}>
             {/* Close */}
             <button
-              onClick={() => { URL.revokeObjectURL(qrModal.url); setQrModal(null); }}
+              onClick={closeModal}
               className="absolute top-3 right-3 text-slate-600 hover:text-slate-300 transition-colors p-1 rounded-lg hover:bg-white/5">
               <X size={16} />
             </button>
 
-            <div className="flex items-center gap-2">
-              <QrCode size={15} className="text-brand-400" />
-              <p className="text-sm font-semibold" style={{ color: "var(--text-primary)" }}>{qrModal.name}</p>
-            </div>
-            <p className="text-xs font-mono -mt-3" style={{ color: "var(--text-muted)" }}>{qrModal.code}</p>
-
-            {/* QR image — white background so it scans correctly */}
-            <div className="p-4 bg-white rounded-xl shadow-lg">
-              <img src={qrModal.url} alt={`QR ${qrModal.code}`} className="w-48 h-48 object-contain" />
+            <div>
+              <div className="flex items-center gap-2">
+                <QrCode size={15} className="text-brand-400" />
+                <p className="text-sm font-semibold" style={{ color: "var(--text-primary)" }}>{locModal.name}</p>
+              </div>
+              <p className="text-xs font-mono mt-0.5" style={{ color: "var(--text-muted)" }}>{locModal.code}</p>
             </div>
 
-            <p className="text-[11px] text-center" style={{ color: "var(--text-muted)" }}>Scan to identify this location</p>
+            {/* Both images side by side */}
+            <div className="grid grid-cols-2 gap-3">
+              <div className="flex flex-col gap-1">
+                <p className="text-[10px] uppercase tracking-widest text-center" style={{ color: "var(--text-muted)" }}>Code 128</p>
+                <div className="bg-white rounded-xl p-2 flex items-center justify-center">
+                  <img src={locModal.barcodeUrl} alt="Code128" className="max-h-20 w-full object-contain" />
+                </div>
+              </div>
+              <div className="flex flex-col gap-1">
+                <p className="text-[10px] uppercase tracking-widest text-center" style={{ color: "var(--text-muted)" }}>GS1 QR</p>
+                <div className="bg-white rounded-xl p-2 flex items-center justify-center">
+                  <img src={locModal.gs1QrUrl} alt="GS1 QR" className="max-h-20 w-full object-contain" />
+                </div>
+              </div>
+            </div>
 
-            <a
-              href={qrModal.url}
-              download={`QR_${qrModal.code}.png`}
-              className="flex items-center gap-2 px-5 py-2.5 rounded-xl text-sm font-medium transition-all hover:scale-[1.02]"
-              style={{ background: "rgba(34,211,238,0.08)", border: "1px solid rgba(34,211,238,0.2)", color: "#22d3ee" }}>
-              <Download size={13} />
-              Download PNG
-            </a>
+            {/* EPC + GLN identifiers */}
+            {locModal.meta && (
+              <div className="rounded-lg border divide-y text-xs font-mono"
+                style={{ borderColor: "var(--border-card)", borderWidth: 1 }}>
+                {[
+                  { label: "GLN-13", value: locModal.meta.gln13 },
+                  { label: "Code128", value: locModal.meta.code128_value },
+                  { label: "EPC (SGLN-96)", value: locModal.meta.epc_hex },
+                ].map(({ label, value }) => (
+                  <div key={label} className="flex items-start justify-between gap-2 px-3 py-1.5">
+                    <span className="text-[10px] uppercase tracking-widest shrink-0" style={{ color: "var(--text-muted)" }}>{label}</span>
+                    <span className="break-all text-right" style={{ color: "var(--text-primary)" }}>{value}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {/* Download buttons */}
+            <div className="grid grid-cols-2 gap-2">
+              <a
+                href={locModal.barcodeUrl}
+                download={`barcode_${locModal.code}.png`}
+                className="flex items-center justify-center gap-1.5 py-2 rounded-xl text-xs font-medium"
+                style={{ background: "rgba(34,211,238,0.08)", border: "1px solid rgba(34,211,238,0.2)", color: "#22d3ee" }}>
+                <Download size={12} /> Barcode
+              </a>
+              <a
+                href={locModal.gs1QrUrl}
+                download={`qr_${locModal.code}.png`}
+                className="flex items-center justify-center gap-1.5 py-2 rounded-xl text-xs font-medium"
+                style={{ background: "rgba(34,211,238,0.08)", border: "1px solid rgba(34,211,238,0.2)", color: "#22d3ee" }}>
+                <Download size={12} /> QR Code
+              </a>
+            </div>
           </div>
         </div>
       )}
