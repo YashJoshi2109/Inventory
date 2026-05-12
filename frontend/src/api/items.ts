@@ -135,4 +135,22 @@ export const itemsApi = {
     const { data } = await apiClient.post(`/barcodes/item/${itemId}/qr/send-email`);
     return data;
   },
+
+  printLocationLabels: async (locationIds: number[]): Promise<Blob> => {
+    const { data } = await apiClient.post("/barcodes/location-labels/print", locationIds, {
+      responseType: "blob",
+    });
+    return data;
+  },
+
+  printBulkLocationLabels: async (params: { area_id?: number } = {}): Promise<{ blob: Blob; count: number }> => {
+    const response = await apiClient.get("/barcodes/location-labels/print-bulk", {
+      params,
+      responseType: "blob",
+    });
+    return {
+      blob: response.data,
+      count: Number(response.headers["x-labels-count"] ?? 0),
+    };
+  },
 };

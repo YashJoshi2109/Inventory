@@ -8,7 +8,7 @@ import { EmptyState } from "@/components/ui/EmptyState";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
 import { Modal } from "@/components/ui/Modal";
-import { MapPin, ChevronDown, QrCode, Download, X, LayoutGrid, List, Camera, Tag, ExternalLink } from "lucide-react";
+import { MapPin, ChevronDown, QrCode, Download, X, LayoutGrid, List, Camera, Printer } from "lucide-react";
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import toast from "react-hot-toast";
@@ -20,9 +20,33 @@ export function Locations() {
   const navigate = useNavigate();
   const [showAreaModal, setShowAreaModal] = useState(false);
   const [showLocationModal, setShowLocationModal] = useState(false);
+  const [showPrintModal, setShowPrintModal] = useState(false);
+  const [printAreaId, setPrintAreaId] = useState<string>("");
+  const [printing, setPrinting] = useState(false);
   const [newArea, setNewArea] = useState({ code: "", name: "", building: "", floor: "" });
   const [newLocation, setNewLocation] = useState({ area_id: "", code: "", name: "", shelf: "", bin_label: "" });
   const [viewMode, setViewMode] = useState<"list" | "map">("list");
+
+  const handleBulkPrint = async () => {
+    setPrinting(true);
+    try {
+      const { blob, count } = await itemsApi.printBulkLocationLabels(
+        printAreaId ? { area_id: Number(printAreaId) } : {}
+      );
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `location-labels-${printAreaId || "all"}.pdf`;
+      a.click();
+      URL.revokeObjectURL(url);
+      toast.success(`Downloaded ${count} location label${count !== 1 ? "s" : ""}`);
+      setShowPrintModal(false);
+    } catch {
+      toast.error("Failed to generate location labels");
+    } finally {
+      setPrinting(false);
+    }
+  };
 
   const { data: areas, isLoading } = useQuery<Area[]>({
     queryKey: ["areas"],
@@ -137,6 +161,7 @@ export function Locations() {
             </button>
           </div>
 
+          <Button variant="secondary" size="sm" leftIcon={<Printer size={13} />} onClick={() => setShowPrintModal(true)}>Print Labels</Button>
           <Button variant="secondary" size="sm" onClick={() => setShowAreaModal(true)}>+ Area</Button>
           <Button variant="primary" size="sm" onClick={() => setShowLocationModal(true)}>+ Rack</Button>
         </div>
@@ -151,6 +176,48 @@ export function Locations() {
           {areas.map((area) => <AreaCard key={area.id} area={area} />)}
         </div>
       )}
+
+      {/* ── Print Location Labels Modal ── */}
+      <Modal
+        open={showPrintModal}
+        onClose={() => { setShowPrintModal(false); setPrintAreaId(""); }}
+        title="Print Location Labels"
+        footer={(
+          <div className="flex justify-end gap-2">
+            <Button variant="secondary" onClick={() => { setShowPrintModal(false); setPrintAreaId(""); }}>Cancel</Button>
+            <Button
+              variant="primary"
+              leftIcon={<Printer size={13} />}
+              loading={printing}
+              onClick={handleBulkPrint}
+            >
+              Download PDF
+            </Button>
+          </div>
+        )}
+      >
+        <div className="p-5 space-y-4">
+          <p className="text-sm" style={{ color: "var(--text-muted)" }}>
+            Generates Avery 5160-compatible label sheet with Code 128 barcode, GS1 QR code, GLN-13, and RFID EPC (SGLN-96) for each location.
+          </p>
+          <label className="block text-sm" style={{ color: "var(--text-primary)" }}>
+            Scope
+            <select
+              value={printAreaId}
+              onChange={(e) => setPrintAreaId(e.target.value)}
+              className="mt-1 w-full rounded-lg border border-surface-border bg-surface-card px-3 py-2 focus:outline-none focus:ring-2 focus:ring-brand-500"
+              style={{ color: "var(--text-primary)" }}
+            >
+              <option value="">All locations</option>
+              {areas?.map((area) => (
+                <option key={area.id} value={area.id}>
+                  {area.code} — {area.name} ({area.location_count} racks)
+                </option>
+              ))}
+            </select>
+          </label>
+        </div>
+      </Modal>
 
       <Modal
         open={showAreaModal}
@@ -448,33 +515,6 @@ function AreaCard({ area }: { area: Area }) {
               </a>
             </div>
 
-            {/* ZPL / Zebra */}
-            <div className="flex gap-2">
-              <button
-                onClick={async () => {
-                  try {
-                    const blob = await itemsApi.downloadLocationZpl(locModal.locId);
-                    const url = URL.createObjectURL(blob);
-                    const a = document.createElement("a");
-                    a.href = url; a.download = `LOC-${locModal.code}-label.zpl`;
-                    a.click(); URL.revokeObjectURL(url);
-                    toast.success("ZPL downloaded — paste into labelary.com or send to Zebra printer");
-                  } catch { toast.error("Failed to generate ZPL"); }
-                }}
-                className="flex-1 flex items-center justify-center gap-1.5 py-2 rounded-xl text-xs font-medium transition-all hover:opacity-80"
-                style={{ background: "rgba(96,165,250,0.08)", border: "1px solid rgba(96,165,250,0.2)", color: "#60a5fa" }}>
-                <Tag size={12} /> ZPL (Zebra + RFID)
-              </button>
-              <a
-                href="https://labelary.com/viewer.html"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="flex items-center justify-center gap-1 px-3 py-2 rounded-xl text-xs font-medium transition-all hover:opacity-80"
-                style={{ border: "1px solid var(--border-card)", color: "var(--text-muted)" }}
-                title="Preview ZPL on labelary.com">
-                <ExternalLink size={11} /> Preview
-              </a>
-            </div>
           </div>
         </div>
       )}

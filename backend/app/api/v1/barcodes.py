@@ -14,6 +14,7 @@ from app.repositories.location_repo import LocationRepository
 from app.repositories.transaction_repo import StockLevelRepository
 from app.services.barcode_service import (
     generate_label_sheet_pdf,
+    generate_location_label_sheet_pdf,
     generate_item_label_zpl,
     generate_location_label_zpl,
     generate_bulk_items_zpl,
@@ -356,5 +357,73 @@ async def print_bulk_labels(
             "Content-Disposition": f'inline; filename="{filename}"',
             "X-Labels-Count": str(len(labels)),
             "X-Items-Matched": str(total),
+        },
+    )
+
+
+def _location_to_label(loc) -> dict:
+    """Build a SEAR Lab location label dict from a Location ORM instance."""
+    barcode_value = f"LOC:{loc.code.upper()}"
+    gln = gln13_for_location(loc.id)
+    epc = sgln96_epc_hex(loc.id)
+    gs1_url = gs1_location_url(loc.id, loc.code)
+    return {
+        "title": loc.name,
+        "code": loc.code,
+        "barcode_value": barcode_value,
+        "gln_display": gln,
+        "epc_hex": epc,
+        "qr_value": gs1_url,
+        "qr_blob": None,
+    }
+
+
+@router.post("/location-labels/print")
+async def print_location_label_sheet(
+    location_ids: list[int],
+    session: DbSession,
+    current_user: CurrentUser,
+) -> Response:
+    """Generate an Avery 5160 compatible PDF label sheet for the given location IDs."""
+    repo = LocationRepository(session)
+    labels = []
+    for loc_id in location_ids[:500]:
+        loc = await repo.get_by_id(loc_id)
+        if loc:
+            labels.append(_location_to_label(loc))
+    if not labels:
+        raise HTTPException(status_code=404, detail="No locations found")
+    pdf_bytes = generate_location_label_sheet_pdf(labels)
+    return Response(
+        content=pdf_bytes,
+        media_type="application/pdf",
+        headers={"Content-Disposition": "attachment; filename=location-labels.pdf"},
+    )
+
+
+@router.get(
+    "/location-labels/print-bulk",
+    dependencies=[Depends(require_roles(RoleName.ADMIN, RoleName.MANAGER, RoleName.OPERATOR))],
+)
+async def print_bulk_location_labels(
+    session: DbSession,
+    current_user: CurrentUser,
+    area_id: int | None = Query(default=None, description="Filter by area — omit for all locations"),
+) -> Response:
+    """Generate a bulk Avery 5160 PDF for every active location (optionally filtered by area)."""
+    repo = LocationRepository(session)
+    locations = await repo.get_all_with_area(area_id=area_id)
+    if not locations:
+        raise HTTPException(status_code=404, detail="No locations found for the given filters.")
+    labels = [_location_to_label(loc) for loc in locations]
+    pdf_bytes = generate_location_label_sheet_pdf(labels)
+    stamp = datetime.utcnow().strftime("%Y%m%d-%H%M%S")
+    filename = f"sear-location-labels-{stamp}.pdf"
+    return Response(
+        content=pdf_bytes,
+        media_type="application/pdf",
+        headers={
+            "Content-Disposition": f'inline; filename="{filename}"',
+            "X-Labels-Count": str(len(labels)),
         },
     )

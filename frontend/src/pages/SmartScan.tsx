@@ -2,11 +2,12 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Package, MapPin, CheckCircle2, XCircle, RotateCcw,
   ArrowUpRight, ArrowDownRight, ArrowLeftRight, Loader2,
-  Minus, Plus,
+  Minus, Plus, PackagePlus,
 } from "lucide-react";
 import toast from "react-hot-toast";
 import { BarcodeScanner } from "@/components/scanner/BarcodeScanner";
 import { scanApi, type SmartApplyResponse, type SmartAction, type CandidateSource } from "@/api/transactions";
+import { itemsApi, type ItemCreatePayload } from "@/api/items";
 import { useThemeStore } from "@/store/theme";
 import type { ScanResult } from "@/types";
 
@@ -19,7 +20,8 @@ type SmartPhase =
   | "previewing"
   | "committing"
   | "success"
-  | "error";
+  | "error"
+  | "add_item";   // unknown barcode → quick-create form
 
 interface SmartState {
   phase: SmartPhase;
@@ -30,9 +32,14 @@ interface SmartState {
   quantity: number;
   errorMsg?: string;
   actionOverride?: SmartAction | null;
-  autoAction?: SmartAction;           // first auto-detected action — persists across overrides
-  storedCandidates?: CandidateSource[]; // candidates from initial transfer preview
-  lastUnknown?: string;               // raw value of last unresolved scan
+  autoAction?: SmartAction;
+  storedCandidates?: CandidateSource[];
+  lastUnknown?: string;
+  // add_item phase
+  newItemSku?: string;
+  newItemName?: string;
+  newItemDesc?: string;
+  addingItem?: boolean;
 }
 
 const ACTION_COLOR: Record<SmartAction, string> = {
@@ -225,6 +232,38 @@ export default function SmartScan() {
     setState((s) => (s.lastUnknown ? { ...s, lastUnknown: undefined } : s));
   }, []);
 
+  const createAndContinue = useCallback(async () => {
+    if (!state.newItemName?.trim()) return;
+    setState((s) => ({ ...s, addingItem: true }));
+    try {
+      const payload: ItemCreatePayload = {
+        sku: state.newItemSku?.trim() || `SKU-${Date.now()}`,
+        name: state.newItemName.trim(),
+        description: state.newItemDesc?.trim() || undefined,
+      };
+      const created = await itemsApi.create(payload);
+      const itemResult: ScanResult = {
+        result_type: "item",
+        id: created.id,
+        name: created.name,
+        code: created.sku,
+        details: { unit: created.unit, total_quantity: 0 },
+      };
+      toast.success(`"${created.name}" added to system`);
+      if (state.location) {
+        fetchPreview(itemResult, state.location, state.quantity);
+        setState((s) => ({ ...s, phase: "previewing", item: itemResult, addingItem: false }));
+      } else {
+        setState((s) => ({ ...s, phase: "item_scanned", item: itemResult, lastUnknown: undefined, addingItem: false }));
+        scanning.current = true;
+      }
+    } catch (err) {
+      const msg = (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail;
+      toast.error(typeof msg === "string" ? msg : "Failed to create item");
+      setState((s) => ({ ...s, addingItem: false }));
+    }
+  }, [state.newItemName, state.newItemSku, state.newItemDesc, state.location, state.quantity, fetchPreview]);
+
   const onScan = useCallback(async (raw: string) => {
     if (!scanning.current) return;
 
@@ -232,13 +271,30 @@ export default function SmartScan() {
     try {
       resolved = await scanApi.lookup(raw);
     } catch {
-      setState((s) => ({ ...s, lastUnknown: raw }));
-      setTimeout(clearLastUnknown, 3000);
+      // Unknown barcode — offer to add it as a new item
+      scanning.current = false;
+      setState((s) => ({
+        ...s,
+        phase: "add_item",
+        lastUnknown: raw,
+        newItemSku: raw.slice(0, 64),
+        newItemName: "",
+        newItemDesc: "",
+        addingItem: false,
+      }));
       return;
     }
     if (resolved.result_type === "unknown") {
-      setState((s) => ({ ...s, lastUnknown: raw }));
-      setTimeout(clearLastUnknown, 3000);
+      scanning.current = false;
+      setState((s) => ({
+        ...s,
+        phase: "add_item",
+        lastUnknown: raw,
+        newItemSku: raw.slice(0, 64),
+        newItemName: "",
+        newItemDesc: "",
+        addingItem: false,
+      }));
       return;
     }
     setState((s) => ({ ...s, lastUnknown: undefined }));
@@ -313,6 +369,7 @@ export default function SmartScan() {
             state.phase === "idle" ? "Scan item barcode or rack QR" :
             state.phase === "item_scanned" ? "Now scan a rack QR code" :
             state.phase === "location_scanned" ? "Now scan an item barcode" :
+            state.phase === "add_item" ? "Fill in details below to add item" :
             undefined
           }
           className="w-full h-full"
@@ -346,16 +403,110 @@ export default function SmartScan() {
           borderTop: "1px solid var(--border-card)",
         }}
       >
-        {/* ── Unknown barcode banner — shows what was read ── */}
-        {state.lastUnknown && (
-          <div
-            className="flex items-start gap-2 rounded-xl px-3 py-2 text-xs"
-            style={{ background: "rgba(220,38,38,0.08)", border: "1px solid rgba(220,38,38,0.25)" }}
-          >
-            <XCircle size={13} style={{ color: "#DC2626", flexShrink: 0, marginTop: 1 }} />
-            <div>
-              <span style={{ color: "#DC2626", fontWeight: 600 }}>Not found in system</span>
-              <p className="font-mono mt-0.5 break-all" style={{ color: "var(--text-muted)" }}>{state.lastUnknown}</p>
+        {/* ── Add Item Panel (unknown barcode) ── */}
+        {state.phase === "add_item" && (
+          <div className="space-y-3">
+            <div
+              className="flex items-start gap-2 rounded-xl px-3 py-2.5 text-xs"
+              style={{ background: "rgba(245,158,11,0.08)", border: "1px solid rgba(245,158,11,0.25)" }}
+            >
+              <PackagePlus size={13} style={{ color: "#f59e0b", flexShrink: 0, marginTop: 1 }} />
+              <div className="flex-1 min-w-0">
+                <span style={{ color: "#f59e0b", fontWeight: 600 }}>Barcode not in system</span>
+                <p className="font-mono mt-0.5 break-all text-[10px]" style={{ color: "var(--text-muted)" }}>{state.lastUnknown}</p>
+              </div>
+            </div>
+
+            <div
+              className="rounded-xl p-4 space-y-3"
+              style={{
+                background: isDark ? "rgba(255,255,255,0.04)" : "rgba(0,0,0,0.03)",
+                border: "1px solid var(--border-card)",
+                backdropFilter: "blur(12px)",
+              }}
+            >
+              <p className="text-xs font-semibold uppercase tracking-widest" style={{ color: "var(--text-muted)" }}>
+                Add to system
+              </p>
+
+              <div className="space-y-2">
+                <div>
+                  <label className="text-[11px] font-medium" style={{ color: "var(--text-muted)" }}>SKU / Barcode value</label>
+                  <input
+                    value={state.newItemSku ?? ""}
+                    onChange={(e) => setState((s) => ({ ...s, newItemSku: e.target.value }))}
+                    className="mt-1 w-full rounded-lg border px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-brand-500"
+                    style={{
+                      background: isDark ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.04)",
+                      border: "1px solid var(--border-card)",
+                      color: "var(--text-primary)",
+                    }}
+                    placeholder="Auto-filled from scan"
+                  />
+                </div>
+                <div>
+                  <label className="text-[11px] font-medium" style={{ color: "var(--text-muted)" }}>Item Name <span style={{ color: "#DC2626" }}>*</span></label>
+                  <input
+                    value={state.newItemName ?? ""}
+                    onChange={(e) => setState((s) => ({ ...s, newItemName: e.target.value }))}
+                    className="mt-1 w-full rounded-lg border px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-brand-500"
+                    style={{
+                      background: isDark ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.04)",
+                      border: "1px solid var(--border-card)",
+                      color: "var(--text-primary)",
+                    }}
+                    placeholder="e.g. Beaker 500mL"
+                    autoFocus
+                  />
+                </div>
+                <div>
+                  <label className="text-[11px] font-medium" style={{ color: "var(--text-muted)" }}>Description (optional)</label>
+                  <input
+                    value={state.newItemDesc ?? ""}
+                    onChange={(e) => setState((s) => ({ ...s, newItemDesc: e.target.value }))}
+                    className="mt-1 w-full rounded-lg border px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-brand-500"
+                    style={{
+                      background: isDark ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.04)",
+                      border: "1px solid var(--border-card)",
+                      color: "var(--text-primary)",
+                    }}
+                    placeholder="Short description…"
+                  />
+                </div>
+              </div>
+
+              {state.location && (
+                <div
+                  className="flex items-center gap-2 rounded-lg px-3 py-2 text-xs"
+                  style={{ background: "rgba(5,150,105,0.08)", border: "1px solid rgba(5,150,105,0.2)" }}
+                >
+                  <MapPin size={11} style={{ color: "#059669" }} />
+                  <span style={{ color: "var(--text-muted)" }}>
+                    Will stock-in at <strong style={{ color: "#059669" }}>{state.location.name}</strong>
+                  </span>
+                </div>
+              )}
+
+              <div className="grid grid-cols-[1fr_auto] gap-2 pt-1">
+                <button
+                  onClick={createAndContinue}
+                  disabled={!state.newItemName?.trim() || state.addingItem}
+                  className="flex items-center justify-center gap-2 py-2.5 rounded-xl text-sm font-bold transition-all disabled:opacity-50"
+                  style={{ background: "#059669", color: "#fff" }}
+                >
+                  {state.addingItem
+                    ? <><Loader2 size={14} className="animate-spin" /> Adding…</>
+                    : <><PackagePlus size={14} /> {state.location ? "Add & Stock In" : "Add Item"}</>
+                  }
+                </button>
+                <button
+                  onClick={reset}
+                  className="px-4 py-2.5 rounded-xl text-sm"
+                  style={{ border: "1px solid var(--border-card)", color: "var(--text-muted)" }}
+                >
+                  Cancel
+                </button>
+              </div>
             </div>
           </div>
         )}

@@ -1,8 +1,8 @@
 import { useQuery } from "@tanstack/react-query";
-import { type ComponentType, useEffect, useRef, useState } from "react";
+import { type ComponentType, useEffect, useMemo, useRef, useState } from "react";
 import { motion, animate } from "framer-motion";
 import { useNavigate } from "react-router-dom";
-import { dashboardApi } from "@/api/transactions";
+import { dashboardApi, transactionsApi } from "@/api/transactions";
 import { SkeletonKpiCard, SkeletonCard } from "@/components/ui/Skeleton";
 import { useAuthStore } from "@/store/auth";
 import {
@@ -18,6 +18,7 @@ import {
   DollarSign,
   TrendingUp,
   Layers,
+  Loader2,
 } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
 import {
@@ -322,16 +323,26 @@ function ChartTooltip({
 // ── Activity Flow Chart ───────────────────────────────────────────────────────
 type TimeRange = "7d" | "30d" | "90d";
 
-function ActivityFlowChart({ activity }: { activity: InventoryEvent[] }) {
+function ActivityFlowChart() {
   const [range, setRange] = useState<TimeRange>("7d");
-
-  // Bucket events by day for the selected range
   const days = range === "7d" ? 7 : range === "30d" ? 30 : 90;
-  const chartData = (() => {
-    const now = Date.now();
-    const msPerDay = 86400000;
-    const buckets: { date: string; in: number; out: number }[] = [];
 
+  const startDate = useMemo(() => {
+    const d = new Date(Date.now() - days * 86_400_000);
+    return d.toISOString().split("T")[0];
+  }, [days]);
+
+  const { data: txPage, isLoading: loadingTx } = useQuery({
+    queryKey: ["activity-chart", range],
+    queryFn: () => transactionsApi.list({ start_date: startDate, page_size: 1000 }),
+    staleTime: 60_000,
+  });
+
+  const chartData = useMemo(() => {
+    const msPerDay = 86_400_000;
+    const now = Date.now();
+    const cutoff = now - days * msPerDay;
+    const buckets: { date: string; in: number; out: number }[] = [];
     for (let i = days - 1; i >= 0; i--) {
       const d = new Date(now - i * msPerDay);
       buckets.push({
@@ -340,25 +351,24 @@ function ActivityFlowChart({ activity }: { activity: InventoryEvent[] }) {
         out: 0,
       });
     }
-
-    const cutoff = now - days * msPerDay;
-    for (const ev of activity) {
+    for (const ev of txPage?.items ?? []) {
       const t = new Date(ev.occurred_at).getTime();
       if (t < cutoff) continue;
-      const dayIdx = Math.floor((t - cutoff) / msPerDay);
-      if (dayIdx >= 0 && dayIdx < days) {
-        const bucket = buckets[dayIdx];
-        if (!bucket) continue;
-        if (ev.event_kind === "STOCK_IN") bucket.in += ev.quantity;
-        if (ev.event_kind === "STOCK_OUT") bucket.out += ev.quantity;
-      }
+      const idx = Math.floor((t - cutoff) / msPerDay);
+      const bucket = buckets[Math.min(idx, days - 1)];
+      if (!bucket) continue;
+      if (ev.event_kind === "STOCK_IN")  bucket.in  += ev.quantity;
+      if (ev.event_kind === "STOCK_OUT") bucket.out += ev.quantity;
     }
     return buckets;
-  })();
+  }, [txPage, days]);
+
+  const isEmpty = chartData.every((d) => d.in === 0 && d.out === 0);
+  const yMax = Math.max(...chartData.flatMap((d) => [d.in, d.out]), 5);
 
   return (
     <div
-      className="rounded-2xl overflow-hidden flex flex-col h-full"
+      className="rounded-2xl overflow-hidden"
       style={{
         background: "var(--bg-card)",
         border: "1px solid var(--border-card)",
@@ -368,7 +378,7 @@ function ActivityFlowChart({ activity }: { activity: InventoryEvent[] }) {
     >
       {/* header */}
       <div
-        className="px-5 py-4 flex items-center justify-between gap-3 shrink-0"
+        className="px-5 py-4 flex items-center justify-between gap-3"
         style={{ borderBottom: "1px solid var(--border-subtle)" }}
       >
         <div>
@@ -397,12 +407,7 @@ function ActivityFlowChart({ activity }: { activity: InventoryEvent[] }) {
               className="px-2.5 py-1 rounded-md text-xs font-semibold transition-all"
               style={
                 range === r
-                  ? {
-                      background: "var(--bg-card)",
-                      color: "var(--accent)",
-                      boxShadow: "var(--shadow-card)",
-                      fontFamily: "'Outfit', sans-serif",
-                    }
+                  ? { background: "var(--bg-card)", color: "var(--accent)", boxShadow: "var(--shadow-card)", fontFamily: "'Outfit', sans-serif" }
                   : { color: "var(--text-muted)", fontFamily: "'Outfit', sans-serif" }
               }
             >
@@ -412,8 +417,8 @@ function ActivityFlowChart({ activity }: { activity: InventoryEvent[] }) {
         </div>
       </div>
 
-      {/* chart */}
-      <div className="px-4 pt-4 pb-3 flex-1 flex flex-col">
+      {/* chart body */}
+      <div className="px-4 pt-4 pb-3">
         {/* legend */}
         <div className="flex gap-4 mb-3">
           {[
@@ -422,88 +427,62 @@ function ActivityFlowChart({ activity }: { activity: InventoryEvent[] }) {
           ].map(({ color, label }) => (
             <div key={label} className="flex items-center gap-1.5">
               <span className="w-2 h-2 rounded-full" style={{ background: color }} />
-              <span
-                className="text-[11px] font-medium"
-                style={{ color: "var(--text-muted)", fontFamily: "'Outfit', sans-serif" }}
-              >
+              <span className="text-[11px] font-medium" style={{ color: "var(--text-muted)", fontFamily: "'Outfit', sans-serif" }}>
                 {label}
               </span>
             </div>
           ))}
         </div>
 
-        <div className="flex-1" style={{ minHeight: 180 }}>
-        {chartData.every((d) => d.in === 0 && d.out === 0) ? (
-          <div className="h-full flex flex-col items-center justify-center gap-2" style={{ minHeight: 180 }}>
-            <Activity size={28} style={{ color: "var(--text-muted)", opacity: 0.4 }} />
-            <p className="text-xs" style={{ color: "var(--text-muted)", fontFamily: "'Outfit', sans-serif" }}>
-              No stock movements in this period
-            </p>
-          </div>
-        ) : (
-        <ResponsiveContainer width="100%" height="100%">
-          <AreaChart data={chartData} margin={{ top: 12, right: 20, left: -8, bottom: 0 }}>
-            <defs>
-              <linearGradient id="gradIn" x1="0" y1="0" x2="0" y2="1">
-                <stop offset="0%" stopColor="var(--accent)" stopOpacity={0.35} />
-                <stop offset="100%" stopColor="var(--accent)" stopOpacity={0.02} />
-              </linearGradient>
-              <linearGradient id="gradOut" x1="0" y1="0" x2="0" y2="1">
-                <stop offset="0%" stopColor="var(--accent-2)" stopOpacity={0.35} />
-                <stop offset="100%" stopColor="var(--accent-2)" stopOpacity={0.02} />
-              </linearGradient>
-            </defs>
-            <CartesianGrid
-              strokeDasharray="3 3"
-              stroke="var(--border-subtle)"
-              vertical={false}
-            />
-            <XAxis
-              dataKey="date"
-              axisLine={false}
-              tickLine={false}
-              tick={{
-                fill: "var(--text-muted)",
-                fontSize: 10,
-                fontFamily: "'Outfit', sans-serif",
-              }}
-              minTickGap={40}
-              interval="preserveStartEnd"
-            />
-            <YAxis
-              axisLine={false}
-              tickLine={false}
-              tick={{
-                fill: "var(--text-muted)",
-                fontSize: 10,
-                fontFamily: "'Outfit', sans-serif",
-              }}
-              width={36}
-              allowDecimals={false}
-              domain={[0, (max: number) => Math.max(max, 5)]}
-            />
-            <Tooltip content={<ChartTooltip />} />
-            <Area
-              type="monotone"
-              dataKey="in"
-              name="Stock In"
-              stroke="var(--accent)"
-              strokeWidth={2.5}
-              fill="url(#gradIn)"
-              dot={false}
-            />
-            <Area
-              type="monotone"
-              dataKey="out"
-              name="Stock Out"
-              stroke="var(--accent-2)"
-              strokeWidth={2.5}
-              fill="url(#gradOut)"
-              dot={false}
-            />
-          </AreaChart>
-        </ResponsiveContainer>
-        )}
+        {/* fixed-height chart area — avoids ResponsiveContainer height-0 crash */}
+        <div style={{ height: 220 }}>
+          {loadingTx ? (
+            <div className="h-full flex items-center justify-center">
+              <Loader2 size={22} className="animate-spin" style={{ color: "var(--text-muted)", opacity: 0.5 }} />
+            </div>
+          ) : isEmpty ? (
+            <div className="h-full flex flex-col items-center justify-center gap-2">
+              <Activity size={28} style={{ color: "var(--text-muted)", opacity: 0.4 }} />
+              <p className="text-xs" style={{ color: "var(--text-muted)", fontFamily: "'Outfit', sans-serif" }}>
+                No stock movements in this period
+              </p>
+            </div>
+          ) : (
+            <ResponsiveContainer width="100%" height={220}>
+              <AreaChart data={chartData} margin={{ top: 12, right: 20, left: -8, bottom: 0 }}>
+                <defs>
+                  <linearGradient id="actGradIn" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="0%" stopColor="var(--accent)" stopOpacity={0.35} />
+                    <stop offset="100%" stopColor="var(--accent)" stopOpacity={0.02} />
+                  </linearGradient>
+                  <linearGradient id="actGradOut" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="0%" stopColor="var(--accent-2)" stopOpacity={0.35} />
+                    <stop offset="100%" stopColor="var(--accent-2)" stopOpacity={0.02} />
+                  </linearGradient>
+                </defs>
+                <CartesianGrid strokeDasharray="3 3" stroke="var(--border-subtle)" vertical={false} />
+                <XAxis
+                  dataKey="date"
+                  axisLine={false}
+                  tickLine={false}
+                  tick={{ fill: "var(--text-muted)", fontSize: 10, fontFamily: "'Outfit', sans-serif" }}
+                  minTickGap={40}
+                  interval="preserveStartEnd"
+                />
+                <YAxis
+                  axisLine={false}
+                  tickLine={false}
+                  tick={{ fill: "var(--text-muted)", fontSize: 10, fontFamily: "'Outfit', sans-serif" }}
+                  width={36}
+                  allowDecimals={false}
+                  domain={[0, yMax]}
+                />
+                <Tooltip content={<ChartTooltip />} />
+                <Area type="monotone" dataKey="in" name="Stock In" stroke="var(--accent)" strokeWidth={2.5} fill="url(#actGradIn)" dot={false} isAnimationActive={false} />
+                <Area type="monotone" dataKey="out" name="Stock Out" stroke="var(--accent-2)" strokeWidth={2.5} fill="url(#actGradOut)" dot={false} isAnimationActive={false} />
+              </AreaChart>
+            </ResponsiveContainer>
+          )}
         </div>
       </div>
     </div>
@@ -1155,7 +1134,7 @@ export function Dashboard() {
           whileInView="visible"
           viewport={{ once: true, margin: "-50px" }}
         >
-          <ActivityFlowChart activity={stats.recent_activity} />
+          <ActivityFlowChart />
         </motion.div>
 
         {/* Category donut — 1 col */}

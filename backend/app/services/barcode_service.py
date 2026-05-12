@@ -556,6 +556,100 @@ def _draw_label(c: rl_canvas.Canvas, lbl: dict, x: float, y: float) -> None:
     c.drawCentredString(text_x + bc_w / 2, y + pad, gtin_display)
 
 
+def _draw_location_label(c: rl_canvas.Canvas, lbl: dict, x: float, y: float) -> None:
+    """
+    Draw one SEAR Lab location label (4" × 2") at bottom-left (x, y).
+
+    lbl keys:
+        title        str   location name
+        code         str   location code (e.g. A2)
+        barcode_value str  Code128 value (e.g. LOC:A2)
+        gln_display  str   GLN-13 string
+        epc_hex      str   SGLN-96 EPC hex (optional)
+        qr_value     str   GS1 location URL (fallback)
+        qr_blob      bytes pre-rendered QR PNG (optional)
+    """
+    W = _LABEL_W
+    H = _LABEL_H
+    pad = 2 * mm
+
+    c.setStrokeColorRGB(0.75, 0.75, 0.75)
+    c.setLineWidth(0.4)
+    c.rect(x, y, W, H)
+
+    # QR code (right zone)
+    qr_size = 0.85 * inch
+    qr_x = x + W - qr_size - pad
+    qr_y = y + (H - qr_size) / 2
+    qr_bytes = lbl.get("qr_blob") or render_qr_png(lbl.get("qr_value", lbl["barcode_value"]))
+    c.drawImage(ImageReader(io.BytesIO(qr_bytes)), qr_x, qr_y, width=qr_size, height=qr_size, preserveAspectRatio=True)
+
+    text_x = x + pad
+
+    # Location name (bold)
+    c.setFont("Helvetica-Bold", 8.5)
+    c.setFillColorRGB(0, 0, 0)
+    c.drawString(text_x, y + H - pad - 9, lbl.get("title", "")[:32])
+
+    # Code (monospace)
+    c.setFont("Courier-Bold", 8)
+    c.setFillColorRGB(0.1, 0.1, 0.1)
+    c.drawString(text_x, y + H - pad - 9 - 9, lbl.get("barcode_value", ""))
+
+    # GLN-13
+    c.setFont("Helvetica", 6.5)
+    c.setFillColorRGB(0.25, 0.25, 0.25)
+    c.drawString(text_x, y + H - pad - 9 - 9 - 8, f"GLN-13: {lbl.get('gln_display', '')}")
+
+    # EPC hex
+    epc = lbl.get("epc_hex", "")
+    if epc:
+        c.setFont("Courier", 5.5)
+        c.setFillColorRGB(0.35, 0.35, 0.35)
+        c.drawString(text_x, y + H - pad - 9 - 9 - 16, f"EPC: {epc}")
+
+    # Code128 barcode (LOC:CODE)
+    bc_h = 0.52 * inch
+    bc_w = W - qr_size - 3 * pad
+    bc_y = y + pad + 5 * mm
+    bc_bytes = render_barcode_png(lbl["barcode_value"])
+    c.drawImage(ImageReader(io.BytesIO(bc_bytes)), text_x, bc_y, width=bc_w, height=bc_h,
+                preserveAspectRatio=False, mask="auto")
+
+    c.setFont("Courier", 6)
+    c.setFillColorRGB(0.1, 0.1, 0.1)
+    c.drawCentredString(text_x + bc_w / 2, y + pad, lbl["barcode_value"])
+
+
+def generate_location_label_sheet_pdf(labels: list[dict]) -> bytes:
+    """
+    Generates a 2-column label sheet for locations (same Avery 5160 layout as items).
+
+    Each label dict:
+        title        str   location name
+        code         str   location code
+        barcode_value str  Code128 value (LOC:CODE)
+        gln_display  str   GLN-13
+        epc_hex      str   SGLN-96 EPC hex (optional)
+        qr_value     str   GS1 location URL
+        qr_blob      bytes pre-rendered QR PNG (optional)
+    """
+    buf = io.BytesIO()
+    c = rl_canvas.Canvas(buf, pagesize=letter)
+    labels_per_page = _COLS * _ROWS_PER_PAGE
+    for idx, lbl in enumerate(labels):
+        page_idx = idx % labels_per_page
+        col = page_idx % _COLS
+        row = page_idx // _COLS
+        x = _H_MARGIN + col * _LABEL_W
+        y = _PAGE_H - _V_MARGIN - (row + 1) * _LABEL_H
+        _draw_location_label(c, lbl, x, y)
+        if (idx + 1) % labels_per_page == 0 and (idx + 1) < len(labels):
+            c.showPage()
+    c.save()
+    return buf.getvalue()
+
+
 def generate_label_sheet_pdf(labels: list[dict]) -> bytes:
     """
     Generates a PDF label sheet with 2×5 = 10 labels per page.

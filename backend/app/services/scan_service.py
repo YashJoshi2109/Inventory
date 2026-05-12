@@ -88,7 +88,7 @@ class ScanService:
         # ── 1b. SGLN-96 EPC hex → location_id (RFID reader output) ─────────────
         loc_id = decode_sgln96_epc(clean)
         if loc_id is not None:
-            location = await self._loc_repo.get_by_id(loc_id)
+            location = await self._loc_repo.get_with_area(loc_id)
             if location:
                 return ScanResult(
                     result_type=ScanResultType.LOCATION,
@@ -107,7 +107,7 @@ class ScanService:
                 if gln13[:len(SEAR_LAB_GCP)] == SEAR_LAB_GCP:
                     try:
                         loc_id_from_gln = int(gln13[len(SEAR_LAB_GCP):len(SEAR_LAB_GCP) + 2])
-                        location = await self._loc_repo.get_by_id(loc_id_from_gln)
+                        location = await self._loc_repo.get_with_area(loc_id_from_gln)
                         if location:
                             return ScanResult(
                                 result_type=ScanResultType.LOCATION,
@@ -159,7 +159,7 @@ class ScanService:
         # ── 3b. SGTIN-96 EPC hex (proper GS1 RFID EPC, 24 hex chars) ────────────
         decoded_id = decode_sgtin96_epc(clean)
         if decoded_id is not None:
-            item = await self._item_repo.get_by_id(decoded_id)
+            item = await self._item_repo.get_with_details(decoded_id)
             if item:
                 return await self._item_result(item)
 
@@ -173,7 +173,7 @@ class ScanService:
                 try:
                     derived_id = int(_candidate[len(SEAR_LAB_GCP):len(SEAR_LAB_GCP) + 3])
                     if derived_id > 0:
-                        item = await self._item_repo.get_by_id(derived_id)
+                        item = await self._item_repo.get_with_details(derived_id)
                         if item:
                             return await self._item_result(item)
                 except (ValueError, IndexError):
