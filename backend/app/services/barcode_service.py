@@ -268,6 +268,141 @@ def generate_location_barcode_value(location_code: str) -> str:
     return f"LOC:{location_code.upper()}"
 
 
+# ── Zebra ZPL label generation (4" × 2" @ 203 DPI = 812 × 420 dots) ─────────
+#
+# RFID: EPC memory bank write uses ^RFW,H with:
+#   PC word  = 3000h  (96-bit EPC, 6 sixteen-bit words)
+#   EPC data = 24 uppercase hex chars from sgtin96_epc_hex / sgln96_epc_hex
+#
+# Code128 barcode encodes GTIN-14; ZPL ^BC auto-selects Code128C for digits.
+# QR code  encodes GS1 Digital Link URL; magnification 4 = ~140 × 140 dots.
+#
+# Paste generated ZPL into https://labelary.com/viewer.html to preview.
+# Send to printer via Zebra Setup Utilities → Open Communication → Send.
+
+_ZPL_DPI    = 203
+_ZPL_WIDTH  = 812   # 4.00 inches × 203
+_ZPL_HEIGHT = 420   # 2.07 inches × 203
+
+
+def generate_item_label_zpl(
+    item_id: int,
+    name: str,
+    sku: str,
+) -> str:
+    """
+    Return ZPL II code for one 4" × 2" Zebra label with:
+      • RFID EPC write (SGTIN-96, EPC bank)
+      • Code128 barcode (GTIN-14)
+      • GS1 QR code (GS1 Digital Link URL)
+      • Text block: name, SKU, GTIN-12, serial, EPC hex
+    """
+    gtin14  = gtin14_for_item(item_id)
+    gtin12  = gtin12_for_item(item_id)
+    serial  = serial_for_item(item_id)
+    epc_hex = sgtin96_epc_hex(item_id)
+    # Simplified GS1 URL (no desc= param) keeps ZPL field short
+    gs1_url = f"{GS1_DL_BASE}/01/{gtin14}/21/{serial}"
+
+    # Truncate name to fit left text block (~30 chars at 28-dot font, 615-dot wide)
+    name_short = name[:30] if len(name) > 30 else name
+    # EPC split into two 12-char halves for readability
+    epc_a, epc_b = epc_hex[:12], epc_hex[12:]
+
+    zpl = f"""\
+^XA
+^PW{_ZPL_WIDTH}
+^LL{_ZPL_HEIGHT}
+^CI28
+^MMT
+
+^RFW,H^FD3000{epc_hex}^FS
+
+^FO20,10^A0N,28,28^FD{name_short}^FS
+^FO20,44^A0N,19,19^FD{sku}^FS
+^FO20,69^A0N,18,18^FDGTIN: {gtin12}^FS
+^FO20,93^A0N,18,18^FDSerial: {serial}^FS
+^FO20,117^A0N,14,14^FDEPC: {epc_a}^FS
+^FO20,133^A0N,14,14^FD      {epc_b}^FS
+
+^FO638,8
+^BQN,2,4
+^FDQA,{gs1_url}^FS
+
+^FO15,175
+^BY2,3,70
+^BCN,70,N,N
+^FD{gtin14}^FS
+
+^FO15,280^A0N,15,15^FDSEAR Lab \B7 University of Texas at Arlington^FS
+^FO720,280^A0N,15,15^FD{serial}^FS
+
+^XZ"""
+    return zpl
+
+
+def generate_location_label_zpl(
+    location_id: int,
+    code: str,
+    name: str,
+) -> str:
+    """
+    Return ZPL II code for one 4" × 2" Zebra location label with:
+      • RFID EPC write (SGLN-96, EPC bank)
+      • Code128 barcode (LOC:CODE)
+      • GS1 QR code (GS1 location URL /414/{gln13})
+      • Text block: name, code, GLN-13, EPC hex
+    """
+    gln13   = gln13_for_location(location_id)
+    epc_hex = sgln96_epc_hex(location_id)
+    code128_val = f"LOC:{code.upper()}"
+    gs1_url = gs1_location_url(location_id, code)
+    name_short = name[:30] if len(name) > 30 else name
+    epc_a, epc_b = epc_hex[:12], epc_hex[12:]
+
+    zpl = f"""\
+^XA
+^PW{_ZPL_WIDTH}
+^LL{_ZPL_HEIGHT}
+^CI28
+^MMT
+
+^RFW,H^FD3000{epc_hex}^FS
+
+^FO20,10^A0N,28,28^FD{name_short}^FS
+^FO20,44^A0N,20,20^FD{code.upper()}^FS
+^FO20,70^A0N,18,18^FDGLN-13: {gln13}^FS
+^FO20,94^A0N,18,18^FDEPC: {epc_a}^FS
+^FO20,114^A0N,14,14^FD      {epc_b}^FS
+
+^FO638,8
+^BQN,2,4
+^FDQA,{gs1_url}^FS
+
+^FO15,155
+^BY2,3,80
+^BCN,80,N,N
+^FD{code128_val}^FS
+
+^FO15,272^A0N,15,15^FDSEAR Lab \B7 University of Texas at Arlington^FS
+^FO680,272^A0N,15,15^FD{code.upper()}^FS
+
+^XZ"""
+    return zpl
+
+
+def generate_bulk_items_zpl(items: list[dict]) -> str:
+    """
+    Return multi-label ZPL for a list of item dicts with keys:
+      id, name, sku
+    Labels are separated by ^XZ...^XA (continuous feed).
+    """
+    return "\n".join(
+        generate_item_label_zpl(lbl["id"], lbl["name"], lbl["sku"])
+        for lbl in items
+    )
+
+
 # ── Code 128 barcode rendering ────────────────────────────────────────────────
 
 def _safe_code128(value: str) -> str:

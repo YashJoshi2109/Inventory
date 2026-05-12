@@ -2,7 +2,7 @@ import { useMemo } from "react";
 import { useParams, Link } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import toast from "react-hot-toast";
-import { ArrowLeft, QrCode, Printer, Barcode } from "lucide-react";
+import { ArrowLeft, QrCode, Printer, Barcode, Tag, ExternalLink } from "lucide-react";
 import { itemsApi } from "@/api/items";
 import { Card } from "@/components/ui/Card";
 import { Badge } from "@/components/ui/Badge";
@@ -111,6 +111,16 @@ export function ItemDetail() {
     }
   };
 
+  const downloadZpl = async () => {
+    try {
+      const blob = await itemsApi.downloadItemZpl(item.id);
+      await openOrDownloadBlob(blob, `${item.sku}-label.zpl`);
+      toast.success("ZPL downloaded — paste into labelary.com to preview or Zebra printer to print");
+    } catch {
+      toast.error("Failed to generate ZPL");
+    }
+  };
+
   return (
     <div className="p-4 lg:p-6 pb-24 lg:pb-6 space-y-4 animate-fade-in">
       <Link to="/inventory" className="inline-flex items-center gap-2 text-sm text-slate-400 hover:text-white">
@@ -195,6 +205,29 @@ export function ItemDetail() {
             ))}
           </div>
         )}
+
+        {/* ZPL / Zebra download */}
+        <div className="mt-3 flex gap-2">
+          <Button
+            variant="secondary"
+            leftIcon={<Tag size={13} />}
+            onClick={downloadZpl}
+            className="flex-1"
+          >
+            Download ZPL (Zebra)
+          </Button>
+          <a
+            href="https://labelary.com/viewer.html"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-medium border transition-all hover:opacity-80 shrink-0"
+            style={{ border: "1px solid var(--border-card)", color: "var(--text-muted)" }}
+            title="Preview ZPL on labelary.com"
+          >
+            <ExternalLink size={12} />
+            Preview
+          </a>
+        </div>
       </Card>
 
       <Card className="p-5">

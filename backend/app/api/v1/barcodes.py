@@ -14,6 +14,9 @@ from app.repositories.location_repo import LocationRepository
 from app.repositories.transaction_repo import StockLevelRepository
 from app.services.barcode_service import (
     generate_label_sheet_pdf,
+    generate_item_label_zpl,
+    generate_location_label_zpl,
+    generate_bulk_items_zpl,
     sgtin96_epc_hex,
     sgln96_epc_hex,
     gln13_for_location,
@@ -92,6 +95,59 @@ async def item_qr_send_email(item_id: int, session: DbSession, current_user: Cur
     if ok:
         return MessageResponse(message=email_msg, success=True)
     return MessageResponse(message=email_msg, success=False)
+
+
+@router.get("/item/{item_id}/zpl")
+async def item_label_zpl(item_id: int, session: DbSession, current_user: CurrentUser) -> Response:
+    """ZPL II label for one item — 4\" × 2\" @ 203 DPI with RFID EPC (SGTIN-96) embedding."""
+    repo = ItemRepository(session)
+    item = await repo.get_with_details(item_id)
+    if not item:
+        raise HTTPException(status_code=404, detail="Item not found")
+    zpl = generate_item_label_zpl(item_id, item.name, item.sku)
+    return Response(
+        content=zpl,
+        media_type="text/plain; charset=utf-8",
+        headers={"Content-Disposition": f'attachment; filename="{item.sku}-label.zpl"'},
+    )
+
+
+@router.get("/location/{location_id}/zpl")
+async def location_label_zpl(location_id: int, session: DbSession, current_user: CurrentUser) -> Response:
+    """ZPL II label for one location — 4\" × 2\" @ 203 DPI with RFID EPC (SGLN-96) embedding."""
+    repo = LocationRepository(session)
+    loc = await repo.get_by_id(location_id)
+    if not loc:
+        raise HTTPException(status_code=404, detail="Location not found")
+    zpl = generate_location_label_zpl(location_id, loc.code, loc.name)
+    return Response(
+        content=zpl,
+        media_type="text/plain; charset=utf-8",
+        headers={"Content-Disposition": f'attachment; filename="LOC-{loc.code}-label.zpl"'},
+    )
+
+
+@router.post("/labels/zpl")
+async def bulk_items_zpl(
+    item_ids: list[int],
+    session: DbSession,
+    current_user: CurrentUser,
+) -> Response:
+    """ZPL II multi-label file for a batch of items — paste into Zebra Setup Utilities or labelary.com."""
+    repo = ItemRepository(session)
+    items = []
+    for item_id in item_ids[:500]:
+        item = await repo.get_with_details(item_id)
+        if item:
+            items.append({"id": item.id, "name": item.name, "sku": item.sku})
+    if not items:
+        raise HTTPException(status_code=404, detail="No items found")
+    zpl = generate_bulk_items_zpl(items)
+    return Response(
+        content=zpl,
+        media_type="text/plain; charset=utf-8",
+        headers={"Content-Disposition": 'attachment; filename="sear-labels-bulk.zpl"'},
+    )
 
 
 @router.get("/item/{item_id}/meta", response_model=ItemBarcodeMeta)

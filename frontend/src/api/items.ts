@@ -121,6 +121,16 @@ export const itemsApi = {
     return data;
   },
 
+  downloadItemZpl: async (id: number): Promise<Blob> => {
+    const { data } = await apiClient.get(`/barcodes/item/${id}/zpl`, { responseType: "blob" });
+    return data;
+  },
+
+  downloadLocationZpl: async (id: number): Promise<Blob> => {
+    const { data } = await apiClient.get(`/barcodes/location/${id}/zpl`, { responseType: "blob" });
+    return data;
+  },
+
   sendQrToEmail: async (itemId: number): Promise<{ message: string; success: boolean }> => {
     const { data } = await apiClient.post(`/barcodes/item/${itemId}/qr/send-email`);
     return data;

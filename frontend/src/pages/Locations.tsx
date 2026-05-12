@@ -8,7 +8,7 @@ import { EmptyState } from "@/components/ui/EmptyState";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
 import { Modal } from "@/components/ui/Modal";
-import { MapPin, ChevronDown, QrCode, Download, X, LayoutGrid, List, Camera } from "lucide-react";
+import { MapPin, ChevronDown, QrCode, Download, X, LayoutGrid, List, Camera, Tag, ExternalLink } from "lucide-react";
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import toast from "react-hot-toast";
@@ -301,7 +301,7 @@ function AreaCard({ area }: { area: Area }) {
       const [barcodeBlob, gs1Blob, meta] = await Promise.all([
         itemsApi.downloadLocationQrPng(loc.id),     // Code128 barcode (LOC:CODE)
         itemsApi.downloadLocationGs1QrPng(loc.id),  // GS1 Digital Link QR
-        itemsApi.getLocationBarcodeMeta(loc.id),
+        itemsApi.getLocationBarcodeMeta(loc.id),    // GLN-13, EPC, etc.
       ]);
       setLocModal({
         barcodeUrl: URL.createObjectURL(barcodeBlob),
@@ -445,6 +445,34 @@ function AreaCard({ area }: { area: Area }) {
                 className="flex items-center justify-center gap-1.5 py-2 rounded-xl text-xs font-medium"
                 style={{ background: "rgba(34,211,238,0.08)", border: "1px solid rgba(34,211,238,0.2)", color: "#22d3ee" }}>
                 <Download size={12} /> QR Code
+              </a>
+            </div>
+
+            {/* ZPL / Zebra */}
+            <div className="flex gap-2">
+              <button
+                onClick={async () => {
+                  try {
+                    const blob = await itemsApi.downloadLocationZpl(locModal.locId);
+                    const url = URL.createObjectURL(blob);
+                    const a = document.createElement("a");
+                    a.href = url; a.download = `LOC-${locModal.code}-label.zpl`;
+                    a.click(); URL.revokeObjectURL(url);
+                    toast.success("ZPL downloaded — paste into labelary.com or send to Zebra printer");
+                  } catch { toast.error("Failed to generate ZPL"); }
+                }}
+                className="flex-1 flex items-center justify-center gap-1.5 py-2 rounded-xl text-xs font-medium transition-all hover:opacity-80"
+                style={{ background: "rgba(96,165,250,0.08)", border: "1px solid rgba(96,165,250,0.2)", color: "#60a5fa" }}>
+                <Tag size={12} /> ZPL (Zebra + RFID)
+              </button>
+              <a
+                href="https://labelary.com/viewer.html"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="flex items-center justify-center gap-1 px-3 py-2 rounded-xl text-xs font-medium transition-all hover:opacity-80"
+                style={{ border: "1px solid var(--border-card)", color: "var(--text-muted)" }}
+                title="Preview ZPL on labelary.com">
+                <ExternalLink size={11} /> Preview
               </a>
             </div>
           </div>
