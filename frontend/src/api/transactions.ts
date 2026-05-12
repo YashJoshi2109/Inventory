@@ -9,6 +9,26 @@ import type {
   StockLevel,
 } from "@/types";
 
+export type SmartAction = "stock_in" | "stock_out" | "transfer";
+
+export interface CandidateSource {
+  location_id: number;
+  location_name: string;
+  location_code: string;
+  quantity: number;
+}
+
+export interface SmartApplyResponse {
+  action: SmartAction;
+  previous_quantity: number;
+  new_quantity: number;
+  source_location_id: number | null;
+  source_location_name: string | null;
+  requires_source_selection: boolean;
+  candidate_sources: CandidateSource[];
+  event: InventoryEvent | null;
+}
+
 export const transactionsApi = {
   list: async (params?: {
     item_id?: number;
@@ -130,6 +150,19 @@ export const scanApi = {
     scan_session_id?: string;
   }): Promise<InventoryEvent> => {
     const { data } = await apiClient.post<InventoryEvent>("/scans/apply", payload);
+    return data;
+  },
+
+  smartApply: async (payload: {
+    item_id: number;
+    location_id: number;
+    quantity?: number;
+    notes?: string;
+    scan_session_id?: string;
+    dry_run?: boolean;
+    source_location_id?: number;
+  }): Promise<SmartApplyResponse> => {
+    const { data } = await apiClient.post("/scans/smart-apply", { quantity: 1, dry_run: false, ...payload });
     return data;
   },
 
