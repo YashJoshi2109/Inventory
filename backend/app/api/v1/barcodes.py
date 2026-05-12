@@ -13,7 +13,7 @@ from app.repositories.location_repo import LocationRepository
 from app.repositories.transaction_repo import StockLevelRepository
 from app.services.barcode_service import (
     generate_label_sheet_pdf,
-    generate_epc_serial,
+    sgtin96_epc_hex,
     gtin14_for_item,
     gtin12_for_item,
     serial_for_item,
@@ -133,7 +133,7 @@ def _item_to_label(item) -> dict:
         "barcode_value": barcode_value,
         "gtin_display": gtin12,
         "serial": serial,
-        "epc_hex": generate_epc_serial(item.id),
+        "epc_hex": sgtin96_epc_hex(item.id),
         "description": (item.description or "")[:40] if item.description else "",
         "qr_blob": qr_blob,
         "qr_value": gs1_url,

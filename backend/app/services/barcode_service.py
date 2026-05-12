@@ -130,10 +130,63 @@ def normalize_gtin(value: str) -> str | None:
     return None
 
 
+# ── SGTIN-96 EPC (GS1-standard RFID) ─────────────────────────────────────────
+#
+# SGTIN-96 bit layout (96 bits = 24 hex chars):
+#   [95:88]  Header        = 0x30   (8 bits)
+#   [87:85]  Filter        = 0      (3 bits — "All Others")
+#   [84:82]  Partition     = 5      (3 bits — 10-digit GCP, 3-digit item ref)
+#   [81:52]  Company Prefix= GCP    (30 bits)
+#   [51:38]  Item Reference= item_id(14 bits — supports up to 16,383 items)
+#   [37:0]   Serial Number = item_id(38 bits — reuse item_id as unique serial)
+
+_SGTIN96_HEADER    = 0x30
+_SGTIN96_FILTER    = 0       # All Others
+_SGTIN96_PARTITION = 5       # 10-digit GCP / 3-digit item ref
+_GCP_INT           = int(SEAR_LAB_GCP)   # 24204115
+
+
+def sgtin96_epc_hex(item_id: int, serial: int | None = None) -> str:
+    """
+    Generate a GS1-standard SGTIN-96 EPC hex string (24 uppercase hex chars).
+    Used for RFID tag programming and label display.
+    """
+    s = serial if serial is not None else item_id
+    epc = (
+        (_SGTIN96_HEADER    & 0xFF)               << 88
+        | (_SGTIN96_FILTER  & 0x7)                << 85
+        | (_SGTIN96_PARTITION & 0x7)              << 82
+        | (_GCP_INT         & 0x3FFFFFFF)         << 52
+        | (item_id          & 0x3FFF)             << 38
+        | (s                & 0x3FFFFFFFFF)
+    )
+    return format(epc, "024X")
+
+
+def decode_sgtin96_epc(hex_str: str) -> int | None:
+    """
+    Reverse a SGTIN-96 EPC hex string back to item_id.
+    Returns None if the string is not a SEAR Lab SGTIN-96.
+    """
+    if len(hex_str) != 24:
+        return None
+    try:
+        epc = int(hex_str, 16)
+    except ValueError:
+        return None
+    if (epc >> 88) & 0xFF != _SGTIN96_HEADER:
+        return None
+    if (epc >> 82) & 0x7 != _SGTIN96_PARTITION:
+        return None
+    if (epc >> 52) & 0x3FFFFFFF != _GCP_INT:
+        return None
+    return int((epc >> 38) & 0x3FFF)
+
+
 # ── Legacy EPC helpers (backward compat) ─────────────────────────────────────
 
 def generate_epc_serial(item_id: int) -> str:
-    """Generate EPC-style serial (legacy format for existing items)."""
+    """Legacy EPC format — kept for backward compat with existing items."""
     return f"{EPC_PREFIX}{item_id:03d}"
 
 
