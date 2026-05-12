@@ -32,6 +32,7 @@ interface SmartState {
   actionOverride?: SmartAction | null;
   autoAction?: SmartAction;           // first auto-detected action — persists across overrides
   storedCandidates?: CandidateSource[]; // candidates from initial transfer preview
+  lastUnknown?: string;               // raw value of last unresolved scan
 }
 
 const ACTION_COLOR: Record<SmartAction, string> = {
@@ -220,6 +221,10 @@ export default function SmartScan() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [state.selectedSourceId]);
 
+  const clearLastUnknown = useCallback(() => {
+    setState((s) => (s.lastUnknown ? { ...s, lastUnknown: undefined } : s));
+  }, []);
+
   const onScan = useCallback(async (raw: string) => {
     if (!scanning.current) return;
 
@@ -227,13 +232,16 @@ export default function SmartScan() {
     try {
       resolved = await scanApi.lookup(raw);
     } catch {
-      toast.error("Unrecognised barcode", { duration: 1500 });
+      setState((s) => ({ ...s, lastUnknown: raw }));
+      setTimeout(clearLastUnknown, 3000);
       return;
     }
     if (resolved.result_type === "unknown") {
-      toast.error("Barcode not in system", { duration: 1500 });
+      setState((s) => ({ ...s, lastUnknown: raw }));
+      setTimeout(clearLastUnknown, 3000);
       return;
     }
+    setState((s) => ({ ...s, lastUnknown: undefined }));
 
     setState((prev) => {
       if (resolved.result_type === "item" && prev.item?.id === resolved.id) {
@@ -263,7 +271,7 @@ export default function SmartScan() {
 
       return prev;
     });
-  }, [fetchPreview]);
+  }, [fetchPreview, clearLastUnknown]);
 
   // Max qty = available stock at source (prevents over-commit error)
   const maxQty = useMemo(() => {
@@ -338,6 +346,20 @@ export default function SmartScan() {
           borderTop: "1px solid var(--border-card)",
         }}
       >
+        {/* ── Unknown barcode banner — shows what was read ── */}
+        {state.lastUnknown && (
+          <div
+            className="flex items-start gap-2 rounded-xl px-3 py-2 text-xs"
+            style={{ background: "rgba(220,38,38,0.08)", border: "1px solid rgba(220,38,38,0.25)" }}
+          >
+            <XCircle size={13} style={{ color: "#DC2626", flexShrink: 0, marginTop: 1 }} />
+            <div>
+              <span style={{ color: "#DC2626", fontWeight: 600 }}>Not found in system</span>
+              <p className="font-mono mt-0.5 break-all" style={{ color: "var(--text-muted)" }}>{state.lastUnknown}</p>
+            </div>
+          </div>
+        )}
+
         {state.phase === "idle" && (
           <p className="text-center text-sm py-2" style={{ color: "var(--text-muted)" }}>Scan any barcode to begin</p>
         )}

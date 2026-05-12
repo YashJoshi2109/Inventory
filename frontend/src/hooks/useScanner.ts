@@ -54,7 +54,12 @@ export function useScanner({ onScan, onError, preferBackCamera = true, cooldownM
           BarcodeFormat.QR_CODE,
           BarcodeFormat.CODE_128,
           BarcodeFormat.EAN_13,
+          BarcodeFormat.EAN_8,
+          BarcodeFormat.UPC_A,
+          BarcodeFormat.UPC_E,
           BarcodeFormat.DATA_MATRIX,
+          BarcodeFormat.ITF,
+          BarcodeFormat.PDF_417,
         ]);
         hints.set(DecodeHintType.TRY_HARDER, true);
         readerRef.current = new BrowserMultiFormatReader(hints, {

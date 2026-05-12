@@ -165,14 +165,19 @@ class ScanService:
 
         # ── 3c. Reverse SEAR Lab GTIN-14 → item_id (labels not yet in DB) ──────
         # Generated labels use gtin14_for_item(id) but may not be stored in item_barcodes yet.
-        if gtin14 and gtin14[:len(SEAR_LAB_GCP)] == SEAR_LAB_GCP:
-            try:
-                derived_id = int(gtin14[len(SEAR_LAB_GCP):len(SEAR_LAB_GCP) + 3])
-                item = await self._item_repo.get_by_id(derived_id)
-                if item:
-                    return await self._item_result(item)
-            except (ValueError, IndexError):
-                pass
+        # Try both gtin14 (normalized to 14 digits) AND clean (raw scan) because ZXing may
+        # decode a 14-digit Code128 as EAN-13 (13 digits), causing zfill(14) to prepend an extra
+        # zero and break the GCP prefix comparison.
+        for _candidate in filter(None, {gtin14, clean if clean.isdigit() else None}):
+            if _candidate[:len(SEAR_LAB_GCP)] == SEAR_LAB_GCP:
+                try:
+                    derived_id = int(_candidate[len(SEAR_LAB_GCP):len(SEAR_LAB_GCP) + 3])
+                    if derived_id > 0:
+                        item = await self._item_repo.get_by_id(derived_id)
+                        if item:
+                            return await self._item_result(item)
+                except (ValueError, IndexError):
+                    pass
 
         # ── 4. Exact barcode registry match (GTIN-14 or legacy EPC) ──────────
         item = await self._item_repo.get_by_barcode(clean)
