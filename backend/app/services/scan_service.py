@@ -25,6 +25,8 @@ from app.services.barcode_service import (
     normalize_gtin,
     SEAR_LAB_GCP,
     decode_sgtin96_epc,
+    decode_sgln96_epc,
+    gln13_for_location,
 )
 
 
@@ -83,7 +85,41 @@ class ScanService:
                     },
                 )
 
-        # Try raw location barcode lookup
+        # ── 1b. SGLN-96 EPC hex → location_id (RFID reader output) ─────────────
+        loc_id = decode_sgln96_epc(clean)
+        if loc_id is not None:
+            location = await self._loc_repo.get_by_id(loc_id)
+            if location:
+                return ScanResult(
+                    result_type=ScanResultType.LOCATION,
+                    id=location.id,
+                    code=location.code,
+                    name=location.name,
+                    details={"area_name": location.area.name if location.area else ""},
+                )
+
+        # ── 1c. GS1 Digital Link URL for location: {host}/414/{gln13} ─────────
+        if clean.startswith("http"):
+            m = __import__("re").search(r"/414/(\d{13})", clean)
+            if m:
+                gln13 = m.group(1)
+                # Reverse SEAR Lab GLN → location_id (GCP is first 10 digits, loc_ref next 2)
+                if gln13[:len(SEAR_LAB_GCP)] == SEAR_LAB_GCP:
+                    try:
+                        loc_id_from_gln = int(gln13[len(SEAR_LAB_GCP):len(SEAR_LAB_GCP) + 2])
+                        location = await self._loc_repo.get_by_id(loc_id_from_gln)
+                        if location:
+                            return ScanResult(
+                                result_type=ScanResultType.LOCATION,
+                                id=location.id,
+                                code=location.code,
+                                name=location.name,
+                                details={"area_name": location.area.name if location.area else ""},
+                            )
+                    except (ValueError, IndexError):
+                        pass
+
+        # ── 1d. Raw location barcode lookup (stored barcode_value in DB) ───────
         location = await self._loc_repo.get_by_barcode(clean)
         if location:
             return ScanResult(

@@ -14,6 +14,9 @@ from app.repositories.transaction_repo import StockLevelRepository
 from app.services.barcode_service import (
     generate_label_sheet_pdf,
     sgtin96_epc_hex,
+    sgln96_epc_hex,
+    gln13_for_location,
+    gs1_location_url,
     gtin14_for_item,
     gtin12_for_item,
     serial_for_item,
@@ -93,13 +96,31 @@ async def item_barcode_png(item_id: int, session: DbSession, current_user: Curre
 
 @router.get("/location/{location_id}/qr/png")
 async def location_qr_png(location_id: int, session: DbSession, current_user: CurrentUser) -> Response:
-    """Code 128 barcode PNG for this location (encodes LOC:{code})."""
+    """Code 128 barcode PNG for this location (encodes LOC:{code}) — used for label downloads."""
     repo = LocationRepository(session)
     loc = await repo.get_by_id(location_id)
     if not loc:
         raise HTTPException(status_code=404, detail="Location not found")
     barcode_value = f"LOC:{loc.code.upper()}"
     png_bytes = render_barcode_png(barcode_value)
+    return Response(content=png_bytes, media_type="image/png")
+
+
+@router.get("/location/{location_id}/barcode/png")
+async def location_barcode_png(location_id: int, session: DbSession, current_user: CurrentUser) -> Response:
+    """Explicit Code 128 barcode PNG endpoint (same as /qr/png, named for clarity)."""
+    return await location_qr_png(location_id, session, current_user)
+
+
+@router.get("/location/{location_id}/gs1-qr/png")
+async def location_gs1_qr_png(location_id: int, session: DbSession, current_user: CurrentUser) -> Response:
+    """QR code encoding the GS1 Digital Link URL for this location (414/{gln13})."""
+    repo = LocationRepository(session)
+    loc = await repo.get_by_id(location_id)
+    if not loc:
+        raise HTTPException(status_code=404, detail="Location not found")
+    gs1_url = gs1_location_url(location_id, loc.code)
+    png_bytes = render_qr_png(gs1_url)
     return Response(content=png_bytes, media_type="image/png")
 
 

@@ -183,6 +183,74 @@ def decode_sgtin96_epc(hex_str: str) -> int | None:
     return int((epc >> 38) & 0x3FFF)
 
 
+# ── SGLN-96 EPC (GS1-standard RFID for locations) ────────────────────────────
+#
+# SGLN-96 bit layout (96 bits = 24 hex chars):
+#   [95:88]  Header           = 0x32   (8 bits — SGLN-96 marker)
+#   [87:85]  Filter           = 0      (3 bits)
+#   [84:82]  Partition        = 5      (3 bits — 10-digit GCP)
+#   [81:52]  Company Prefix   = GCP    (30 bits)
+#   [51:39]  Location Ref     = loc_id (13 bits — supports up to 8,191 locations)
+#   [38:0]   Extension        = 0      (39 bits — 0 = base GLN, no extension)
+
+_SGLN96_HEADER    = 0x32
+_SGLN96_PARTITION = 5
+
+
+def sgln96_epc_hex(location_id: int) -> str:
+    """Generate a GS1-standard SGLN-96 EPC hex string for a location (24 hex chars)."""
+    epc = (
+        (_SGLN96_HEADER    & 0xFF)           << 88
+        | (_SGLN96_PARTITION & 0x7)          << 82
+        | (_GCP_INT         & 0x3FFFFFFF)    << 52
+        | (location_id      & 0x1FFF)        << 39
+        # extension bits [38:0] = 0
+    )
+    return format(epc, "024X")
+
+
+def decode_sgln96_epc(hex_str: str) -> int | None:
+    """Reverse SGLN-96 EPC hex → location_id. Returns None if not SEAR Lab SGLN-96."""
+    if len(hex_str) != 24:
+        return None
+    try:
+        epc = int(hex_str, 16)
+    except ValueError:
+        return None
+    if (epc >> 88) & 0xFF != _SGLN96_HEADER:
+        return None
+    if (epc >> 82) & 0x7 != _SGLN96_PARTITION:
+        return None
+    if (epc >> 52) & 0x3FFFFFFF != _GCP_INT:
+        return None
+    return int((epc >> 39) & 0x1FFF)
+
+
+# ── GLN helpers (location "GTIN" equivalent) ─────────────────────────────────
+
+def _gln13_check_digit(digits_12: str) -> int:
+    """GS1 check digit for 12-digit GLN prefix."""
+    total = sum(int(d) * (3 if i % 2 != 0 else 1) for i, d in enumerate(digits_12))
+    return (10 - (total % 10)) % 10
+
+
+def gln13_for_location(location_id: int) -> str:
+    """Return 13-digit GLN for a location (GCP + 2-digit loc ref + check)."""
+    prefix_12 = f"{SEAR_LAB_GCP}{location_id:02d}"  # 10 + 2 = 12 digits
+    check = _gln13_check_digit(prefix_12)
+    return f"{prefix_12}{check}"
+
+
+def gs1_location_url(location_id: int, location_code: str = "") -> str:
+    """GS1 Digital Link URL for a location: {base}/414/{gln13}."""
+    gln = gln13_for_location(location_id)
+    url = f"{GS1_DL_BASE}/414/{gln}"
+    if location_code:
+        import urllib.parse as _up
+        url += f"?loc={_up.quote(location_code.upper())}"
+    return url
+
+
 # ── Legacy EPC helpers (backward compat) ─────────────────────────────────────
 
 def generate_epc_serial(item_id: int) -> str:

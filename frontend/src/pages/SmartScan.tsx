@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Package, MapPin, CheckCircle2, XCircle, RotateCcw,
   ArrowUpRight, ArrowDownRight, ArrowLeftRight, Loader2,
@@ -105,7 +105,8 @@ function StepDot({ active, done, label }: { active: boolean; done: boolean; labe
   );
 }
 
-function QtyStepper({ value, onChange, isDark }: { value: number; onChange: (n: number) => void; isDark: boolean }) {
+function QtyStepper({ value, onChange, isDark, max }: { value: number; onChange: (n: number) => void; isDark: boolean; max?: number }) {
+  const atMax = max !== undefined && value >= max;
   return (
     <div
       className="flex items-center gap-2 rounded-xl px-2 py-1"
@@ -116,7 +117,8 @@ function QtyStepper({ value, onChange, isDark }: { value: number; onChange: (n: 
     >
       <button
         onClick={() => onChange(Math.max(1, value - 1))}
-        className="w-7 h-7 rounded-lg flex items-center justify-center"
+        disabled={value <= 1}
+        className="w-7 h-7 rounded-lg flex items-center justify-center disabled:opacity-30"
         style={{ color: "var(--text-primary)" }}
         aria-label="Decrease quantity"
       >
@@ -124,8 +126,9 @@ function QtyStepper({ value, onChange, isDark }: { value: number; onChange: (n: 
       </button>
       <span className="w-8 text-center text-sm font-bold tabular-nums" style={{ color: "var(--text-primary)" }}>{value}</span>
       <button
-        onClick={() => onChange(value + 1)}
-        className="w-7 h-7 rounded-lg flex items-center justify-center"
+        onClick={() => !atMax && onChange(value + 1)}
+        disabled={atMax}
+        className="w-7 h-7 rounded-lg flex items-center justify-center disabled:opacity-30"
         style={{ color: "var(--text-primary)" }}
         aria-label="Increase quantity"
       >
@@ -207,13 +210,6 @@ export default function SmartScan() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [state.selectedSourceId]);
 
-  const onQuantityChange = useCallback((n: number) => {
-    setState((s) => ({ ...s, quantity: n }));
-    if (state.item && state.location) {
-      fetchPreview(state.item, state.location, n, state.selectedSourceId ?? undefined);
-    }
-  }, [state.item, state.location, state.selectedSourceId, fetchPreview]);
-
   const onScan = useCallback(async (raw: string) => {
     if (!scanning.current) return;
 
@@ -258,6 +254,27 @@ export default function SmartScan() {
       return prev;
     });
   }, [fetchPreview]);
+
+  // Max qty = available stock at source (prevents over-commit error)
+  const maxQty = useMemo(() => {
+    if (!state.preview) return 999;
+    if (state.preview.action === "stock_out") return state.preview.previous_quantity;
+    if (state.preview.action === "transfer") {
+      const src = state.selectedSourceId != null
+        ? state.preview.candidate_sources.find((c) => c.location_id === state.selectedSourceId)
+        : state.preview.candidate_sources[0];
+      return src?.quantity ?? state.preview.previous_quantity;
+    }
+    return 999;
+  }, [state.preview, state.selectedSourceId]);
+
+  const onQuantityChange = useCallback((raw: number) => {
+    const n = Math.min(raw, maxQty);
+    setState((s) => ({ ...s, quantity: n }));
+    if (state.item && state.location) {
+      fetchPreview(state.item, state.location, n, state.selectedSourceId ?? undefined);
+    }
+  }, [state.item, state.location, state.selectedSourceId, fetchPreview, maxQty]);
 
   const itemDone = !!state.item;
   const locationDone = !!state.location;
@@ -362,6 +379,19 @@ export default function SmartScan() {
               </div>
             )}
 
+            {/* Transfer reason — explains WHY system chose transfer */}
+            {state.preview.action === "transfer" && state.preview.source_location_name && (
+              <div
+                className="flex items-center gap-2 rounded-lg px-3 py-2 text-xs"
+                style={{ background: isDark ? "rgba(37,99,235,0.10)" : "rgba(37,99,235,0.07)", border: "1px solid rgba(37,99,235,0.20)" }}
+              >
+                <ArrowLeftRight size={12} style={{ color: "#2563EB", flexShrink: 0 }} />
+                <span style={{ color: "var(--text-muted)" }}>
+                  No stock here — has stock at <strong style={{ color: "var(--text-primary)" }}>{state.preview.source_location_name}</strong>
+                </span>
+              </div>
+            )}
+
             {/* Action summary + qty stepper */}
             <div
               className="flex items-center justify-between rounded-xl px-4 py-3"
@@ -380,15 +410,26 @@ export default function SmartScan() {
                   )}
                 </div>
               </div>
-              <QtyStepper value={state.quantity} onChange={onQuantityChange} isDark={isDark} />
+              <QtyStepper value={state.quantity} onChange={onQuantityChange} isDark={isDark} max={maxQty} />
             </div>
 
-            {/* Quantity delta */}
+            {/* Quantity delta + Remove All shortcut */}
             <div className="flex items-center justify-between text-xs px-1" style={{ color: "var(--text-muted)" }}>
               <span>Stock at {state.location.name}</span>
-              <span className="tabular-nums">
-                {state.preview.previous_quantity} → <span style={{ color: actionColor, fontWeight: 700 }}>{state.preview.new_quantity}</span>
-              </span>
+              <div className="flex items-center gap-3">
+                {state.preview.action === "stock_out" && maxQty > 1 && (
+                  <button
+                    onClick={() => onQuantityChange(maxQty)}
+                    className="text-[10px] font-semibold px-2 py-0.5 rounded"
+                    style={{ background: "#DC262622", color: "#DC2626", border: "1px solid #DC262644" }}
+                  >
+                    Remove All ({maxQty})
+                  </button>
+                )}
+                <span className="tabular-nums">
+                  {state.preview.previous_quantity} → <span style={{ color: actionColor, fontWeight: 700 }}>{state.preview.new_quantity}</span>
+                </span>
+              </div>
             </div>
 
             {/* Confirm + Cancel */}
