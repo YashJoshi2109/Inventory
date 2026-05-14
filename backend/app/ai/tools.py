@@ -1008,7 +1008,7 @@ async def rag_search_docs(
             "doc_type": doc.doc_type,
             "doc_filename": doc.filename,
             "chunk_index": chunk.chunk_index,
-            "chunk_excerpt": (chunk.content or "")[:600],
+            "chunk_excerpt": (chunk.content or ""),  # full content — no truncation
             "score": round(float(score), 4),
         }
         for score, chunk, doc in top

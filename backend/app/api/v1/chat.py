@@ -413,7 +413,7 @@ async def upload_document(
         for i, chunk_text in enumerate(chunks):
             embedding_json: str | None = None
             try:
-                vec = await embed_text(chunk_text[:1000])  # limit per chunk
+                vec = await embed_text(chunk_text[:2000])  # text-embedding-004 handles 2048 tokens
                 if vec:
                     embedding_json = vec_to_json(vec)
             except Exception:
@@ -514,6 +514,8 @@ def _extract_text_chunks(path: Path, mime_type: str, chunk_size: int = 600) -> l
         text = _read_pdf(path)
     elif suffix in (".docx", ".doc") or "wordprocessingml" in mime_type:
         text = _read_docx(path)
+    elif suffix == ".csv" or "csv" in mime_type or "text/csv" in mime_type:
+        return _chunk_csv(path)
     else:
         text = path.read_text(encoding="utf-8", errors="replace")
 
@@ -530,6 +532,34 @@ def _extract_text_chunks(path: Path, mime_type: str, chunk_size: int = 600) -> l
     if current:
         chunks.append(current)
     return chunks or [text[:4000]]
+
+
+def _chunk_csv(path: Path, rows_per_chunk: int = 50) -> list[str]:
+    """Parse CSV into header + N-row chunks for accurate semantic retrieval."""
+    import csv
+    try:
+        text = path.read_text(encoding="utf-8", errors="replace")
+        reader = csv.reader(text.splitlines())
+        rows = list(reader)
+    except Exception:
+        return [path.read_text(encoding="utf-8", errors="replace")[:4000]]
+
+    if not rows:
+        return []
+
+    headers = rows[0]
+    header_line = ",".join(headers)
+    data_rows = rows[1:]
+
+    if not data_rows:
+        return [header_line]
+
+    chunks: list[str] = []
+    for i in range(0, len(data_rows), rows_per_chunk):
+        batch = data_rows[i : i + rows_per_chunk]
+        lines = [header_line] + [",".join(r) for r in batch]
+        chunks.append("\n".join(lines))
+    return chunks or [header_line]
 
 
 def _read_pdf(path: Path) -> str:

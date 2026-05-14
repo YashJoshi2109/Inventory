@@ -74,7 +74,9 @@ SYSTEM_PROMPT = """You are the SEAR Lab Inventory Copilot — an expert AI assis
 
 Your role:
 - Answer questions about items, stock levels, locations, and transaction history using the provided tools.
-- For SOPs, manuals, warranties, calibration records, maintenance logs, invoices, and policies: use `rag_search_docs` to retrieve relevant grounded chunks, then answer only using those chunks.
+- For SOPs, manuals, warranties, calibration records, maintenance logs, invoices, policies, spreadsheets, CSV files, PDFs, and any uploaded documents: use `rag_search_docs` to retrieve relevant grounded chunks, then answer using those chunks.
+- When a user asks about a file they uploaded or mentions its filename, ALWAYS call `rag_search_docs` first with the filename or topic as the query.
+- If the user says "I already uploaded it", "check the file", "look in knowledge base", or similar — immediately call `rag_search_docs`.
 - Perform inventory operations (stock in, stock out, transfer, create, update, delete) when asked to.
 - Identify low-stock items, overdue/idle equipment, and provide operational insights.
 - Reference only data retrieved from tools — never make up item names, quantities, or locations.
@@ -114,7 +116,8 @@ Tool usage rules:
 - Always search before acting: confirm item ID and location ID via search_inventory / list_locations before performing stock in, stock out, or transfer.
 - If ambiguous (multiple matches), list them and ask the user to clarify.
 - For bulk or potentially destructive operations, summarize the plan and note you are proceeding.
-- If the user asks about SOPs/manuals/warranties/calibration records/maintenance logs/invoices/policies or storage conditions (temperature/PPE): you MUST call `rag_search_docs` first and answer using only the returned chunks.
+- If the user asks about SOPs/manuals/warranties/calibration records/maintenance logs/invoices/policies/spreadsheets/CSV files/templates or storage conditions (temperature/PPE): you MUST call `rag_search_docs` first and answer using the returned chunks.
+- If KNOWLEDGE BASE CONTEXT is already injected in the conversation (prefixed with [KNOWLEDGE BASE]), use it directly to answer — do NOT say "please upload the file".
 """
 
 
@@ -150,6 +153,93 @@ async def run_copilot(
             return db, False   # (session, should_close)
         s = AsyncSessionLocal()
         return s, True
+
+    # ── RAG pre-injection (runs for ALL providers) ────────────────────────
+    # Detect if the user query references uploaded documents and inject KB
+    # context BEFORE the model sees the request.  This ensures even the
+    # OpenRouter/OpenAI paths benefit from knowledge-base grounding.
+    _last_user_msg = next((m for m in reversed(messages) if m.get("role") == "user"), None)
+    _last_user_text: str = (_last_user_msg or {}).get("content") or ""
+    _last_lower = _last_user_text.lower()
+
+    _rag_keywords = [
+        "sop", "manual", "warranty", "calibration", "maintenance", "invoice",
+        "policy", "ppe", "temperature", "stored", "storage",
+        "document", "upload", "file", "template", "spreadsheet", "csv", "pdf",
+        "knowledge base", "sent", "already uploaded", "i uploaded", "check the",
+        "items in", "what's in", "what is in", "contents of", "read the",
+    ]
+    _rag_intent = any(k in _last_lower for k in _rag_keywords)
+
+    if not _rag_intent:
+        # Check if any uploaded doc title/filename is mentioned in the query
+        from app.core.database import AsyncSessionLocal as _ASL
+        from app.models.chat import KnowledgeDocument as _KD
+        from sqlalchemy import select as _sel
+        _check_session = _ASL()
+        try:
+            _check_result = await _check_session.execute(
+                _sel(_KD.title, _KD.filename).where(_KD.is_active == True)  # noqa: E712
+            )
+            for _title, _fname in _check_result.all():
+                for _name in [_title or "", _fname or ""]:
+                    _stem = re.sub(r'\.[a-zA-Z0-9]{1,5}$', '', _name.lower())
+                    _stem = re.sub(r'[\s_\-]+', ' ', _stem).strip()
+                    if len(_stem) > 3 and _stem in re.sub(r'[\s_\-]+', ' ', _last_lower):
+                        _rag_intent = True
+                        break
+                if _rag_intent:
+                    break
+        except Exception:
+            pass
+        finally:
+            await _check_session.close()
+
+    _chunks: list[dict] = []
+    _ctx_text = ""
+
+    if _rag_intent:
+        from app.ai.tools import rag_search_docs as _rag_fn
+        _rag_session = AsyncSessionLocal()
+        try:
+            _rag_result = await _rag_fn(
+                db=_rag_session,
+                query=_last_user_text,
+                limit=6,
+            )
+        except Exception:
+            _rag_result = {}
+        finally:
+            await _rag_session.close()
+
+        _chunks = _rag_result.get("chunks", [])
+        if _chunks:
+            _ctx_parts: list[str] = [
+                "[KNOWLEDGE BASE — content retrieved from your uploaded documents]\n"
+            ]
+            for _ci, _ch in enumerate(_chunks, 1):
+                _doc_title = _ch.get("doc_title") or _ch.get("doc_filename") or "Unknown"
+                _dtype = _ch.get("doc_type", "general")
+                _content = _ch.get("chunk_excerpt", "")
+                _ctx_parts.append(
+                    f'Document {_ci}: "{_doc_title}" (type: {_dtype})\n{_content}'
+                )
+            _ctx_parts.append(
+                "\n[END KNOWLEDGE BASE]\n\n"
+                "Use the document content above to answer the user's question accurately and completely."
+            )
+            _ctx_text = "\n\n---\n\n".join(_ctx_parts)
+
+            # Prepend KB context into the last user message
+            messages = list(messages)
+            for _mi in range(len(messages) - 1, -1, -1):
+                if messages[_mi].get("role") == "user":
+                    _orig = messages[_mi].get("content") or ""
+                    messages[_mi] = {
+                        **messages[_mi],
+                        "content": f"{_ctx_text}\n\nUser question: {_orig}",
+                    }
+                    break
 
     # ── Provider order ─────────────────────────────────────────────────────
     # Preferred chain: OpenRouter (primary) → Gemini → OpenAI (last).
@@ -230,62 +320,20 @@ async def run_copilot(
 
         client = _get_gemini_client()
 
-        # For SOP/manual/policy/storage-condition questions, ensure we always
-        # have grounded document chunks available before Gemini generates.
-        last_lower = (last_user_text or "").lower()
-        sop_intent = any(
-            k in last_lower
-            for k in [
-                "sop",
-                "manual",
-                "warranty",
-                "calibration",
-                "maintenance log",
-                "maintenance",
-                "invoice",
-                "policy",
-                "ppe",
-                "temperature",
-                "stored",
-                "storage",
-            ]
-        )
-        if sop_intent:
-            rag_args: dict[str, Any] = {
-                "query": last_user_text,
-                "limit": 5,
-            }
-            if "sop" in last_lower:
-                rag_args["doc_type"] = "sop"
-
-            yield _sse({"type": "tool_call", "name": "rag_search_docs", "args": rag_args})
-            tool_session, tool_should_close = await _get_db()
-            try:
-                rag_result = await dispatch_tool(
-                    name="rag_search_docs",
-                    args=rag_args,
-                    db=tool_session,
-                    actor_id=actor_id,
-                    actor_roles=actor_roles,
-                    role_names=actor_roles,
-                )
-                if tool_should_close:
-                    await tool_session.commit()
-            finally:
-                if tool_should_close:
-                    await tool_session.close()
-
-            yield _sse({"type": "tool_result", "name": "rag_search_docs", "data": rag_result})
-
-            # Inject tool output as extra context so Gemini can answer grounded.
+        # RAG context already pre-injected above (before provider selection).
+        # For Gemini, also inject any pre-injected context into the contents list
+        # so the model sees it in its native format.
+        if _rag_intent and _chunks:
             contents.append(
                 types.Content(
                     role="user",
-                    parts=[
-                        types.Part.from_text(
-                            text=f"RAG_CONTEXT (rag_search_docs result): {json.dumps(rag_result)}"
-                        )
-                    ],
+                    parts=[types.Part.from_text(text=_ctx_text)],
+                )
+            )
+            contents.append(
+                types.Content(
+                    role="model",
+                    parts=[types.Part.from_text(text="I have the knowledge base content. I'll answer using it.")],
                 )
             )
 
