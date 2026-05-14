@@ -20,6 +20,8 @@ import { apiClient } from "@/api/client";
 import { useThemeStore } from "@/store/theme";
 
 const WS_URL = "ws://localhost:8765";
+// True when running inside a Zebra MC3x / Android DataWedge context (no local bridge)
+const IS_MOBILE = /android|iphone|ipad/i.test(navigator.userAgent);
 
 interface ScannedEntry {
   epc: string;
@@ -43,6 +45,11 @@ interface Location {
 type ScanStatus = "idle" | "scanning" | "found" | "unknown";
 
 const EPC_RE = /^[0-9A-Fa-f]{24}$/;
+// DataWedge may emit "EPC:AABBCC..." or trailing whitespace — extract raw 24-hex
+const extractEpc = (raw: string): string | null => {
+  const m = raw.match(/[0-9A-Fa-f]{24}/);
+  return m ? m[0].toUpperCase() : null;
+};
 
 export default function RfidScan() {
   const { theme } = useThemeStore();
@@ -92,14 +99,18 @@ export default function RfidScan() {
 
   useEffect(() => {
     focusInput();
-    const handler = (e: MouseEvent) => {
+    const refocus = (e: MouseEvent | TouchEvent) => {
       const t = e.target as HTMLElement;
       if (!t.closest("select") && !t.closest("button") && !t.closest("[data-nofocus]")) {
         setTimeout(focusInput, 40);
       }
     };
-    document.addEventListener("click", handler);
-    return () => document.removeEventListener("click", handler);
+    document.addEventListener("click", refocus);
+    document.addEventListener("touchend", refocus as EventListener);
+    return () => {
+      document.removeEventListener("click", refocus);
+      document.removeEventListener("touchend", refocus as EventListener);
+    };
   }, [focusInput]);
 
   // Reset idle after short delay following found/unknown
@@ -111,7 +122,10 @@ export default function RfidScan() {
   }, [scanStatus]);
 
   // WebSocket bridge connection (RP902 MFi SPP → rfid_bridge.py → WS → here)
+  // Skipped on mobile/Android — DataWedge keyboard wedge handles input instead.
   useEffect(() => {
+    if (IS_MOBILE) return;
+
     let ws: WebSocket;
     let reconnectTimer: ReturnType<typeof setTimeout>;
 
@@ -120,20 +134,15 @@ export default function RfidScan() {
         ws = new WebSocket(WS_URL);
         wsRef.current = ws;
 
-        ws.onopen = () => {
-          setBridgeStatus("connected");
-        };
+        ws.onopen = () => setBridgeStatus("connected");
 
         ws.onmessage = (event) => {
-          const epc = (event.data as string).trim().toUpperCase();
-          if (/^[0-9A-F]{24}$/.test(epc)) {
-            processEpc(epc);
-          }
+          const epc = extractEpc((event.data as string).trim());
+          if (epc) processEpc(epc);
         };
 
         ws.onclose = () => {
           setBridgeStatus("disconnected");
-          // Retry connection every 3 s
           reconnectTimer = setTimeout(connect, 3000);
         };
 
@@ -207,15 +216,17 @@ export default function RfidScan() {
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const val = e.target.value;
     setRawInput(val);
-    if (EPC_RE.test(val)) {
-      processEpc(val);
+    // Fire immediately if exactly 24 hex chars (no Enter needed for some DataWedge configs)
+    if (EPC_RE.test(val.trim())) {
+      processEpc(val.trim());
       setRawInput("");
     }
   };
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key === "Enter" && rawInput.trim()) {
-      processEpc(rawInput.trim());
+      const epc = extractEpc(rawInput.trim());
+      if (epc) processEpc(epc);
       setRawInput("");
     }
   };
@@ -314,19 +325,35 @@ export default function RfidScan() {
 
         {/* Status badges */}
         <div className="flex items-center gap-2 flex-wrap">
-          {/* Bridge status */}
-          <div
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[11px] font-medium"
-            style={{
-              background: bridgeStatus === "connected" ? "rgba(34,197,94,0.12)" : "rgba(139,92,246,0.10)",
-              border: `1px solid ${bridgeStatus === "connected" ? "rgba(34,197,94,0.30)" : "rgba(139,92,246,0.22)"}`,
-              color: bridgeStatus === "connected" ? "#22c55e" : "#a78bfa",
-            }}
-          >
-            <Radio size={10} />
-            {bridgeStatus === "connected" ? "Bridge connected" : "Bridge offline"}
-          </div>
-          {/* HID keyboard indicator */}
+          {/* Bridge status — only show on desktop */}
+          {!IS_MOBILE && (
+            <div
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[11px] font-medium"
+              style={{
+                background: bridgeStatus === "connected" ? "rgba(34,197,94,0.12)" : "rgba(139,92,246,0.10)",
+                border: `1px solid ${bridgeStatus === "connected" ? "rgba(34,197,94,0.30)" : "rgba(139,92,246,0.22)"}`,
+                color: bridgeStatus === "connected" ? "#22c55e" : "#a78bfa",
+              }}
+            >
+              <Radio size={10} />
+              {bridgeStatus === "connected" ? "Bridge connected" : "Bridge offline"}
+            </div>
+          )}
+          {/* DataWedge badge on mobile */}
+          {IS_MOBILE && (
+            <div
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[11px] font-medium"
+              style={{
+                background: "rgba(251,191,36,0.10)",
+                border: "1px solid rgba(251,191,36,0.28)",
+                color: "#fbbf24",
+              }}
+            >
+              <Radio size={10} />
+              DataWedge mode
+            </div>
+          )}
+          {/* HID / DataWedge focus indicator */}
           <div
             className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[11px] font-medium"
             style={{
@@ -336,7 +363,7 @@ export default function RfidScan() {
             }}
           >
             <Keyboard size={10} />
-            {isFocused ? "HID ready" : "Click to focus HID"}
+            {isFocused ? "Ready — pull trigger" : IS_MOBILE ? "Tap screen to focus" : "Click to focus HID"}
           </div>
         </div>
       </div>
@@ -476,13 +503,20 @@ export default function RfidScan() {
               border: "1px solid rgba(139,92,246,0.14)",
             }}
           >
-            <p className="text-[11px] font-bold uppercase tracking-wider" style={{ color: "#a78bfa" }}>How it works</p>
-            {[
+            <p className="text-[11px] font-bold uppercase tracking-wider" style={{ color: "#a78bfa" }}>
+              {IS_MOBILE ? "Zebra MC3300R Setup" : "How it works"}
+            </p>
+            {(IS_MOBILE ? [
+              "Open DataWedge → Create profile → Associate with Chrome",
+              "Input: RFID Reader · Output: Keystroke · Send ENTER after scan: ON",
+              "Data formatting: EPC only (hex, no spaces)",
+              "Tap this screen to focus, pull trigger — item appears instantly",
+            ] : [
               "Run tools/rfid_bridge.py on your computer",
               "Pair RP902 via Bluetooth → bridge auto-detects port",
               "Pull trigger — EPC sent via WebSocket automatically",
               "Collect items, pick location, stock in/out",
-            ].map((step, i) => (
+            ]).map((step, i) => (
               <div key={i} className="flex items-start gap-2">
                 <span
                   className="w-4 h-4 rounded-full flex items-center justify-center text-[9px] font-bold shrink-0 mt-0.5"
