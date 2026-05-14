@@ -33,6 +33,7 @@ import {
   Area,
   CartesianGrid,
 } from "recharts";
+// Note: AreaChart/Area/CartesianGrid kept for activity chart used elsewhere
 import { clsx } from "clsx";
 import type { InventoryEvent } from "@/types";
 import { animationVariants } from "@/utils/animations";
@@ -799,13 +800,13 @@ function SolarForecastTimeline({ solarW }: { solarW: number }) {
               <div
                 className="w-full rounded-xl flex items-center justify-center relative overflow-hidden transition-all"
                 style={{
-                  height: slot.isNow ? 40 : isActive ? 36 : 28,
+                  height: slot.isNow ? 42 : isActive ? 38 : 30,
                   background: isActive
-                    ? `linear-gradient(175deg, ${green}e0 0%, ${green}99 100%)`
-                    : "var(--bg-card)",
+                    ? `linear-gradient(175deg, ${green}dd 0%, ${green}99 100%)`
+                    : "rgba(100,116,139,0.13)",
                   border: slot.isNow
-                    ? `1px solid ${isActive ? green + "cc" : "var(--border-card)"}`
-                    : `1px solid ${isActive ? green + "44" : "var(--border-subtle)"}`,
+                    ? `2px solid ${isActive ? green + "cc" : "rgba(100,116,139,0.35)"}`
+                    : `1px solid ${isActive ? green + "55" : "rgba(100,116,139,0.15)"}`,
                   boxShadow: slot.isNow && isActive ? `0 0 14px ${green}55` : undefined,
                 }}
               >
@@ -1059,56 +1060,50 @@ function EcoEnergyWidget() {
         {/* Solar forecast timeline */}
         <SolarForecastTimeline solarW={solarW} />
 
-        {/* mini chart */}
-        <div className="h-[80px]">
-          <ResponsiveContainer width="100%" height="100%">
-            <AreaChart data={chartData} margin={{ top: 2, right: 2, left: -30, bottom: 0 }}>
-              <defs>
-                <linearGradient id="energySolar" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="0%" stopColor="var(--accent-warning)" stopOpacity={0.3} />
-                  <stop offset="100%" stopColor="var(--accent-warning)" stopOpacity={0} />
-                </linearGradient>
-                <linearGradient id="energyTotal" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="0%" stopColor="var(--accent)" stopOpacity={0.2} />
-                  <stop offset="100%" stopColor="var(--accent)" stopOpacity={0} />
-                </linearGradient>
-              </defs>
-              <XAxis dataKey="t" hide />
-              <YAxis hide />
-              <Tooltip
-                contentStyle={{
-                  background: "var(--bg-card)",
-                  border: "1px solid var(--border-card)",
-                  borderRadius: "10px",
-                  fontSize: "11px",
-                  fontFamily: "'Outfit', sans-serif",
-                }}
-                formatter={(v: number) => [`${v} W`, undefined]}
-                isAnimationActive={false}
-              />
-              <Area
-                type="monotone"
-                dataKey="solar"
-                name="Solar"
-                stroke="var(--accent-warning)"
-                strokeWidth={1.5}
-                fill="url(#energySolar)"
-                dot={false}
-                isAnimationActive={hasHistory}
-              />
-              <Area
-                type="monotone"
-                dataKey="total"
-                name="Load"
-                stroke="var(--accent)"
-                strokeWidth={1.5}
-                fill="url(#energyTotal)"
-                dot={false}
-                isAnimationActive={hasHistory}
-              />
-            </AreaChart>
-          </ResponsiveContainer>
-        </div>
+        {/* Activity bar chart — last 7 readings */}
+        {hasHistory && (() => {
+          const bars = chartData.slice(-7);
+          const maxVal = Math.max(...bars.flatMap(d => [d.solar, d.total]), 1);
+          return (
+            <div className="flex items-end gap-1" style={{ height: 56 }}>
+              {bars.map((d, i) => {
+                const sH = Math.round((d.solar / maxVal) * 48);
+                const tH = Math.round((d.total / maxVal) * 48);
+                return (
+                  <div
+                    key={i}
+                    className="flex-1 flex flex-col items-center justify-end gap-0.5 group/bar"
+                    title={`Solar: ${d.solar}W · Load: ${d.total}W`}
+                    style={{ height: 56 }}
+                  >
+                    {/* Load bar (background) */}
+                    <div
+                      className="w-full rounded-sm relative"
+                      style={{
+                        height: Math.max(tH, 4),
+                        background: "rgba(100,116,139,0.18)",
+                        position: "relative",
+                      }}
+                    >
+                      {/* Solar fill on top */}
+                      <div
+                        className="absolute bottom-0 left-0 right-0 rounded-sm"
+                        style={{
+                          height: Math.min(Math.max(sH, d.solar > 0 ? 3 : 0), Math.max(tH, 4)),
+                          background: "rgba(251,191,36,0.75)",
+                          transition: "height 0.3s ease",
+                        }}
+                      />
+                    </div>
+                    <span className="text-[7px] font-bold opacity-0 group-hover/bar:opacity-100 transition-opacity" style={{ color: "var(--text-muted)" }}>
+                      {Math.round(d.solar / 100) > 0 ? `${Math.round(d.solar / 100) / 10}k` : "—"}
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
+          );
+        })()}
 
         {/* hover hint */}
         <p

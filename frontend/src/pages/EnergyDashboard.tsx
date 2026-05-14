@@ -32,6 +32,7 @@ import {
   BarChart3,
 } from "lucide-react";
 import { energyApi, type EnergyLatest, type InfluxLiveData } from "@/api/energy";
+import { AnimatedRadialChart } from "@/components/ui/animated-radial-chart";
 
 // ── Lab Schedule ──────────────────────────────────────────────────────────────
 
@@ -1120,12 +1121,66 @@ export function EnergyDashboard() {
                 </div>
               )}
 
+              {/* ── Solar Efficiency Gauge ───────────────────────────────── */}
+              <div className="mt-3 pt-3 flex flex-col items-center" style={{ borderTop: "1px solid var(--border-subtle)" }}>
+                <p className="text-[10px] uppercase tracking-wider font-semibold mb-2 self-start" style={{ color: "var(--text-muted)" }}>
+                  Solar Efficiency
+                </p>
+                <AnimatedRadialChart
+                  value={efficiencyPct ?? 0}
+                  size={160}
+                  color={
+                    (efficiencyPct ?? 0) >= 80 ? "#34d399"
+                    : (efficiencyPct ?? 0) >= 40 ? "#fbbf24"
+                    : "#f87171"
+                  }
+                  showLabels
+                  duration={1.2}
+                />
+                <p className="text-[10px] mt-1 text-center" style={{ color: "var(--text-muted)" }}>
+                  {currentLoadW > 0 ? "Solar vs current load" : "Solar vs avg load"}
+                </p>
+              </div>
+
               {/* ── Performance stats ─────────────────────────────────────── */}
               <div className="mt-3 pt-3" style={{ borderTop: "1px solid var(--border-subtle)" }}>
                 <p className="text-[10px] uppercase tracking-wider font-semibold mb-2.5" style={{ color: "var(--text-muted)" }}>
-                  Performance
+                  Today's Stats
                 </p>
-                <div className="space-y-2.5">
+
+                {/* Energy distribution bar */}
+                {(() => {
+                  const totalW2 = acWatts + hwhWatts + 500;
+                  const pAc  = totalW2 > 0 ? (acWatts / totalW2) * 100 : 33;
+                  const pHwh = totalW2 > 0 ? (hwhWatts / totalW2) * 100 : 33;
+                  const pBase = Math.max(0, 100 - pAc - pHwh);
+                  return (
+                    <div className="mb-3">
+                      <p className="text-[9px] uppercase tracking-wider font-semibold mb-1" style={{ color: "var(--text-muted)" }}>
+                        Load Split
+                      </p>
+                      <div className="flex h-2 rounded-full overflow-hidden gap-0.5">
+                        {pAc  > 0 && <div style={{ width: `${pAc}%`,   background: "#0088ff", borderRadius: 4 }} title={`HVAC ${Math.round(acWatts)}W`} />}
+                        {pHwh > 0 && <div style={{ width: `${pHwh}%`,  background: "#ff6600", borderRadius: 4 }} title={`HWH ${Math.round(hwhWatts)}W`} />}
+                        {pBase > 0 && <div style={{ width: `${pBase}%`, background: "#64748b", borderRadius: 4 }} title="Base 500W" />}
+                      </div>
+                      <div className="flex items-center gap-3 mt-1.5">
+                        {[
+                          { color: "#0088ff", label: "HVAC",  w: acWatts },
+                          { color: "#ff6600", label: "HWH",   w: hwhWatts },
+                          { color: "#64748b", label: "Base",  w: 500 },
+                        ].map(({ color: c, label, w }) => (
+                          <span key={label} className="flex items-center gap-1 text-[9px]" style={{ color: "var(--text-muted)" }}>
+                            <span className="w-1.5 h-1.5 rounded-full" style={{ background: c }} />
+                            {label} {Math.round(w)}W
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  );
+                })()}
+
+                <div className="space-y-2">
                   <div className="flex items-center justify-between">
                     <span className="flex items-center gap-1.5 text-[11px]" style={{ color: "var(--text-secondary)" }}>
                       <Sun size={11} style={{ color: "#ffe600" }} /> Solar Peak
@@ -1149,19 +1204,6 @@ export function EnergyDashboard() {
                       </span>
                       <p className="text-[9px]" style={{ color: "var(--text-muted)" }}>
                         {influxAvgLoad != null ? "InfluxDB" : currentLoadW > 0 ? "Live" : "Postgres"}
-                      </p>
-                    </div>
-                  </div>
-                  <div className="flex items-center justify-between">
-                    <span className="flex items-center gap-1.5 text-[11px]" style={{ color: "var(--text-secondary)" }}>
-                      <TrendingUp size={11} style={{ color: "#34d399" }} /> Solar Eff.
-                    </span>
-                    <div className="text-right">
-                      <span className="text-[12px] font-black tabular-nums" style={{ color: "#34d399" }}>
-                        {efficiencyPct != null ? `${efficiencyPct}%` : "—"}
-                      </span>
-                      <p className="text-[9px]" style={{ color: "var(--text-muted)" }}>
-                        {currentLoadW > 0 ? "vs current load" : "vs avg load"}
                       </p>
                     </div>
                   </div>
