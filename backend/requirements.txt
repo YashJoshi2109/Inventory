@@ -55,6 +55,9 @@ google-cloud-storage>=2.18.0
 # HTTP client (for AI services)
 httpx==0.28.1
 
+# InfluxDB (SEAR Lab Grafana data source)
+influxdb-client==1.50.0
+
 # Utilities
 python-slugify==8.0.4
 python-dotenv==1.0.1
