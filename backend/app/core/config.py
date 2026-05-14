@@ -97,11 +97,12 @@ class Settings(BaseSettings):
     # Value: GCS bucket name (e.g. "sierlab-inventory-uploads"). Leave empty for local disk.
     GCS_BUCKET_NAME: str = ""
 
-    # InfluxDB — SEAR Lab Grafana data source (energy hub real-time data)
-    INFLUXDB_URL: str = "http://18.234.235.221:8086"
-    INFLUXDB_TOKEN: str = ""
-    INFLUXDB_ORG: str = ""
-    INFLUXDB_BUCKET: str = ""
+    # Grafana — proxies InfluxDB queries (InfluxDB is Docker-internal only)
+    GRAFANA_URL: str = "http://18.234.235.221:3000"
+    GRAFANA_USER: str = "admin"
+    GRAFANA_PASSWORD: str = ""
+    GRAFANA_DATASOURCE_UID: str = "P2C2B70520A8E42FD"
+    INFLUXDB_BUCKET: str = "energy_data"
 
     # MQTT — domain events to external subscribers (analytics, IoT, ERP)
     MQTT_ENABLED: bool = False

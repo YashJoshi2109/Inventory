@@ -43,7 +43,14 @@ export function useScanner({ onScan, onError, preferBackCamera = true, cooldownM
   }, [preferBackCamera]);
 
   const start = useCallback(async () => {
-    if (!videoRef.current || state === "scanning") return;
+    if (!videoRef.current) return;
+    // If already scanning but controls are dead, reset so we can restart
+    if (state === "scanning" && !controlsRef.current) {
+      readerRef.current = null;
+      setState("idle");
+      return;
+    }
+    if (state === "scanning") return;
     setState("starting");
     setError(null);
 
@@ -53,6 +60,7 @@ export function useScanner({ onScan, onError, preferBackCamera = true, cooldownM
         hints.set(DecodeHintType.POSSIBLE_FORMATS, [
           BarcodeFormat.QR_CODE,
           BarcodeFormat.CODE_128,
+          BarcodeFormat.CODE_39,
           BarcodeFormat.EAN_13,
           BarcodeFormat.EAN_8,
           BarcodeFormat.UPC_A,
@@ -60,10 +68,11 @@ export function useScanner({ onScan, onError, preferBackCamera = true, cooldownM
           BarcodeFormat.DATA_MATRIX,
           BarcodeFormat.ITF,
           BarcodeFormat.PDF_417,
+          BarcodeFormat.AZTEC,
         ]);
         hints.set(DecodeHintType.TRY_HARDER, true);
         readerRef.current = new BrowserMultiFormatReader(hints, {
-          delayBetweenScanAttempts: 250,
+          delayBetweenScanAttempts: 150,
         });
       }
       const deviceId = selectedCamera ?? undefined;

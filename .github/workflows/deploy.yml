@@ -171,9 +171,10 @@ jobs:
           AI_ANOMALY_DETECTION_ENABLED=true,\
           AI_FORECAST_ENABLED=true,\
           ALERT_EMAIL_ENABLED=false,\
-          INFLUXDB_URL=${{ secrets.INFLUXDB_URL }},\
-          INFLUXDB_TOKEN=${{ secrets.INFLUXDB_TOKEN }},\
-          INFLUXDB_ORG=${{ secrets.INFLUXDB_ORG }},\
+          GRAFANA_URL=${{ secrets.GRAFANA_URL }},\
+          GRAFANA_USER=${{ secrets.GRAFANA_USER }},\
+          GRAFANA_PASSWORD=${{ secrets.GRAFANA_PASSWORD }},\
+          GRAFANA_DATASOURCE_UID=${{ secrets.GRAFANA_DATASOURCE_UID }},\
           INFLUXDB_BUCKET=${{ secrets.INFLUXDB_BUCKET }}"
 
   # ── Post-deploy smoke test ────────────────────────────────────────────────────
