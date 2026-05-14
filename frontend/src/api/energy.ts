@@ -54,7 +54,10 @@ export interface EnergyDashboardData {
 export interface InfluxLatest {
   solar_current_power_w: number | null;
   ac_current_temp_c: number | null;
+  ac_target_temp_c: number | null;
+  ac_consumption_w: number | null;
   hwh_set_point_c: number | null;
+  hwh_consumption_w: number | null;
   net_balance_w: number | null;
 }
 
@@ -62,6 +65,8 @@ export interface InfluxHistory {
   labels: string[];
   solar: number[];
   net: number[];
+  hvac: number[];
+  hwh: number[];
 }
 
 export interface InfluxLiveData {

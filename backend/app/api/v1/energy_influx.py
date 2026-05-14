@@ -27,7 +27,7 @@ router = APIRouter(prefix="/energy", tags=["energy"])
 
 _EMPTY_RESPONSE: dict[str, Any] = {
     "latest": None,
-    "history": {"labels": [], "solar": [], "net": []},
+    "history": {"labels": [], "solar": [], "net": [], "hvac": [], "hwh": []},
     "live": False,
 }
 
@@ -144,40 +144,55 @@ async def get_grafana_live(_current_user: CurrentUser) -> dict[str, Any]:
     try:
         # ── Latest scalar queries ─────────────────────────────────────────────
         latest_payload = _build_query_payload([
-            ("solar",  _flux_last("generation_w", "array-01", "solar")),
-            ("temp",   _flux_last("temp_c",       "unit-01",  "hvac")),
-            ("setpt",  _flux_last("setpoint_c",   "unit-01",  "hwh")),
-            ("net",    _flux_last("total_w",       "balance",  "net")),
+            ("solar",    _flux_last("generation_w", "array-01", "solar")),
+            ("temp",     _flux_last("temp_c",       "unit-01",  "hvac")),
+            ("target",   _flux_last("target_c",     "unit-01",  "hvac")),
+            ("ac_w",     _flux_last("total_w",      "unit-01",  "hvac")),
+            ("setpt",    _flux_last("setpoint_c",   "unit-01",  "hwh")),
+            ("hwh_w",    _flux_last("total_w",      "unit-01",  "hwh")),
+            ("net",      _flux_last("total_w",      "balance",  "net")),
         ])
         latest_frames = await _grafana_query(latest_payload)
 
-        solar_w = _extract_scalar(latest_frames, "solar")
-        temp_c  = _extract_scalar(latest_frames, "temp")
-        setpt_c = _extract_scalar(latest_frames, "setpt")
-        net_w   = _extract_scalar(latest_frames, "net")
+        solar_w  = _extract_scalar(latest_frames, "solar")
+        temp_c   = _extract_scalar(latest_frames, "temp")
+        target_c = _extract_scalar(latest_frames, "target")
+        ac_w     = _extract_scalar(latest_frames, "ac_w")
+        setpt_c  = _extract_scalar(latest_frames, "setpt")
+        hwh_w    = _extract_scalar(latest_frames, "hwh_w")
+        net_w    = _extract_scalar(latest_frames, "net")
 
         # ── History queries ───────────────────────────────────────────────────
         history_payload = _build_query_payload([
             ("hsolar", _flux_history("generation_w", "array-01", "solar")),
-            ("hnet",   _flux_history("total_w",       "balance",  "net")),
+            ("hnet",   _flux_history("total_w",      "balance",  "net")),
+            ("hhvac",  _flux_history("total_w",      "unit-01",  "hvac")),
+            ("hhwh",   _flux_history("total_w",      "unit-01",  "hwh")),
         ])
         history_frames = await _grafana_query(history_payload)
 
-        s_labels, s_vals = _extract_series(history_frames, "hsolar")
-        n_labels, n_vals = _extract_series(history_frames, "hnet")
-        labels = s_labels or n_labels
+        s_labels, s_vals  = _extract_series(history_frames, "hsolar")
+        n_labels, n_vals  = _extract_series(history_frames, "hnet")
+        h_labels, h_vals  = _extract_series(history_frames, "hhvac")
+        hw_labels, hw_vals = _extract_series(history_frames, "hhwh")
+        labels = s_labels or n_labels or h_labels
 
         return {
             "latest": {
                 "solar_current_power_w": solar_w,
                 "ac_current_temp_c":     temp_c,
+                "ac_target_temp_c":      target_c,
+                "ac_consumption_w":      ac_w,
                 "hwh_set_point_c":       setpt_c,
+                "hwh_consumption_w":     hwh_w,
                 "net_balance_w":         net_w,
             },
             "history": {
                 "labels": labels,
                 "solar":  s_vals,
                 "net":    n_vals,
+                "hvac":   h_vals,
+                "hwh":    hw_vals,
             },
             "live": True,
         }

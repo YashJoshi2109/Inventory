@@ -244,34 +244,42 @@ export function EnergyDashboard() {
 
   const influxLive  = influxData?.live === true;
   const anyLive     = influxLive || !!data?.live;
-  const indoorTempC = influxData?.latest?.ac_current_temp_c ?? null;
+  const influx      = influxData?.latest;
 
-  // Merge: InfluxDB overrides Postgres for solar + net where non-null
+  const indoorTempC   = influx?.ac_current_temp_c ?? null;
+  const targetTempC   = influx?.ac_target_temp_c ?? null;
+  const acWattsInflux = influx?.ac_consumption_w ?? null;
+  const hwhWattsInflux = influx?.hwh_consumption_w ?? null;
+
+  // Merge: InfluxDB overrides Postgres where non-null (InfluxDB is 30s; Postgres is 5-min)
   const mergedLatest = latest
     ? {
         ...latest,
-        solar_current_power_w:
-          influxData?.latest?.solar_current_power_w ?? latest.solar_current_power_w,
-        net_balance_w:
-          influxData?.latest?.net_balance_w ?? latest.net_balance_w,
+        solar_current_power_w: influx?.solar_current_power_w ?? latest.solar_current_power_w,
+        net_balance_w:         influx?.net_balance_w         ?? latest.net_balance_w,
+        ac_consumption_w:      influx?.ac_consumption_w      ?? latest.ac_consumption_w,
+        hwh_consumption_w:     influx?.hwh_consumption_w     ?? latest.hwh_consumption_w,
       }
     : latest;
 
   // Build chart dataset — prefer InfluxDB (30s resolution) over Postgres (5-min)
   const chartData = useMemo(() => {
     if (influxData?.history?.labels?.length) {
+      const hasHvac = (influxData.history.hvac?.length ?? 0) > 0;
       return influxData.history.labels.map((label, i) => ({
         label,
         Solar:         influxData.history.solar[i] ?? 0,
-        "Net Balance": influxData.history.net[i] ?? 0,
+        "Net Balance": influxData.history.net[i]   ?? 0,
+        ...(hasHvac ? { HVAC: influxData.history.hvac[i] ?? 0 } : {}),
+        ...(influxData.history.hwh?.length ? { "Water Htr": influxData.history.hwh[i] ?? 0 } : {}),
       }));
     }
     if (!history?.labels) return [];
     return history.labels.map((label, i) => ({
       label,
-      Solar:       history.solar[i] ?? 0,
-      "HVAC":      history.ac[i] ?? 0,
-      "Water Htr": history.hwh[i] ?? 0,
+      Solar:       history.solar[i]       ?? 0,
+      "HVAC":      history.ac[i]          ?? 0,
+      "Water Htr": history.hwh[i]         ?? 0,
       Total:       history.consumption[i] ?? 0,
     }));
   }, [history, influxData]);
@@ -280,8 +288,9 @@ export function EnergyDashboard() {
     ? solarPercent(mergedLatest.solar_current_power_w, mergedLatest.total_consumption_w)
     : 0;
 
-  const acOn = AC_ON(latest?.ac_power_mode ?? null);
-  const hwhOn = !!(latest?.hwh_running || (latest?.hwh_consumption_w ?? 0) > 100);
+  // AC: prefer InfluxDB status; fallback to Postgres power_mode
+  const acOn   = acWattsInflux != null ? acWattsInflux > 50 : AC_ON(latest?.ac_power_mode ?? null);
+  const hwhOn  = hwhWattsInflux != null ? hwhWattsInflux > 50 : !!(latest?.hwh_running || (latest?.hwh_consumption_w ?? 0) > 100);
 
   const syncTime = dataUpdatedAt
     ? new Date(dataUpdatedAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" })
@@ -379,7 +388,7 @@ export function EnergyDashboard() {
         )}
 
         {/* ── Stat Cards ── */}
-        <div className="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-7 gap-3">
+        <div className="grid grid-cols-2 sm:grid-cols-4 xl:grid-cols-8 gap-3">
           <StatCard
             icon={Sun}
             label="Solar Powered"
@@ -416,27 +425,35 @@ export function EnergyDashboard() {
           />
           <StatCard
             icon={Wind}
-            label="AC Temperature"
-            value={fmt(latest?.ac_current_temp_f ?? 0)}
-            unit="°F"
+            label="Indoor Temp"
+            value={indoorTempC != null ? fmt(indoorTempC, 1) : fmt(latest?.ac_current_temp_f ?? 0)}
+            unit={indoorTempC != null ? "°C" : "°F"}
             accent="#0088ff"
-            sub={<>Target: <strong style={{ color: "#0088ff" }}>{fmt(latest?.ac_target_temp_f ?? 0)} °F</strong></>}
+            sub={
+              targetTempC != null
+                ? <>Target: <strong style={{ color: "#0088ff" }}>{fmt(targetTempC, 1)} °C</strong> · InfluxDB</>
+                : <>Target: <strong style={{ color: "#0088ff" }}>{fmt(latest?.ac_target_temp_f ?? 0)} °F</strong></>
+            }
           />
           <StatCard
-            icon={Thermometer}
-            label="Indoor Temp"
-            value={indoorTempC != null ? fmt(indoorTempC, 1) : "—"}
-            unit="°C"
-            accent="#06b6d4"
-            sub="AC sensor · live"
+            icon={Zap}
+            label="AC Load"
+            value={fmt(mergedLatest?.ac_consumption_w ?? 0)}
+            unit="W"
+            accent="#0088ff"
+            sub={acOn ? "Active" : "Standby"}
           />
           <StatCard
             icon={Droplets}
             label="Water Heater"
-            value={fmt(latest?.hwh_set_point_f ?? 0)}
-            unit="°F"
+            value={
+              influx?.hwh_set_point_c != null
+                ? fmt(influx.hwh_set_point_c, 1)
+                : fmt(latest?.hwh_set_point_f ?? 0)
+            }
+            unit={influx?.hwh_set_point_c != null ? "°C" : "°F"}
             accent="#ff6600"
-            sub="Set point"
+            sub={`Set point · ${fmt(mergedLatest?.hwh_consumption_w ?? 0)} W`}
           />
         </div>
 
@@ -454,33 +471,20 @@ export function EnergyDashboard() {
                 Energy Trends (24h)
               </h2>
               {/* Legend */}
-              {influxLive ? (
-                <div className="flex items-center gap-3 text-[11px]" style={{ color: "var(--text-secondary)" }}>
-                  {[
-                    { label: "Solar", color: "#ffe600" },
-                    { label: "Net Balance", color: "#34d399" },
-                  ].map(({ label, color }) => (
-                    <span key={label} className="flex items-center gap-1">
-                      <span className="w-2.5 h-2.5 rounded-full" style={{ background: color }} />
-                      {label}
-                    </span>
-                  ))}
-                </div>
-              ) : (
-                <div className="flex items-center gap-3 text-[11px]" style={{ color: "var(--text-secondary)" }}>
-                  {[
-                    { label: "Solar", color: "#ffe600" },
-                    { label: "HVAC",  color: "#0088ff" },
-                    { label: "HWH",   color: "#ff6600" },
-                    { label: "Total", color: "rgba(255,255,255,0.35)" },
-                  ].map(({ label, color }) => (
-                    <span key={label} className="flex items-center gap-1">
-                      <span className="w-2.5 h-2.5 rounded-full" style={{ background: color }} />
-                      {label}
-                    </span>
-                  ))}
-                </div>
-              )}
+              <div className="flex flex-wrap items-center gap-3 text-[11px]" style={{ color: "var(--text-secondary)" }}>
+                {[
+                  { label: "Solar",       color: "#ffe600" },
+                  { label: "Net Balance", color: "#34d399" },
+                  { label: "HVAC",        color: "#0088ff" },
+                  { label: "Water Htr",   color: "#ff6600" },
+                  ...(!influxLive ? [{ label: "Total", color: "rgba(255,255,255,0.35)" }] : []),
+                ].map(({ label, color }) => (
+                  <span key={label} className="flex items-center gap-1">
+                    <span className="w-2.5 h-2.5 rounded-full" style={{ background: color }} />
+                    {label}
+                  </span>
+                ))}
+              </div>
             </div>
 
             {isLoading && (
@@ -516,45 +520,42 @@ export function EnergyDashboard() {
                     dot={false}
                     activeDot={{ r: 5, fill: "#ffe600" }}
                   />
-                  {influxLive ? (
+                  <Line
+                    type="monotone"
+                    dataKey="Net Balance"
+                    stroke="#34d399"
+                    strokeWidth={2}
+                    strokeDasharray="4 2"
+                    dot={false}
+                    activeDot={{ r: 5, fill: "#34d399" }}
+                  />
+                  <Line
+                    type="monotone"
+                    dataKey="HVAC"
+                    stroke="#0088ff"
+                    strokeWidth={2}
+                    dot={false}
+                    activeDot={{ r: 5, fill: "#0088ff" }}
+                  />
+                  <Line
+                    type="monotone"
+                    dataKey="Water Htr"
+                    stroke="#ff6600"
+                    strokeWidth={2}
+                    strokeDasharray="5 5"
+                    dot={false}
+                    activeDot={{ r: 5, fill: "#ff6600" }}
+                  />
+                  {!influxLive && (
                     <Line
                       type="monotone"
-                      dataKey="Net Balance"
-                      stroke="#34d399"
+                      dataKey="Total"
+                      stroke="rgba(255,255,255,0.3)"
                       strokeWidth={2}
-                      strokeDasharray="4 2"
+                      strokeDasharray="2 4"
                       dot={false}
-                      activeDot={{ r: 5, fill: "#34d399" }}
+                      activeDot={{ r: 5, fill: "rgba(255,255,255,0.6)" }}
                     />
-                  ) : (
-                    <>
-                      <Line
-                        type="monotone"
-                        dataKey="HVAC"
-                        stroke="#0088ff"
-                        strokeWidth={2}
-                        dot={false}
-                        activeDot={{ r: 5, fill: "#0088ff" }}
-                      />
-                      <Line
-                        type="monotone"
-                        dataKey="Water Htr"
-                        stroke="#ff6600"
-                        strokeWidth={2}
-                        strokeDasharray="5 5"
-                        dot={false}
-                        activeDot={{ r: 5, fill: "#ff6600" }}
-                      />
-                      <Line
-                        type="monotone"
-                        dataKey="Total"
-                        stroke="rgba(255,255,255,0.3)"
-                        strokeWidth={2}
-                        strokeDasharray="2 4"
-                        dot={false}
-                        activeDot={{ r: 5, fill: "rgba(255,255,255,0.6)" }}
-                      />
-                    </>
                   )}
                 </LineChart>
               </ResponsiveContainer>
@@ -656,12 +657,12 @@ export function EnergyDashboard() {
                 <ApplianceRow
                   icon={Wind}
                   label="AC Unit"
-                  watts={latest?.ac_consumption_w ?? 0}
+                  watts={mergedLatest?.ac_consumption_w ?? 0}
                   iconColor={acOn ? "#0088ff" : undefined}
                   status={
                     <StatusDot
                       on={acOn}
-                      label={latest?.ac_operation_mode ?? "ON"}
+                      label={acOn ? (latest?.ac_operation_mode ?? "COOL") : "OFF"}
                       color="#0088ff"
                     />
                   }
@@ -669,7 +670,7 @@ export function EnergyDashboard() {
                 <ApplianceRow
                   icon={Flame}
                   label="Water Heater"
-                  watts={latest?.hwh_consumption_w ?? 0}
+                  watts={mergedLatest?.hwh_consumption_w ?? 0}
                   iconColor={hwhOn ? "#ff6600" : undefined}
                   status={<StatusDot on={hwhOn} label="HEATING" color="#ff6600" />}
                 />
@@ -677,16 +678,16 @@ export function EnergyDashboard() {
                   icon={Zap}
                   label="Base Load"
                   watts={500}
-                  status={<StatusDot on={false} label="" color="#94a3b8" />}
+                  status={<StatusDot on={true} label="ON" color="#94a3b8" />}
                 />
                 <ApplianceRow
                   icon={Sun}
                   label="Solar System"
-                  watts={latest?.solar_current_power_w ?? 0}
+                  watts={mergedLatest?.solar_current_power_w ?? 0}
                   iconColor="#ffe600"
                   status={
                     <StatusDot
-                      on={(latest?.solar_current_power_w ?? 0) > 0}
+                      on={(mergedLatest?.solar_current_power_w ?? 0) > 0}
                       label="ON"
                       color="#ffe600"
                     />
