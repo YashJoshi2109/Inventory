@@ -755,6 +755,86 @@ function AnimatedWatt({ value }: { value: number }) {
   return <>{display.toLocaleString()}</>;
 }
 
+// ── Solar Forecast Timeline (iOS Grid Forecast style) ────────────────────────
+function SolarForecastTimeline({ solarW }: { solarW: number }) {
+  const [now] = useState(() => new Date());
+  const h = now.getHours();
+  const m = now.getMinutes();
+
+  // 6 slots starting from current hour
+  const slots = Array.from({ length: 6 }, (_, i) => {
+    const hour = (h + i) % 24;
+    const isPeak   = hour >= 10 && hour < 16;
+    const isSolar  = hour >= 8  && hour < 18;
+    return { hour, isPeak, isSolar, isNow: i === 0 };
+  });
+
+  const solarActive = solarW > 80 || (h >= 8 && h < 18);
+  const subtitle = solarActive
+    ? `Cleaner until ${Math.min(h + Math.ceil((18 - h - m / 60)), 18)}:00`
+    : h < 8
+    ? `Solar starts at 8:00 AM`
+    : `Solar resumes tomorrow 8:00 AM`;
+
+  return (
+    <div className="mb-3">
+      <div className="flex items-center justify-between mb-2">
+        <div>
+          <p className="text-[11px] font-bold" style={{ color: "var(--text-primary)", fontFamily: "'Syne', sans-serif" }}>
+            Grid Forecast · SEAR Lab
+          </p>
+          <p className="text-[9px]" style={{ color: "var(--text-muted)", fontFamily: "'Outfit', sans-serif" }}>
+            {subtitle}
+          </p>
+        </div>
+      </div>
+
+      {/* Segment bar */}
+      <div className="flex gap-1 items-end" style={{ height: 52 }}>
+        {slots.map((slot, i) => {
+          const green = slot.isPeak ? "#22c55e" : "#4ade80";
+          const isActive = slot.isSolar;
+          return (
+            <div key={i} className="flex flex-col items-center gap-1" style={{ flex: i === 0 ? 1.4 : 1 }}>
+              <div
+                className="w-full rounded-xl flex items-center justify-center relative overflow-hidden transition-all"
+                style={{
+                  height: slot.isNow ? 40 : isActive ? 36 : 28,
+                  background: isActive
+                    ? `linear-gradient(175deg, ${green}e0 0%, ${green}99 100%)`
+                    : "var(--bg-card)",
+                  border: slot.isNow
+                    ? `1px solid ${isActive ? green + "cc" : "var(--border-card)"}`
+                    : `1px solid ${isActive ? green + "44" : "var(--border-subtle)"}`,
+                  boxShadow: slot.isNow && isActive ? `0 0 14px ${green}55` : undefined,
+                }}
+              >
+                {isActive && (
+                  <Zap
+                    size={slot.isNow ? 13 : 10}
+                    style={{ color: "#fff", opacity: 0.92, filter: "drop-shadow(0 1px 2px rgba(0,0,0,0.3))" }}
+                  />
+                )}
+              </div>
+              {(i === 0 || i === 2 || i === 4) && (
+                <span
+                  className="text-[8px] font-bold whitespace-nowrap tabular-nums"
+                  style={{
+                    color: i === 0 ? (isActive ? green : "var(--text-muted)") : "var(--text-muted)",
+                    fontFamily: "'Outfit', sans-serif",
+                  }}
+                >
+                  {i === 0 ? "NOW" : `${slot.hour % 12 || 12}${slot.hour < 12 ? "A" : "P"}`}
+                </span>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 // ── Energy Widget ─────────────────────────────────────────────────────────────
 function EcoEnergyWidget() {
   const { data: energy, isLoading } = useQuery({
@@ -975,6 +1055,9 @@ function EcoEnergyWidget() {
             </div>
           ))}
         </div>
+
+        {/* Solar forecast timeline */}
+        <SolarForecastTimeline solarW={solarW} />
 
         {/* mini chart */}
         <div className="h-[80px]">

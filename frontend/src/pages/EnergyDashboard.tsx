@@ -405,13 +405,20 @@ export function EnergyDashboard() {
   // Chart data — prefer InfluxDB (30 s) over Postgres (5 min)
   const chartData = useMemo(() => {
     if (influxData?.history?.labels?.length) {
-      return influxData.history.labels.map((label, i) => ({
-        label,
-        Solar:          influxData.history.solar[i]                       ?? 0,
-        "Net Balance":  influxData.history.net[i]                         ?? 0,
-        HVAC:           (influxData.history.hvac  ?? [])[i]               ?? 0,
-        "Water Htr":    (influxData.history.hwh   ?? [])[i]               ?? 0,
-      }));
+      return influxData.history.labels.map((label, i) => {
+        const ms = Number(label);
+        const formattedLabel =
+          !isNaN(ms) && ms > 1_000_000_000_000
+            ? new Date(ms).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
+            : label;
+        return {
+          label: formattedLabel,
+          Solar:         influxData.history.solar[i]          ?? 0,
+          "Net Balance": influxData.history.net[i]            ?? 0,
+          HVAC:          (influxData.history.hvac ?? [])[i]   ?? 0,
+          "Water Htr":   (influxData.history.hwh  ?? [])[i]  ?? 0,
+        };
+      });
     }
     if (!history?.labels) return [];
     return history.labels.map((label, i) => ({
@@ -830,10 +837,10 @@ export function EnergyDashboard() {
 
           {/* ── Area Chart Panel ──────────────────────────────────────────── */}
           <div
-            className="rounded-2xl p-5"
+            className="rounded-2xl p-5 flex flex-col"
             style={{ background: "var(--bg-card)", border: "1px solid var(--border-card)" }}
           >
-            <div className="flex items-center justify-between mb-5 flex-wrap gap-3">
+            <div className="flex items-center justify-between mb-5 flex-wrap gap-3 shrink-0">
               <div>
                 <h2 className="text-sm font-bold flex items-center gap-2" style={{ color: "var(--text-primary)" }}>
                   <Activity size={14} style={{ color: "var(--accent)" }} />
@@ -864,8 +871,10 @@ export function EnergyDashboard() {
               </div>
             </div>
 
+            <div className="flex-1 min-h-0" style={{ minHeight: 240 }}>
+
             {isLoading && (
-              <div className="h-64 flex flex-col items-center justify-center gap-3">
+              <div className="h-full flex flex-col items-center justify-center gap-3">
                 <div
                   className="w-7 h-7 rounded-full border-2 border-t-transparent animate-spin"
                   style={{ borderColor: "#fbbf24", borderTopColor: "transparent" }}
@@ -881,7 +890,7 @@ export function EnergyDashboard() {
               const hasHwh  = rows.some(d => ((d["Water Htr"] as number) ?? 0) > 0);
               const hasNet  = rows.some(d => ((d["Net Balance"] as number) ?? 0) !== 0);
               return (
-                <ResponsiveContainer width="100%" height={300}>
+                <ResponsiveContainer width="100%" height="100%">
                   <AreaChart data={chartData} margin={{ top: 6, right: 6, left: 0, bottom: 0 }}>
                     <defs>
                       <linearGradient id="gradSolar" x1="0" y1="0" x2="0" y2="1">
@@ -943,7 +952,7 @@ export function EnergyDashboard() {
             })()}
 
             {!isLoading && chartData.length === 0 && (
-              <div className="h-64 flex flex-col items-center justify-center gap-2">
+              <div className="h-full flex flex-col items-center justify-center gap-2">
                 <Activity size={32} style={{ color: "var(--text-muted)", opacity: 0.4 }} />
                 <p className="text-sm" style={{ color: "var(--text-muted)" }}>
                   No historical data yet
@@ -953,6 +962,8 @@ export function EnergyDashboard() {
                 </p>
               </div>
             )}
+
+            </div>{/* end flex-1 chart area */}
           </div>
 
           {/* ── Side Panel ───────────────────────────────────────────────── */}
@@ -1108,86 +1119,57 @@ export function EnergyDashboard() {
                   )}
                 </div>
               )}
+
+              {/* ── Performance stats ─────────────────────────────────────── */}
+              <div className="mt-3 pt-3" style={{ borderTop: "1px solid var(--border-subtle)" }}>
+                <p className="text-[10px] uppercase tracking-wider font-semibold mb-2.5" style={{ color: "var(--text-muted)" }}>
+                  Performance
+                </p>
+                <div className="space-y-2.5">
+                  <div className="flex items-center justify-between">
+                    <span className="flex items-center gap-1.5 text-[11px]" style={{ color: "var(--text-secondary)" }}>
+                      <Sun size={11} style={{ color: "#ffe600" }} /> Solar Peak
+                    </span>
+                    <div className="text-right">
+                      <span className="text-[12px] font-black tabular-nums" style={{ color: "#fbbf24" }}>
+                        {displaySolarPeak.toLocaleString()} W
+                      </span>
+                      <p className="text-[9px]" style={{ color: "var(--text-muted)" }}>
+                        {influxSolarPeak != null ? "InfluxDB" : "Postgres"}
+                      </p>
+                    </div>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span className="flex items-center gap-1.5 text-[11px]" style={{ color: "var(--text-secondary)" }}>
+                      <Activity size={11} style={{ color: "#0088ff" }} /> Avg Load
+                    </span>
+                    <div className="text-right">
+                      <span className="text-[12px] font-black tabular-nums" style={{ color: "#60a5fa" }}>
+                        {displayAvgLoad.toLocaleString()} W
+                      </span>
+                      <p className="text-[9px]" style={{ color: "var(--text-muted)" }}>
+                        {influxAvgLoad != null ? "InfluxDB" : currentLoadW > 0 ? "Live" : "Postgres"}
+                      </p>
+                    </div>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span className="flex items-center gap-1.5 text-[11px]" style={{ color: "var(--text-secondary)" }}>
+                      <TrendingUp size={11} style={{ color: "#34d399" }} /> Solar Eff.
+                    </span>
+                    <div className="text-right">
+                      <span className="text-[12px] font-black tabular-nums" style={{ color: "#34d399" }}>
+                        {efficiencyPct != null ? `${efficiencyPct}%` : "—"}
+                      </span>
+                      <p className="text-[9px]" style={{ color: "var(--text-muted)" }}>
+                        {currentLoadW > 0 ? "vs current load" : "vs avg load"}
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
             </div>
 
-          </div>
-        </div>
-
-        {/* ── Today's Summary Bar ─────────────────────────────────────────── */}
-        <div
-          className="grid grid-cols-3 gap-3 rounded-2xl p-5"
-          style={{ background: "var(--bg-card)", border: "1px solid var(--border-card)" }}
-        >
-          {/* Solar Peak */}
-          <div className="flex flex-col items-center gap-1.5 text-center">
-            <div
-              className="w-8 h-8 rounded-xl flex items-center justify-center mb-1"
-              style={{ background: "rgba(255,230,0,0.12)", border: "1px solid rgba(255,230,0,0.2)" }}
-            >
-              <Sun size={15} style={{ color: "#ffe600" }} />
-            </div>
-            <p
-              className="text-[10px] uppercase tracking-wider font-semibold"
-              style={{ color: "var(--text-muted)" }}
-            >
-              Solar Peak Today
-            </p>
-            <p className="text-xl font-black tabular-nums" style={{ color: "#fbbf24" }}>
-              {displaySolarPeak.toLocaleString()} W
-            </p>
-            <p className="text-[10px]" style={{ color: "var(--text-muted)" }}>
-              {influxSolarPeak != null ? "InfluxDB derived" : "Postgres stats"}
-            </p>
-          </div>
-
-          {/* Avg Load */}
-          <div
-            className="flex flex-col items-center gap-1.5 text-center"
-            style={{
-              borderLeft: "1px solid var(--border-card)",
-              borderRight: "1px solid var(--border-card)",
-            }}
-          >
-            <div
-              className="w-8 h-8 rounded-xl flex items-center justify-center mb-1"
-              style={{ background: "rgba(0,136,255,0.12)", border: "1px solid rgba(0,136,255,0.2)" }}
-            >
-              <Activity size={15} style={{ color: "#0088ff" }} />
-            </div>
-            <p
-              className="text-[10px] uppercase tracking-wider font-semibold"
-              style={{ color: "var(--text-muted)" }}
-            >
-              Avg Load
-            </p>
-            <p className="text-xl font-black tabular-nums" style={{ color: "#60a5fa" }}>
-              {displayAvgLoad.toLocaleString()} W
-            </p>
-            <p className="text-[10px]" style={{ color: "var(--text-muted)" }}>
-              {influxAvgLoad != null ? "InfluxDB derived" : currentLoadW > 0 ? "Live reading" : "Postgres stats"}
-            </p>
-          </div>
-
-          {/* Energy Efficiency */}
-          <div className="flex flex-col items-center gap-1.5 text-center">
-            <div
-              className="w-8 h-8 rounded-xl flex items-center justify-center mb-1"
-              style={{ background: "rgba(52,211,153,0.12)", border: "1px solid rgba(52,211,153,0.2)" }}
-            >
-              <TrendingUp size={15} style={{ color: "#34d399" }} />
-            </div>
-            <p
-              className="text-[10px] uppercase tracking-wider font-semibold"
-              style={{ color: "var(--text-muted)" }}
-            >
-              Solar Efficiency
-            </p>
-            <p className="text-xl font-black tabular-nums" style={{ color: "#34d399" }}>
-              {efficiencyPct != null ? `${efficiencyPct}%` : "—"}
-            </p>
-            <p className="text-[10px]" style={{ color: "var(--text-muted)" }}>
-              {currentLoadW > 0 ? "Solar vs current load" : "Solar vs avg load"}
-            </p>
           </div>
         </div>
 

@@ -105,9 +105,7 @@ def _extract_series(frames: list[dict], ref_id: str) -> tuple[list[str], list[fl
         for i, ts_ms in enumerate(timestamps_ms):
             if ts_ms is None or vals[i] is None:
                 continue
-            from datetime import datetime, timezone
-            dt = datetime.fromtimestamp(ts_ms / 1000, tz=timezone.utc)
-            labels.append(dt.strftime("%H:%M"))
+            labels.append(str(int(ts_ms)))  # epoch ms — frontend formats to local time
             series.append(round(float(vals[i]), 2))
         return labels, series
     return [], []
