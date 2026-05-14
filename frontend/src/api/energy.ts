@@ -51,6 +51,25 @@ export interface EnergyDashboardData {
   live: boolean;
 }
 
+export interface InfluxLatest {
+  solar_current_power_w: number | null;
+  ac_current_temp_c: number | null;
+  hwh_set_point_c: number | null;
+  net_balance_w: number | null;
+}
+
+export interface InfluxHistory {
+  labels: string[];
+  solar: number[];
+  net: number[];
+}
+
+export interface InfluxLiveData {
+  latest: InfluxLatest | null;
+  history: InfluxHistory;
+  live: boolean;
+}
+
 // ── API ────────────────────────────────────────────────────────────────────────
 
 export const energyApi = {
@@ -58,6 +77,11 @@ export const energyApi = {
     const { data } = await apiClient.get<EnergyDashboardData>("/energy/dashboard", {
       params: { hours },
     });
+    return data;
+  },
+
+  getGrafanaLive: async (): Promise<InfluxLiveData> => {
+    const { data } = await apiClient.get<InfluxLiveData>("/energy/grafana-live");
     return data;
   },
 };
