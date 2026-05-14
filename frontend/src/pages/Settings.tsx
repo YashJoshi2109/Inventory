@@ -201,6 +201,60 @@ export function Settings() {
   const [deletingId, setDeletingId] = useState<number | null>(null);
   const [profileLoadError, setProfileLoadError] = useState<string | null>(null);
 
+  // Inline password change state
+  const [pwOpen, setPwOpen] = useState(false);
+  const [pwStep, setPwStep] = useState<"send" | "verify">("send");
+  const [pwOtp, setPwOtp] = useState("");
+  const [pwNew, setPwNew] = useState("");
+  const [pwConfirm, setPwConfirm] = useState("");
+  const [pwBusy, setPwBusy] = useState(false);
+  const [pwError, setPwError] = useState<string | null>(null);
+  const [pwSuccess, setPwSuccess] = useState(false);
+
+  function openPwChange() {
+    setPwOpen(true);
+    setPwStep("send");
+    setPwOtp("");
+    setPwNew("");
+    setPwConfirm("");
+    setPwError(null);
+    setPwSuccess(false);
+  }
+
+  async function handleSendPwOtp() {
+    if (!user) return;
+    setPwBusy(true);
+    setPwError(null);
+    try {
+      await authApi.requestPasswordReset(user.email);
+      setPwStep("verify");
+    } catch (e: unknown) {
+      const msg = (e as { response?: { data?: { detail?: string } } })?.response?.data?.detail;
+      setPwError(msg ?? "Failed to send OTP. Try again.");
+    } finally {
+      setPwBusy(false);
+    }
+  }
+
+  async function handleConfirmPwChange() {
+    if (!user) return;
+    if (pwNew.length < 8) { setPwError("Password must be at least 8 characters."); return; }
+    if (pwNew !== pwConfirm) { setPwError("Passwords do not match."); return; }
+    if (pwOtp.replace(/\D/g, "").length !== 6) { setPwError("Enter the 6-digit code."); return; }
+    setPwBusy(true);
+    setPwError(null);
+    try {
+      await authApi.confirmPasswordReset(user.email, pwOtp, pwNew);
+      setPwSuccess(true);
+      setTimeout(() => { setPwOpen(false); setPwSuccess(false); }, 2000);
+    } catch (e: unknown) {
+      const msg = (e as { response?: { data?: { detail?: string } } })?.response?.data?.detail;
+      setPwError(msg ?? "Invalid or expired code.");
+    } finally {
+      setPwBusy(false);
+    }
+  }
+
   // Profile edit state
   const [editingProfile, setEditingProfile] = useState(false);
   const [editName, setEditName] = useState("");
@@ -678,20 +732,134 @@ export function Settings() {
 
         {/* ── Security ── */}
         <Section title="Security" subtitle="Manage your account security" icon={Shield} accent="#a78bfa">
-          <button
-            onClick={() => navigate("/forgot-password")}
-            className="w-full flex items-center gap-3 py-3 group"
-            style={{ borderBottom: "1px solid var(--border-subtle)" }}
-          >
-            <div className="w-9 h-9 rounded-xl flex items-center justify-center shrink-0" style={{ background: "rgba(167,139,250,0.1)", border: "1px solid rgba(167,139,250,0.2)" }}>
-              <Key size={16} className="text-purple-400" />
-            </div>
-            <div className="flex-1 text-left">
-              <p className="text-sm font-medium" style={{ color: "var(--text-primary)" }}>Change Password</p>
-              <p className="text-xs mt-0.5" style={{ color: "var(--text-muted)" }}>Update via email OTP verification</p>
-            </div>
-            <ChevronRight size={15} className="text-slate-600 group-hover:text-slate-400 transition-colors" />
-          </button>
+          <div style={{ borderBottom: "1px solid var(--border-subtle)" }}>
+            <button
+              onClick={openPwChange}
+              className="w-full flex items-center gap-3 py-3 group"
+            >
+              <div className="w-9 h-9 rounded-xl flex items-center justify-center shrink-0" style={{ background: "rgba(167,139,250,0.1)", border: "1px solid rgba(167,139,250,0.2)" }}>
+                <Key size={16} className="text-purple-400" />
+              </div>
+              <div className="flex-1 text-left">
+                <p className="text-sm font-medium" style={{ color: "var(--text-primary)" }}>Change Password</p>
+                <p className="text-xs mt-0.5" style={{ color: "var(--text-muted)" }}>Update via email OTP verification</p>
+              </div>
+              <ChevronRight
+                size={15}
+                className="text-slate-600 group-hover:text-slate-400 transition-all duration-200"
+                style={{ transform: pwOpen ? "rotate(90deg)" : undefined }}
+              />
+            </button>
+
+            <AnimatePresence>
+              {pwOpen && (
+                <motion.div
+                  key="pw-panel"
+                  initial={{ height: 0, opacity: 0 }}
+                  animate={{ height: "auto", opacity: 1, transition: { duration: 0.22, ease: "easeOut" } }}
+                  exit={{ height: 0, opacity: 0, transition: { duration: 0.18 } }}
+                  className="overflow-hidden"
+                >
+                  <div className="pb-4 space-y-3">
+                    {pwSuccess ? (
+                      <div className="flex items-center gap-2 px-3 py-2.5 rounded-xl text-sm font-medium text-emerald-400" style={{ background: "rgba(52,211,153,0.1)", border: "1px solid rgba(52,211,153,0.25)" }}>
+                        <CheckCircle2 size={15} />
+                        Password updated successfully!
+                      </div>
+                    ) : pwStep === "send" ? (
+                      <>
+                        <p className="text-xs" style={{ color: "var(--text-muted)" }}>
+                          A 6-digit code will be sent to <span className="font-semibold" style={{ color: "var(--text-primary)" }}>{user.email}</span>
+                        </p>
+                        {pwError && (
+                          <p className="text-xs text-red-400 flex items-center gap-1"><AlertCircle size={12} />{pwError}</p>
+                        )}
+                        <div className="flex gap-2">
+                          <button
+                            onClick={handleSendPwOtp}
+                            disabled={pwBusy}
+                            className="flex-1 flex items-center justify-center gap-2 py-2 rounded-xl text-sm font-semibold transition-all"
+                            style={{ background: "rgba(167,139,250,0.15)", border: "1px solid rgba(167,139,250,0.3)", color: "#a78bfa", opacity: pwBusy ? 0.6 : 1 }}
+                          >
+                            {pwBusy ? <Loader2 size={14} className="animate-spin" /> : <Mail size={14} />}
+                            {pwBusy ? "Sending…" : "Send OTP"}
+                          </button>
+                          <button
+                            onClick={() => setPwOpen(false)}
+                            className="px-3 py-2 rounded-xl text-sm font-medium"
+                            style={{ background: "rgba(128,128,128,0.08)", border: "1px solid var(--border-subtle)", color: "var(--text-muted)" }}
+                          >
+                            Cancel
+                          </button>
+                        </div>
+                      </>
+                    ) : (
+                      <>
+                        <p className="text-xs" style={{ color: "var(--text-muted)" }}>
+                          Code sent to <span className="font-semibold" style={{ color: "var(--text-primary)" }}>{user.email}</span>
+                        </p>
+                        <input
+                          type="text"
+                          inputMode="numeric"
+                          maxLength={6}
+                          placeholder="6-digit code"
+                          value={pwOtp}
+                          onChange={(e) => setPwOtp(e.target.value.replace(/\D/g, "").slice(0, 6))}
+                          className="w-full px-3 py-2 rounded-xl text-sm tracking-widest font-mono"
+                          style={{ background: "rgba(255,255,255,0.04)", border: "1px solid var(--border-card)", color: "var(--text-primary)", outline: "none" }}
+                        />
+                        <input
+                          type="password"
+                          placeholder="New password (min 8 chars)"
+                          value={pwNew}
+                          onChange={(e) => setPwNew(e.target.value)}
+                          className="w-full px-3 py-2 rounded-xl text-sm"
+                          style={{ background: "rgba(255,255,255,0.04)", border: "1px solid var(--border-card)", color: "var(--text-primary)", outline: "none" }}
+                        />
+                        <input
+                          type="password"
+                          placeholder="Confirm new password"
+                          value={pwConfirm}
+                          onChange={(e) => setPwConfirm(e.target.value)}
+                          className="w-full px-3 py-2 rounded-xl text-sm"
+                          style={{ background: "rgba(255,255,255,0.04)", border: "1px solid var(--border-card)", color: "var(--text-primary)", outline: "none" }}
+                        />
+                        {pwError && (
+                          <p className="text-xs text-red-400 flex items-center gap-1"><AlertCircle size={12} />{pwError}</p>
+                        )}
+                        <div className="flex gap-2">
+                          <button
+                            onClick={handleConfirmPwChange}
+                            disabled={pwBusy}
+                            className="flex-1 flex items-center justify-center gap-2 py-2 rounded-xl text-sm font-semibold transition-all"
+                            style={{ background: "rgba(167,139,250,0.15)", border: "1px solid rgba(167,139,250,0.3)", color: "#a78bfa", opacity: pwBusy ? 0.6 : 1 }}
+                          >
+                            {pwBusy ? <Loader2 size={14} className="animate-spin" /> : <ShieldCheck size={14} />}
+                            {pwBusy ? "Updating…" : "Update Password"}
+                          </button>
+                          <button
+                            onClick={() => { setPwStep("send"); setPwOtp(""); setPwNew(""); setPwConfirm(""); setPwError(null); }}
+                            className="px-3 py-2 rounded-xl text-sm font-medium"
+                            style={{ background: "rgba(128,128,128,0.08)", border: "1px solid var(--border-subtle)", color: "var(--text-muted)" }}
+                          >
+                            Back
+                          </button>
+                        </div>
+                        <button
+                          onClick={handleSendPwOtp}
+                          disabled={pwBusy}
+                          className="text-xs underline"
+                          style={{ color: "var(--text-muted)" }}
+                        >
+                          Resend code
+                        </button>
+                      </>
+                    )}
+                  </div>
+                </motion.div>
+              )}
+            </AnimatePresence>
+          </div>
 
           <div className="flex items-center gap-3 py-3">
             <div className="w-9 h-9 rounded-xl flex items-center justify-center shrink-0" style={{ background: "rgba(34,211,238,0.08)", border: "1px solid rgba(34,211,238,0.15)" }}>
