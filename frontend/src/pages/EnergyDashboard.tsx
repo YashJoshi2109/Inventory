@@ -30,7 +30,7 @@ import {
   Activity,
   Flame,
 } from "lucide-react";
-import { energyApi, type EnergyLatest } from "@/api/energy";
+import { energyApi, type EnergyLatest, type InfluxLiveData } from "@/api/energy";
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -231,12 +231,41 @@ export function EnergyDashboard() {
     staleTime: 10_000,
   });
 
+  const { data: influxData } = useQuery<InfluxLiveData>({
+    queryKey: ["energy-grafana-live"],
+    queryFn: () => energyApi.getGrafanaLive(),
+    refetchInterval: 15_000,
+    staleTime: 10_000,
+  });
+
   const latest = data?.latest as EnergyLatest | null | undefined;
   const history = data?.history;
   const stats   = data?.stats;
 
-  // Build chart dataset
+  const influxLive  = influxData?.live === true;
+  const anyLive     = influxLive || !!data?.live;
+  const indoorTempC = influxData?.latest?.ac_current_temp_c ?? null;
+
+  // Merge: InfluxDB overrides Postgres for solar + net where non-null
+  const mergedLatest = latest
+    ? {
+        ...latest,
+        solar_current_power_w:
+          influxData?.latest?.solar_current_power_w ?? latest.solar_current_power_w,
+        net_balance_w:
+          influxData?.latest?.net_balance_w ?? latest.net_balance_w,
+      }
+    : latest;
+
+  // Build chart dataset — prefer InfluxDB (30s resolution) over Postgres (5-min)
   const chartData = useMemo(() => {
+    if (influxData?.history?.labels?.length) {
+      return influxData.history.labels.map((label, i) => ({
+        label,
+        Solar:         influxData.history.solar[i] ?? 0,
+        "Net Balance": influxData.history.net[i] ?? 0,
+      }));
+    }
     if (!history?.labels) return [];
     return history.labels.map((label, i) => ({
       label,
@@ -245,10 +274,10 @@ export function EnergyDashboard() {
       "Water Htr": history.hwh[i] ?? 0,
       Total:       history.consumption[i] ?? 0,
     }));
-  }, [history]);
+  }, [history, influxData]);
 
-  const pctSolar = latest
-    ? solarPercent(latest.solar_current_power_w, latest.total_consumption_w)
+  const pctSolar = mergedLatest
+    ? solarPercent(mergedLatest.solar_current_power_w, mergedLatest.total_consumption_w)
     : 0;
 
   const acOn = AC_ON(latest?.ac_power_mode ?? null);
@@ -294,13 +323,17 @@ export function EnergyDashboard() {
           <div
             className="hidden sm:flex items-center gap-1.5 px-2.5 py-1 rounded-xl text-[11px] font-medium"
             style={{
-              background: data?.live ? "rgba(52,211,153,0.08)" : "rgba(239,68,68,0.08)",
-              border: `1px solid ${data?.live ? "rgba(52,211,153,0.25)" : "rgba(239,68,68,0.25)"}`,
-              color: data?.live ? "#34d399" : "#f87171",
+              background: anyLive ? "rgba(52,211,153,0.08)" : "rgba(239,68,68,0.08)",
+              border: `1px solid ${anyLive ? "rgba(52,211,153,0.25)" : "rgba(239,68,68,0.25)"}`,
+              color: anyLive ? "#34d399" : "#f87171",
             }}
           >
-            {data?.live ? <Wifi size={11} /> : <WifiOff size={11} />}
-            {data?.live ? `Live · ${syncTime}` : "No data"}
+            {anyLive ? <Wifi size={11} /> : <WifiOff size={11} />}
+            {influxLive
+              ? `InfluxDB · ${syncTime}`
+              : data?.live
+              ? `Live · ${syncTime}`
+              : "No data"}
           </div>
 
           <button
@@ -345,8 +378,8 @@ export function EnergyDashboard() {
           </div>
         )}
 
-        {/* ── 6 Stat Cards ── */}
-        <div className="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-6 gap-3">
+        {/* ── Stat Cards ── */}
+        <div className="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-7 gap-3">
           <StatCard
             icon={Sun}
             label="Solar Powered"
@@ -359,7 +392,7 @@ export function EnergyDashboard() {
           <StatCard
             icon={Sun}
             label="Solar Production"
-            value={fmt(latest?.solar_current_power_w ?? 0)}
+            value={fmt(mergedLatest?.solar_current_power_w ?? 0)}
             unit="W"
             accent="#ffe600"
             sub={<>Peak today: <strong style={{ color: "#ffe600" }}>{fmt(stats?.solar_peak_today ?? 0)} W</strong></>}
@@ -375,10 +408,10 @@ export function EnergyDashboard() {
           <StatCard
             icon={Activity}
             label="Net Energy Balance"
-            value={fmt(Math.abs(latest?.net_balance_w ?? 0))}
+            value={fmt(Math.abs(mergedLatest?.net_balance_w ?? 0))}
             unit="W"
-            accent={(latest?.net_balance_w ?? 0) >= 0 ? "#34d399" : "#f87171"}
-            highlight={(latest?.net_balance_w ?? 0) !== 0}
+            accent={(mergedLatest?.net_balance_w ?? 0) >= 0 ? "#34d399" : "#f87171"}
+            highlight={(mergedLatest?.net_balance_w ?? 0) !== 0}
             badge={stats && <SurplusBadge status={stats.savings_status} />}
           />
           <StatCard
@@ -388,6 +421,14 @@ export function EnergyDashboard() {
             unit="°F"
             accent="#0088ff"
             sub={<>Target: <strong style={{ color: "#0088ff" }}>{fmt(latest?.ac_target_temp_f ?? 0)} °F</strong></>}
+          />
+          <StatCard
+            icon={Thermometer}
+            label="Indoor Temp"
+            value={indoorTempC != null ? fmt(indoorTempC, 1) : "—"}
+            unit="°C"
+            accent="#06b6d4"
+            sub="AC sensor · live"
           />
           <StatCard
             icon={Droplets}
@@ -460,32 +501,46 @@ export function EnergyDashboard() {
                     dot={false}
                     activeDot={{ r: 5, fill: "#ffe600" }}
                   />
-                  <Line
-                    type="monotone"
-                    dataKey="HVAC"
-                    stroke="#0088ff"
-                    strokeWidth={2}
-                    dot={false}
-                    activeDot={{ r: 5, fill: "#0088ff" }}
-                  />
-                  <Line
-                    type="monotone"
-                    dataKey="Water Htr"
-                    stroke="#ff6600"
-                    strokeWidth={2}
-                    strokeDasharray="5 5"
-                    dot={false}
-                    activeDot={{ r: 5, fill: "#ff6600" }}
-                  />
-                  <Line
-                    type="monotone"
-                    dataKey="Total"
-                    stroke="rgba(255,255,255,0.3)"
-                    strokeWidth={2}
-                    strokeDasharray="2 4"
-                    dot={false}
-                    activeDot={{ r: 5, fill: "rgba(255,255,255,0.6)" }}
-                  />
+                  {influxLive ? (
+                    <Line
+                      type="monotone"
+                      dataKey="Net Balance"
+                      stroke="#34d399"
+                      strokeWidth={2}
+                      strokeDasharray="4 2"
+                      dot={false}
+                      activeDot={{ r: 5, fill: "#34d399" }}
+                    />
+                  ) : (
+                    <>
+                      <Line
+                        type="monotone"
+                        dataKey="HVAC"
+                        stroke="#0088ff"
+                        strokeWidth={2}
+                        dot={false}
+                        activeDot={{ r: 5, fill: "#0088ff" }}
+                      />
+                      <Line
+                        type="monotone"
+                        dataKey="Water Htr"
+                        stroke="#ff6600"
+                        strokeWidth={2}
+                        strokeDasharray="5 5"
+                        dot={false}
+                        activeDot={{ r: 5, fill: "#ff6600" }}
+                      />
+                      <Line
+                        type="monotone"
+                        dataKey="Total"
+                        stroke="rgba(255,255,255,0.3)"
+                        strokeWidth={2}
+                        strokeDasharray="2 4"
+                        dot={false}
+                        activeDot={{ r: 5, fill: "rgba(255,255,255,0.6)" }}
+                      />
+                    </>
+                  )}
                 </LineChart>
               </ResponsiveContainer>
             )}
