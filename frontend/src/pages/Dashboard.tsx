@@ -357,8 +357,8 @@ function ActivityFlowChart() {
       const idx = Math.floor((t - cutoff) / msPerDay);
       const bucket = buckets[Math.min(idx, days - 1)];
       if (!bucket) continue;
-      if (ev.event_kind === "STOCK_IN")  bucket.in  += ev.quantity;
-      if (ev.event_kind === "STOCK_OUT") bucket.out += ev.quantity;
+      if (ev.event_kind === "STOCK_IN" || ev.event_kind === "IMPORT")   bucket.in  += ev.quantity;
+      if (ev.event_kind === "STOCK_OUT" || ev.event_kind === "ADJUSTMENT") bucket.out += ev.quantity;
     }
     return buckets;
   }, [txPage, days]);
@@ -422,8 +422,8 @@ function ActivityFlowChart() {
         {/* legend */}
         <div className="flex gap-4 mb-3">
           {[
-            { color: "var(--accent)", label: "Stock In" },
-            { color: "var(--accent-2)", label: "Stock Out" },
+            { color: "var(--accent)", label: "In / Import" },
+            { color: "var(--accent-2)", label: "Out / Adjust" },
           ].map(({ color, label }) => (
             <div key={label} className="flex items-center gap-1.5">
               <span className="w-2 h-2 rounded-full" style={{ background: color }} />
@@ -478,8 +478,8 @@ function ActivityFlowChart() {
                   domain={[0, yMax]}
                 />
                 <Tooltip content={<ChartTooltip />} />
-                <Area type="monotone" dataKey="in" name="Stock In" stroke="var(--accent)" strokeWidth={2.5} fill="url(#actGradIn)" dot={false} isAnimationActive={false} />
-                <Area type="monotone" dataKey="out" name="Stock Out" stroke="var(--accent-2)" strokeWidth={2.5} fill="url(#actGradOut)" dot={false} isAnimationActive={false} />
+                <Area type="monotone" dataKey="in" name="In / Import" stroke="var(--accent)" strokeWidth={2.5} fill="url(#actGradIn)" dot={false} isAnimationActive={false} />
+                <Area type="monotone" dataKey="out" name="Out / Adjust" stroke="var(--accent-2)" strokeWidth={2.5} fill="url(#actGradOut)" dot={false} isAnimationActive={false} />
               </AreaChart>
             </ResponsiveContainer>
           )}
@@ -766,9 +766,32 @@ function EcoEnergyWidget() {
 
   if (isLoading || !energy) return <SkeletonCard rows={4} />;
   const { latest, stats, history } = energy;
-  if (!latest) return null;
+  if (!latest) {
+    return (
+      <motion.div
+        variants={animationVariants.fadeInUp}
+        initial="hidden"
+        whileInView="visible"
+        viewport={{ once: true, margin: "-50px" }}
+        onClick={() => navigate("/energy")}
+        className="rounded-2xl overflow-hidden relative cursor-pointer"
+        style={{ background: "var(--bg-card)", border: "1px solid var(--border-card)", backdropFilter: "blur(24px) saturate(1.8)", boxShadow: "var(--shadow-card)", minHeight: 180 }}
+      >
+        <div className="p-5 flex flex-col items-center justify-center h-full gap-3" style={{ minHeight: 180 }}>
+          <div className="w-10 h-10 rounded-xl flex items-center justify-center" style={{ background: "rgba(var(--accent-rgb),0.08)", border: "1px solid rgba(var(--accent-rgb),0.15)" }}>
+            <Zap size={18} style={{ color: "var(--accent)" }} />
+          </div>
+          <div className="text-center">
+            <p className="text-sm font-bold" style={{ color: "var(--text-primary)", fontFamily: "'Syne', sans-serif" }}>EcoEnergy</p>
+            <p className="text-xs mt-1" style={{ color: "var(--text-muted)", fontFamily: "'Outfit', sans-serif" }}>No live data — open hub to configure</p>
+          </div>
+          <p className="text-[10px]" style={{ color: "var(--text-muted)", fontFamily: "'Outfit', sans-serif" }}>Open Energy Hub →</p>
+        </div>
+      </motion.div>
+    );
+  }
 
-  const isSurplus = stats.savings_status === "SURPLUS";
+  const isSurplus = (stats?.savings_status ?? "UNKNOWN") === "SURPLUS";
   const netW = Math.abs(Math.round(latest.net_balance_w ?? 0));
   const solarW = Math.round(latest.solar_current_power_w ?? 0);
   const totalW = Math.round(latest.total_consumption_w ?? 0);

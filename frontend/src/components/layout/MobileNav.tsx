@@ -253,7 +253,7 @@ export function MobileNav() {
             style={{ paddingBottom: "calc(env(safe-area-inset-bottom) + 12px)" }}
           >
             <div
-              className="mx-3 overflow-hidden"
+              className="mx-3"
               style={{
                 background: "var(--bg-card-solid, var(--bg-card))",
                 backdropFilter: "blur(40px) saturate(2.0)",
@@ -275,7 +275,7 @@ export function MobileNav() {
                 />
               </div>
 
-              <div className="px-3 pb-4 space-y-2">
+              <div className="px-3 pb-4 space-y-2 overflow-y-auto" style={{ maxHeight: "calc(70vh - 60px)" }}>
                 {/* Smart Scan */}
                 <button
                   type="button"

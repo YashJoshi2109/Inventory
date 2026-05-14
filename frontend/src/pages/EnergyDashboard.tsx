@@ -454,19 +454,33 @@ export function EnergyDashboard() {
                 Energy Trends (24h)
               </h2>
               {/* Legend */}
-              <div className="flex items-center gap-3 text-[11px]" style={{ color: "var(--text-secondary)" }}>
-                {[
-                  { label: "Solar", color: "#ffe600" },
-                  { label: "HVAC",  color: "#0088ff" },
-                  { label: "HWH",   color: "#ff6600" },
-                  { label: "Total", color: "rgba(255,255,255,0.35)" },
-                ].map(({ label, color }) => (
-                  <span key={label} className="flex items-center gap-1">
-                    <span className="w-2.5 h-2.5 rounded-full" style={{ background: color }} />
-                    {label}
-                  </span>
-                ))}
-              </div>
+              {influxLive ? (
+                <div className="flex items-center gap-3 text-[11px]" style={{ color: "var(--text-secondary)" }}>
+                  {[
+                    { label: "Solar", color: "#ffe600" },
+                    { label: "Net Balance", color: "#34d399" },
+                  ].map(({ label, color }) => (
+                    <span key={label} className="flex items-center gap-1">
+                      <span className="w-2.5 h-2.5 rounded-full" style={{ background: color }} />
+                      {label}
+                    </span>
+                  ))}
+                </div>
+              ) : (
+                <div className="flex items-center gap-3 text-[11px]" style={{ color: "var(--text-secondary)" }}>
+                  {[
+                    { label: "Solar", color: "#ffe600" },
+                    { label: "HVAC",  color: "#0088ff" },
+                    { label: "HWH",   color: "#ff6600" },
+                    { label: "Total", color: "rgba(255,255,255,0.35)" },
+                  ].map(({ label, color }) => (
+                    <span key={label} className="flex items-center gap-1">
+                      <span className="w-2.5 h-2.5 rounded-full" style={{ background: color }} />
+                      {label}
+                    </span>
+                  ))}
+                </div>
+              )}
             </div>
 
             {isLoading && (
@@ -477,7 +491,7 @@ export function EnergyDashboard() {
 
             {!isLoading && chartData.length > 0 && (
               <ResponsiveContainer width="100%" height={280}>
-                <LineChart data={chartData} margin={{ top: 4, right: 4, left: -20, bottom: 0 }}>
+                <LineChart data={chartData} margin={{ top: 4, right: 4, left: 0, bottom: 0 }}>
                   <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" vertical={false} />
                   <XAxis
                     dataKey="label"
@@ -491,6 +505,7 @@ export function EnergyDashboard() {
                     axisLine={false}
                     tickLine={false}
                     width={48}
+                    tickFormatter={(v: number) => v >= 1000 ? `${(v / 1000).toFixed(v % 1000 === 0 ? 0 : 1)}k` : String(v)}
                   />
                   <Tooltip content={<CustomTooltip />} />
                   <Line

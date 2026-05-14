@@ -607,38 +607,6 @@ export function AiInsights() {
     {/* ── RIGHT SIDEBAR ── */}
     <div className="space-y-4 hidden xl:block">
 
-      {/* Quick Actions */}
-      <Card>
-        <CardHeader>
-          <h3 className="text-xs font-semibold uppercase tracking-wide flex items-center gap-2"
-            style={{ color: "var(--text-muted)" }}>
-            <Sparkles size={12} style={{ color: "var(--accent-violet)" }} />
-            Quick Actions
-          </h3>
-        </CardHeader>
-        <CardContent className="p-0">
-          {[
-            { label: "View All Alerts", href: "/alerts", icon: ShieldAlert, color: "var(--accent-danger)" },
-            { label: "Inventory List", href: "/inventory", icon: Package, color: "var(--accent)" },
-            { label: "Run Transactions", href: "/transactions", icon: Activity, color: "var(--accent-violet)" },
-            { label: "Import Data", href: "/import", icon: ArrowUpRight, color: "var(--accent-cyan)" },
-          ].map(({ label, href, icon: Icon, color }, i) => (
-            <Link
-              key={href}
-              to={href}
-              className="flex items-center gap-3 px-4 py-2.5 text-xs transition-colors"
-              style={{ borderTop: i > 0 ? "1px solid var(--border-subtle)" : "none", color: "var(--text-secondary)" }}
-              onMouseEnter={(e) => (e.currentTarget.style.background = "var(--bg-hover)")}
-              onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}
-            >
-              <Icon size={13} style={{ color }} />
-              {label}
-              <ChevronRight size={11} className="ml-auto" style={{ color: "var(--text-muted)" }} />
-            </Link>
-          ))}
-        </CardContent>
-      </Card>
-
       {/* AI Capabilities */}
       <Card>
         <CardHeader>
@@ -666,6 +634,41 @@ export function AiInsights() {
               </div>
             </div>
           ))}
+        </CardContent>
+      </Card>
+
+      {/* Quick Actions - after AI Capabilities */}
+      <Card>
+        <CardHeader>
+          <h3 className="text-xs font-semibold uppercase tracking-wide flex items-center gap-2"
+            style={{ color: "var(--text-muted)" }}>
+            <Sparkles size={12} style={{ color: "var(--accent-violet)" }} />
+            Quick Actions
+          </h3>
+        </CardHeader>
+        <CardContent>
+          <div className="grid grid-cols-2 gap-2">
+            {[
+              { label: "View Alerts", href: "/alerts", icon: ShieldAlert, color: "var(--accent-danger)", bg: "rgba(var(--accent-danger-rgb,239,68,68),0.10)" },
+              { label: "Inventory", href: "/inventory", icon: Package, color: "var(--accent)", bg: "rgba(var(--accent-rgb),0.10)" },
+              { label: "Transactions", href: "/transactions", icon: Activity, color: "var(--accent-violet)", bg: "rgba(var(--accent-violet-rgb,139,92,246),0.10)" },
+              { label: "Import Data", href: "/import", icon: ArrowUpRight, color: "var(--accent-cyan)", bg: "rgba(var(--accent-cyan-rgb,34,211,238),0.10)" },
+            ].map(({ label, href, icon: Icon, color, bg }) => (
+              <Link
+                key={href}
+                to={href}
+                className="flex flex-col items-center gap-2 p-3 rounded-xl text-center transition-all"
+                style={{ background: "var(--bg-page)", border: "1px solid var(--border-subtle)" }}
+                onMouseEnter={(e) => (e.currentTarget.style.background = bg)}
+                onMouseLeave={(e) => (e.currentTarget.style.background = "var(--bg-page)")}
+              >
+                <div className="w-9 h-9 rounded-xl flex items-center justify-center" style={{ background: bg, border: `1px solid ${color}30` }}>
+                  <Icon size={16} style={{ color }} />
+                </div>
+                <span className="text-xs font-medium" style={{ color: "var(--text-secondary)" }}>{label}</span>
+              </Link>
+            ))}
+          </div>
         </CardContent>
       </Card>
 
