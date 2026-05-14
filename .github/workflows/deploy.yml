@@ -170,7 +170,11 @@ jobs:
           BARCODE_DIR=/tmp/uploads/barcodes,\
           AI_ANOMALY_DETECTION_ENABLED=true,\
           AI_FORECAST_ENABLED=true,\
-          ALERT_EMAIL_ENABLED=false"
+          ALERT_EMAIL_ENABLED=false,\
+          INFLUXDB_URL=${{ secrets.INFLUXDB_URL }},\
+          INFLUXDB_TOKEN=${{ secrets.INFLUXDB_TOKEN }},\
+          INFLUXDB_ORG=${{ secrets.INFLUXDB_ORG }},\
+          INFLUXDB_BUCKET=${{ secrets.INFLUXDB_BUCKET }}"
 
   # ── Post-deploy smoke test ────────────────────────────────────────────────────
   smoke-test:
