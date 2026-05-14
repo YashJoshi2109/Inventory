@@ -515,14 +515,14 @@ export function Settings() {
                   <label className="text-xs font-medium text-slate-400">Username</label>
                   <input
                     value={editUsername}
-                    onChange={(e) => setEditUsername(e.target.value.toLowerCase().replace(/[^a-z0-9_-]/g, ""))}
+                    onChange={(e) => setEditUsername(e.target.value.replace(/[^a-zA-Z0-9_-]/g, ""))}
                     className="w-full px-3 py-2 rounded-xl text-sm text-white outline-none focus:ring-1 focus:ring-brand-500"
                     style={{ background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.12)" }}
                     placeholder="username"
                     minLength={3}
                     maxLength={50}
                   />
-                  <p className="text-[11px] text-slate-500">3–50 chars, letters / digits / _ / - only. Must be unique.</p>
+                  <p className="text-[11px] text-slate-500">3–50 chars, letters (A–Z, a–z) / digits / _ / - only. Must be unique.</p>
                 </div>
                 {user.is_superuser && (
                   <div className="space-y-1.5">

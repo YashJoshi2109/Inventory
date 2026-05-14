@@ -382,7 +382,7 @@ export function Register() {
                           error={errors.username?.message}
                           autoComplete="username"
                           disabled={registerBusy}
-                          onChange={(e) => { e.target.value = e.target.value.toLowerCase().replace(/\s/g, ""); onUChange(e); }}
+                          onChange={(e) => { e.target.value = e.target.value.replace(/\s/g, ""); onUChange(e); }}
                           {...usernameReg}
                         />
                       );
