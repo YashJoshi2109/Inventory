@@ -313,30 +313,7 @@ function ApplianceRow({
   );
 }
 
-// ── Gradient defs for AreaChart ───────────────────────────────────────────────
-
-function ChartDefs() {
-  return (
-    <defs>
-      <linearGradient id="gradSolar" x1="0" y1="0" x2="0" y2="1">
-        <stop offset="5%" stopColor="#ffe600" stopOpacity={0.35} />
-        <stop offset="95%" stopColor="#ffe600" stopOpacity={0.02} />
-      </linearGradient>
-      <linearGradient id="gradNet" x1="0" y1="0" x2="0" y2="1">
-        <stop offset="5%" stopColor="#34d399" stopOpacity={0.3} />
-        <stop offset="95%" stopColor="#34d399" stopOpacity={0.02} />
-      </linearGradient>
-      <linearGradient id="gradHvac" x1="0" y1="0" x2="0" y2="1">
-        <stop offset="5%" stopColor="#0088ff" stopOpacity={0.28} />
-        <stop offset="95%" stopColor="#0088ff" stopOpacity={0.02} />
-      </linearGradient>
-      <linearGradient id="gradHwh" x1="0" y1="0" x2="0" y2="1">
-        <stop offset="5%" stopColor="#ff6600" stopOpacity={0.28} />
-        <stop offset="95%" stopColor="#ff6600" stopOpacity={0.02} />
-      </linearGradient>
-    </defs>
-  );
-}
+// ChartDefs removed — gradients are inlined directly inside AreaChart as JSX defs
 
 // ── Main Component ────────────────────────────────────────────────────────────
 
@@ -381,18 +358,32 @@ export function EnergyDashboard() {
       }
     : null;
 
-  // InfluxDB-derived stats (used when Postgres has no data)
+  // InfluxDB-derived stats
   const influxSolarPeak = influxData?.history?.solar?.length
     ? Math.round(Math.max(...influxData.history.solar)) : null;
-  const influxHvacAvg = influxData?.history?.hvac?.length
-    ? influxData.history.hvac.reduce((a, b) => a + b, 0) / influxData.history.hvac.length : null;
-  const influxHwhAvg = influxData?.history?.hwh?.length
-    ? influxData.history.hwh.reduce((a, b) => a + b, 0) / influxData.history.hwh.length : null;
+  const influxHvacAvg = (influxData?.history?.hvac?.filter(v => v > 0).length ?? 0) > 0
+    ? influxData!.history.hvac.reduce((a, b) => a + b, 0) / influxData!.history.hvac.length : null;
+  const influxHwhAvg = (influxData?.history?.hwh?.filter(v => v > 0).length ?? 0) > 0
+    ? influxData!.history.hwh.reduce((a, b) => a + b, 0) / influxData!.history.hwh.length : null;
   const influxAvgLoad = influxHvacAvg != null
     ? Math.round(influxHvacAvg + (influxHwhAvg ?? 0) + 500) : null;
 
+  // Fallback: use current mergedLatest readings when history is unavailable
+  const currentLoadW = mergedLatest
+    ? Math.round((mergedLatest.ac_consumption_w ?? 0) + (mergedLatest.hwh_consumption_w ?? 0) + 500)
+    : 0;
+
   const displaySolarPeak = influxSolarPeak ?? stats?.solar_peak_today ?? 0;
-  const displayAvgLoad   = influxAvgLoad   ?? stats?.total_consumption_avg ?? 0;
+  const displayAvgLoad   = (influxAvgLoad && influxAvgLoad > 0) ? influxAvgLoad
+    : (currentLoadW > 0 ? currentLoadW : (stats?.total_consumption_avg ?? 0));
+
+  // Energy efficiency: current solar as % of current total load
+  const currentSolarW = mergedLatest?.solar_current_power_w ?? 0;
+  const efficiencyPct = currentLoadW > 0 && currentSolarW > 0
+    ? Math.min(100, Math.round((currentSolarW / currentLoadW) * 100))
+    : (displaySolarPeak > 0 && displayAvgLoad > 0
+      ? Math.min(100, Math.round((displaySolarPeak / displayAvgLoad) * 100))
+      : null);
 
   // Derive energy status from actual net balance
   const netW = Math.round(mergedLatest?.net_balance_w ?? 0);
@@ -883,72 +874,73 @@ export function EnergyDashboard() {
               </div>
             )}
 
-            {!isLoading && chartData.length > 0 && (
-              <ResponsiveContainer width="100%" height={300}>
-                <AreaChart data={chartData} margin={{ top: 6, right: 6, left: 0, bottom: 0 }}>
-                  <ChartDefs />
-                  <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.04)" vertical={false} />
-                  <XAxis
-                    dataKey="label"
-                    tick={{ fill: "#64748b", fontSize: 10, fontWeight: 600 }}
-                    axisLine={false}
-                    tickLine={false}
-                    interval="preserveStartEnd"
-                  />
-                  <YAxis
-                    tick={{ fill: "#64748b", fontSize: 10, fontWeight: 600 }}
-                    axisLine={false}
-                    tickLine={false}
-                    width={50}
-                    tickFormatter={(v: number) =>
-                      v >= 1000 ? `${(v / 1000).toFixed(v % 1000 === 0 ? 0 : 1)}k` : String(v)
-                    }
-                  />
-                  <Tooltip content={<CustomTooltip />} />
-                  <Area
-                    type="monotone"
-                    dataKey="Solar"
-                    stroke="#ffe600"
-                    strokeWidth={2.5}
-                    fill="url(#gradSolar)"
-                    dot={false}
-                    isAnimationActive={false}
-                    activeDot={{ r: 5, fill: "#ffe600", strokeWidth: 0 }}
-                  />
-                  <Area
-                    type="monotone"
-                    dataKey="Net Balance"
-                    stroke="#34d399"
-                    strokeWidth={2}
-                    fill="url(#gradNet)"
-                    strokeDasharray="4 2"
-                    dot={false}
-                    isAnimationActive={false}
-                    activeDot={{ r: 5, fill: "#34d399", strokeWidth: 0 }}
-                  />
-                  <Area
-                    type="monotone"
-                    dataKey="HVAC"
-                    stroke="#0088ff"
-                    strokeWidth={2}
-                    fill="url(#gradHvac)"
-                    dot={false}
-                    isAnimationActive={false}
-                    activeDot={{ r: 5, fill: "#0088ff", strokeWidth: 0 }}
-                  />
-                  <Area
-                    type="monotone"
-                    dataKey="Water Htr"
-                    stroke="#ff6600"
-                    strokeWidth={2}
-                    fill="url(#gradHwh)"
-                    dot={false}
-                    isAnimationActive={false}
-                    activeDot={{ r: 5, fill: "#ff6600", strokeWidth: 0 }}
-                  />
-                </AreaChart>
-              </ResponsiveContainer>
-            )}
+            {!isLoading && chartData.length > 0 && (() => {
+              type Row = Record<string, number | string>;
+              const rows = chartData as Row[];
+              const hasHvac = rows.some(d => ((d["HVAC"] as number) ?? 0) > 0);
+              const hasHwh  = rows.some(d => ((d["Water Htr"] as number) ?? 0) > 0);
+              const hasNet  = rows.some(d => ((d["Net Balance"] as number) ?? 0) !== 0);
+              return (
+                <ResponsiveContainer width="100%" height={300}>
+                  <AreaChart data={chartData} margin={{ top: 6, right: 6, left: 0, bottom: 0 }}>
+                    <defs>
+                      <linearGradient id="gradSolar" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="5%"  stopColor="#ffe600" stopOpacity={0.4} />
+                        <stop offset="95%" stopColor="#ffe600" stopOpacity={0.03} />
+                      </linearGradient>
+                      <linearGradient id="gradNet" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="5%"  stopColor="#34d399" stopOpacity={0.35} />
+                        <stop offset="95%" stopColor="#34d399" stopOpacity={0.03} />
+                      </linearGradient>
+                      <linearGradient id="gradHvac" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="5%"  stopColor="#0088ff" stopOpacity={0.32} />
+                        <stop offset="95%" stopColor="#0088ff" stopOpacity={0.03} />
+                      </linearGradient>
+                      <linearGradient id="gradHwh" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="5%"  stopColor="#ff6600" stopOpacity={0.32} />
+                        <stop offset="95%" stopColor="#ff6600" stopOpacity={0.03} />
+                      </linearGradient>
+                    </defs>
+                    <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.04)" vertical={false} />
+                    <XAxis
+                      dataKey="label"
+                      tick={{ fill: "#64748b", fontSize: 10, fontWeight: 600 }}
+                      axisLine={false}
+                      tickLine={false}
+                      interval="preserveStartEnd"
+                    />
+                    <YAxis
+                      tick={{ fill: "#64748b", fontSize: 10, fontWeight: 600 }}
+                      axisLine={false}
+                      tickLine={false}
+                      width={50}
+                      tickFormatter={(v: number) =>
+                        v >= 1000 ? `${(v / 1000).toFixed(v % 1000 === 0 ? 0 : 1)}k` : String(v)
+                      }
+                    />
+                    <Tooltip content={<CustomTooltip />} />
+                    <Area type="monotone" dataKey="Solar" stroke="#ffe600" strokeWidth={2.5}
+                      fill="url(#gradSolar)" dot={false} isAnimationActive={false}
+                      activeDot={{ r: 5, fill: "#ffe600", strokeWidth: 0 }} />
+                    {hasNet && (
+                      <Area type="monotone" dataKey="Net Balance" stroke="#34d399" strokeWidth={2}
+                        fill="url(#gradNet)" strokeDasharray="4 2" dot={false} isAnimationActive={false}
+                        activeDot={{ r: 5, fill: "#34d399", strokeWidth: 0 }} />
+                    )}
+                    {hasHvac && (
+                      <Area type="monotone" dataKey="HVAC" stroke="#0088ff" strokeWidth={2}
+                        fill="url(#gradHvac)" dot={false} isAnimationActive={false}
+                        activeDot={{ r: 5, fill: "#0088ff", strokeWidth: 0 }} />
+                    )}
+                    {hasHwh && (
+                      <Area type="monotone" dataKey="Water Htr" stroke="#ff6600" strokeWidth={2}
+                        fill="url(#gradHwh)" dot={false} isAnimationActive={false}
+                        activeDot={{ r: 5, fill: "#ff6600", strokeWidth: 0 }} />
+                    )}
+                  </AreaChart>
+                </ResponsiveContainer>
+              );
+            })()}
 
             {!isLoading && chartData.length === 0 && (
               <div className="h-64 flex flex-col items-center justify-center gap-2">
@@ -1172,7 +1164,7 @@ export function EnergyDashboard() {
               {displayAvgLoad.toLocaleString()} W
             </p>
             <p className="text-[10px]" style={{ color: "var(--text-muted)" }}>
-              {influxAvgLoad != null ? "InfluxDB derived" : "Postgres stats"}
+              {influxAvgLoad != null ? "InfluxDB derived" : currentLoadW > 0 ? "Live reading" : "Postgres stats"}
             </p>
           </div>
 
@@ -1188,15 +1180,13 @@ export function EnergyDashboard() {
               className="text-[10px] uppercase tracking-wider font-semibold"
               style={{ color: "var(--text-muted)" }}
             >
-              Energy Efficiency
+              Solar Efficiency
             </p>
             <p className="text-xl font-black tabular-nums" style={{ color: "#34d399" }}>
-              {displayAvgLoad > 0
-                ? `${Math.round(Math.min(100, (displaySolarPeak / displayAvgLoad) * 100))}%`
-                : "—"}
+              {efficiencyPct != null ? `${efficiencyPct}%` : "—"}
             </p>
             <p className="text-[10px]" style={{ color: "var(--text-muted)" }}>
-              Solar % of avg load
+              {currentLoadW > 0 ? "Solar vs current load" : "Solar vs avg load"}
             </p>
           </div>
         </div>

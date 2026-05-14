@@ -37,6 +37,7 @@ import { clsx } from "clsx";
 import type { InventoryEvent } from "@/types";
 import { animationVariants } from "@/utils/animations";
 import { energyApi } from "@/api/energy";
+import type { InfluxLiveData } from "@/api/energy";
 import { Sun, Droplets, Wind } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 
@@ -334,7 +335,7 @@ function ActivityFlowChart() {
 
   const { data: txPage, isLoading: loadingTx } = useQuery({
     queryKey: ["activity-chart", range],
-    queryFn: () => transactionsApi.list({ start_date: startDate, page_size: 1000 }),
+    queryFn: () => transactionsApi.list({ start_date: startDate, page_size: 200 }),
     staleTime: 60_000,
   });
 
@@ -762,6 +763,12 @@ function EcoEnergyWidget() {
     refetchInterval: 15_000,
     staleTime: 10_000,
   });
+  const { data: influxData } = useQuery({
+    queryKey: ["dashboard-energy-influx"],
+    queryFn: () => energyApi.getGrafanaLive(),
+    refetchInterval: 15_000,
+    staleTime: 10_000,
+  });
   const navigate = useNavigate();
 
   if (isLoading || !energy) return <SkeletonCard rows={4} />;
@@ -791,14 +798,21 @@ function EcoEnergyWidget() {
     );
   }
 
-  const isSurplus = (stats?.savings_status ?? "UNKNOWN") === "SURPLUS";
-  const netW = Math.abs(Math.round(latest.net_balance_w ?? 0));
-  const solarW = Math.round(latest.solar_current_power_w ?? 0);
-  const totalW = Math.round(latest.total_consumption_w ?? 0);
-  const acW = Math.round(latest.ac_consumption_w ?? 0);
-  const hwhW = Math.round(latest.hwh_consumption_w ?? 0);
-  const acOn = (latest.ac_power_mode ?? "").toUpperCase() !== "POWER_OFF";
-  const hwhOn = latest.hwh_running === true;
+  // Merge InfluxDB (real-time 30s) over Postgres for key fields
+  const influx = influxData?.live ? influxData.latest : null;
+  const mergedSolarW = Math.round(influx?.solar_current_power_w ?? latest.solar_current_power_w ?? 0);
+  const mergedNetW   = Math.round(influx?.net_balance_w ?? latest.net_balance_w ?? 0);
+  const mergedAcW    = Math.round(influx?.ac_consumption_w ?? latest.ac_consumption_w ?? 0);
+  const mergedHwhW   = Math.round(influx?.hwh_consumption_w ?? latest.hwh_consumption_w ?? 0);
+
+  const isSurplus = mergedNetW >= 0;
+  const netW  = Math.abs(mergedNetW);
+  const solarW = mergedSolarW;
+  const totalW = Math.round(latest.total_consumption_w ?? 0) || (mergedAcW + mergedHwhW + 500);
+  const acW   = mergedAcW;
+  const hwhW  = mergedHwhW;
+  const acOn  = influx ? mergedAcW > 50 : (latest.ac_power_mode ?? "").toUpperCase() !== "POWER_OFF";
+  const hwhOn = influx ? mergedHwhW > 50 : latest.hwh_running === true;
 
   const n = history.labels.length;
   const start = Math.max(0, n - 24);
