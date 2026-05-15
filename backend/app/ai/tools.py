@@ -993,29 +993,40 @@ async def rag_search_docs(
         return empty
 
     # ── Prepare BM25 parameters ───────────────────────────────────────────────
-    q_tokens = [t for t in re.findall(r"[a-z0-9]+", q.lower()) if len(t) >= 2]
+    # Minimum 3 chars to skip noise tokens ("in", "of", "to")
+    q_tokens = [t for t in re.findall(r"[a-z0-9]+", q.lower()) if len(t) >= 3]
     corpus = [(chunk, doc) for chunk, doc in rows]
-    avg_dl = sum(len((c.content or "").split()) for c, _ in corpus) / max(1, len(corpus))
+    # avg_dl: guarded against 0 (empty-content corpus)
+    avg_dl = max(1.0, sum(len((c.content or "").split()) for c, _ in corpus) / max(1, len(corpus)))
+    N = len(corpus)
 
-    def _bm25_score(text: str, k1: float = 1.5, b: float = 0.75) -> float:
-        """BM25 score for one document against query tokens."""
+    # Pre-compute df counts ONCE (O(n×q)) instead of per-doc (O(n²×q))
+    df_counts: dict[str, int] = {}
+    if q_tokens:
+        for qt in q_tokens:
+            df_counts[qt] = sum(1 for c2, _ in corpus if qt in (c2.content or "").lower())
+
+    k1, b = 1.5, 0.75
+
+    def _bm25_score(text: str) -> float:
+        """BM25 score using pre-computed df_counts — O(q) per document."""
+        if not q_tokens:
+            return 0.0
         words = re.findall(r"[a-z0-9]+", text.lower())
         dl = max(1, len(words))
         tf_map: dict[str, int] = {}
         for w in words:
             tf_map[w] = tf_map.get(w, 0) + 1
-
-        # IDF: approximate using corpus-level df counts (computed once)
         score = 0.0
         for qt in q_tokens:
             tf = tf_map.get(qt, 0)
             if tf == 0:
                 continue
-            df = sum(1 for c2, _ in corpus if qt in (c2.content or "").lower())
-            N = len(corpus)
+            df = df_counts.get(qt, 0)
             idf = math.log((N - df + 0.5) / (df + 0.5) + 1)
             numerator = tf * (k1 + 1)
-            denominator = tf + k1 * (1 - b + b * dl / avg_dl)
+            # avg_dl guaranteed > 0 above; dl guaranteed >= 1
+            denominator = tf + k1 * (1.0 - b + b * dl / avg_dl)
             score += idf * (numerator / denominator)
         return score
 
@@ -1029,8 +1040,11 @@ async def rag_search_docs(
     for chunk, doc in corpus:
         content = chunk.content or ""
 
-        # BM25
-        bm25_scores.append(_bm25_score(content))
+        # BM25 — always succeeds (no exceptions possible with guarded avg_dl)
+        try:
+            bm25_scores.append(_bm25_score(content))
+        except Exception:
+            bm25_scores.append(0.0)
 
         # Cosine similarity
         if query_vec and chunk.embedding_json:
