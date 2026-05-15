@@ -95,6 +95,14 @@ export const chatApi = {
     return `${BASE_URL}/chat/documents/${id}/content`;
   },
 
+  fetchDocumentContent: async (id: number): Promise<{ blob: Blob; mimeType: string }> => {
+    const response = await apiClient.get(`/chat/documents/${id}/content`, {
+      responseType: "blob",
+    });
+    const mimeType: string = (response.headers["content-type"] as string) || "application/octet-stream";
+    return { blob: response.data as Blob, mimeType };
+  },
+
   /**
    * Stream a chat message using SSE (fetch with readable stream).
    * Calls onEvent for each SSE payload, calls onDone when finished.

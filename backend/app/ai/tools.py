@@ -996,15 +996,21 @@ async def rag_search_docs(
     # Minimum 3 chars to skip noise tokens ("in", "of", "to")
     q_tokens = [t for t in re.findall(r"[a-z0-9]+", q.lower()) if len(t) >= 3]
     corpus = [(chunk, doc) for chunk, doc in rows]
+
+    def _bm25_text(chunk: "DocChunk", doc: "KnowledgeDocument") -> str:
+        """Full text used for BM25: title + filename + content so title queries hit."""
+        parts = [doc.title or "", doc.filename or "", chunk.content or ""]
+        return " ".join(p for p in parts if p)
+
     # avg_dl: guarded against 0 (empty-content corpus)
-    avg_dl = max(1.0, sum(len((c.content or "").split()) for c, _ in corpus) / max(1, len(corpus)))
+    avg_dl = max(1.0, sum(len(_bm25_text(c, d).split()) for c, d in corpus) / max(1, len(corpus)))
     N = len(corpus)
 
     # Pre-compute df counts ONCE (O(n×q)) instead of per-doc (O(n²×q))
     df_counts: dict[str, int] = {}
     if q_tokens:
         for qt in q_tokens:
-            df_counts[qt] = sum(1 for c2, _ in corpus if qt in (c2.content or "").lower())
+            df_counts[qt] = sum(1 for c2, d2 in corpus if qt in _bm25_text(c2, d2).lower())
 
     k1, b = 1.5, 0.75
 
@@ -1040,9 +1046,9 @@ async def rag_search_docs(
     for chunk, doc in corpus:
         content = chunk.content or ""
 
-        # BM25 — always succeeds (no exceptions possible with guarded avg_dl)
+        # BM25 on full text (title + filename + content) — title queries now match
         try:
-            bm25_scores.append(_bm25_score(content))
+            bm25_scores.append(_bm25_score(_bm25_text(chunk, doc)))
         except Exception:
             bm25_scores.append(0.0)
 

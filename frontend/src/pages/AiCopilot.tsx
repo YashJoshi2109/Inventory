@@ -329,6 +329,54 @@ function MessageBubble({ msg, onInteractiveSubmit }: {
   );
 }
 
+// ── CSV table renderer ────────────────────────────────────────────────────────
+
+function CsvTable({ raw }: { raw: string }) {
+  const lines = raw.trim().split("\n").filter(Boolean);
+  if (lines.length === 0) return <pre className="text-xs font-mono" style={{ color: "var(--text-primary)" }}>{raw}</pre>;
+  const parse = (line: string) => {
+    const cols: string[] = [];
+    let cur = "", inQ = false;
+    for (let i = 0; i < line.length; i++) {
+      if (line[i] === '"') { inQ = !inQ; }
+      else if (line[i] === "," && !inQ) { cols.push(cur); cur = ""; }
+      else { cur += line[i]; }
+    }
+    cols.push(cur);
+    return cols;
+  };
+  const headers = parse(lines[0]);
+  const rows = lines.slice(1).map(parse);
+  return (
+    <div className="overflow-auto w-full h-full">
+      <table className="text-[11px] border-collapse min-w-full">
+        <thead>
+          <tr>
+            {headers.map((h, i) => (
+              <th key={i} className="px-3 py-1.5 text-left font-semibold text-brand-300 sticky top-0"
+                style={{ background: "var(--bg-topbar)", borderBottom: "1px solid var(--border-card)", whiteSpace: "nowrap" }}>
+                {h}
+              </th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((row, ri) => (
+            <tr key={ri} style={{ borderBottom: "1px solid rgba(255,255,255,0.04)" }}>
+              {headers.map((_, ci) => (
+                <td key={ci} className="px-3 py-1.5 max-w-[200px] truncate"
+                  style={{ color: "var(--text-secondary)" }}>
+                  {row[ci] ?? ""}
+                </td>
+              ))}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
 // ── Knowledge base panel ───────────────────────────────────────────────────────
 
 function KBPanel({ onClose }: { onClose: () => void }) {
@@ -340,7 +388,41 @@ function KBPanel({ onClose }: { onClose: () => void }) {
   const [docType, setDocType] = useState("general");
   const [uploading, setUploading] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
-  const [previewDoc, setPreviewDoc] = useState<{ id: number; title: string; mime_type: string } | null>(null);
+  const [previewDoc, setPreviewDoc] = useState<{ id: number; title: string; filename: string } | null>(null);
+  const [previewLoading, setPreviewLoading] = useState(false);
+  const [previewText, setPreviewText] = useState<string | null>(null);
+  const [previewPdfUrl, setPreviewPdfUrl] = useState<string | null>(null);
+  const [previewError, setPreviewError] = useState<string | null>(null);
+
+  // Fetch document content with auth when preview opens
+  useEffect(() => {
+    if (!previewDoc) return;
+    let blobUrl: string | null = null;
+    setPreviewLoading(true);
+    setPreviewText(null);
+    setPreviewPdfUrl(null);
+    setPreviewError(null);
+    chatApi.fetchDocumentContent(previewDoc.id)
+      .then(async ({ blob, mimeType }) => {
+        if (mimeType.includes("pdf")) {
+          blobUrl = URL.createObjectURL(blob);
+          setPreviewPdfUrl(blobUrl);
+        } else {
+          const text = await blob.text();
+          setPreviewText(text);
+        }
+      })
+      .catch(() => setPreviewError("Failed to load document content."))
+      .finally(() => setPreviewLoading(false));
+    return () => { if (blobUrl) URL.revokeObjectURL(blobUrl); };
+  }, [previewDoc]);
+
+  const closePreview = () => {
+    setPreviewDoc(null);
+    setPreviewText(null);
+    setPreviewPdfUrl(null);
+    setPreviewError(null);
+  };
 
   const upload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -355,8 +437,6 @@ function KBPanel({ onClose }: { onClose: () => void }) {
       if (fileRef.current) fileRef.current.value = "";
     }
   };
-
-  const BASE_URL = import.meta.env.VITE_API_URL ?? "/api/v1";
 
   return (
     <div className="flex flex-col h-full"
@@ -408,10 +488,10 @@ function KBPanel({ onClose }: { onClose: () => void }) {
               </p>
             </div>
             <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-all shrink-0">
-              {(doc.filename.toLowerCase().endsWith(".pdf") || doc.filename.toLowerCase().endsWith(".txt") || doc.filename.toLowerCase().endsWith(".md")) && (
+              {/\.(pdf|txt|md|csv)$/i.test(doc.filename) && (
                 <button
                   title="Preview document"
-                  onClick={() => setPreviewDoc({ id: doc.id, title: doc.title, mime_type: doc.filename.endsWith(".pdf") ? "application/pdf" : "text/plain" })}
+                  onClick={() => setPreviewDoc({ id: doc.id, title: doc.title, filename: doc.filename })}
                   className="p-1 rounded-lg text-slate-700 hover:text-brand-400 transition-all">
                   <Eye size={11} />
                 </button>
@@ -431,10 +511,10 @@ function KBPanel({ onClose }: { onClose: () => void }) {
         )}
       </div>
 
-      {/* PDF / Document preview modal */}
+      {/* Document preview modal — content fetched with auth */}
       {previewDoc && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm"
-          onClick={() => setPreviewDoc(null)}>
+          onClick={closePreview}>
           <div className="relative flex flex-col rounded-2xl overflow-hidden"
             style={{
               width: "min(900px, 95vw)",
@@ -451,26 +531,50 @@ function KBPanel({ onClose }: { onClose: () => void }) {
               <span className="text-sm font-medium flex-1 truncate" style={{ color: "var(--text-primary)" }}>
                 {previewDoc.title}
               </span>
-              <a
-                href={`${BASE_URL}/chat/documents/${previewDoc.id}/content`}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="p-1.5 rounded-lg text-slate-600 hover:text-brand-400 transition-colors"
-                title="Open in new tab">
-                <ExternalLink size={13} />
-              </a>
-              <button onClick={() => setPreviewDoc(null)}
+              {previewPdfUrl && (
+                <a href={previewPdfUrl} download={previewDoc.filename}
+                  className="p-1.5 rounded-lg text-slate-600 hover:text-brand-400 transition-colors"
+                  title="Download">
+                  <ExternalLink size={13} />
+                </a>
+              )}
+              <button onClick={closePreview}
                 className="p-1.5 rounded-lg text-slate-600 hover:text-slate-300 transition-colors">
                 <X size={14} />
               </button>
             </div>
             {/* Content */}
             <div className="flex-1 overflow-hidden">
-              <iframe
-                src={`${BASE_URL}/chat/documents/${previewDoc.id}/content`}
-                className="w-full h-full border-0"
-                title={previewDoc.title}
-              />
+              {previewLoading && (
+                <div className="flex items-center justify-center h-full">
+                  <Loader2 size={22} className="animate-spin text-brand-400" />
+                </div>
+              )}
+              {previewError && (
+                <div className="flex items-center justify-center h-full text-sm text-red-400">
+                  {previewError}
+                </div>
+              )}
+              {previewPdfUrl && !previewLoading && (
+                <iframe src={previewPdfUrl} className="w-full h-full border-0" title={previewDoc.title} />
+              )}
+              {previewText !== null && !previewLoading && (
+                <div className="w-full h-full overflow-auto p-5">
+                  {/\.md$/i.test(previewDoc.filename) ? (
+                    <div className="prose prose-invert prose-sm max-w-none text-xs leading-relaxed"
+                      style={{ color: "var(--text-primary)" }}>
+                      <ReactMarkdown>{previewText}</ReactMarkdown>
+                    </div>
+                  ) : /\.csv$/i.test(previewDoc.filename) ? (
+                    <CsvTable raw={previewText} />
+                  ) : (
+                    <pre className="text-xs leading-relaxed whitespace-pre-wrap break-words font-mono"
+                      style={{ color: "var(--text-primary)" }}>
+                      {previewText}
+                    </pre>
+                  )}
+                </div>
+              )}
             </div>
           </div>
         </div>
@@ -498,6 +602,8 @@ export function AiCopilot() {
   const [docUploading, setDocUploading] = useState(false);
   const [docUploadName, setDocUploadName] = useState<string | null>(null);
   const [docUploadDone, setDocUploadDone] = useState<"success" | "error" | null>(null);
+  // Persistent chip shown after successful upload (cleared on send or dismiss)
+  const [docAttachedName, setDocAttachedName] = useState<string | null>(null);
 
   // Image attachment
   const [attachedImage, setAttachedImage] = useState<File | null>(null);
@@ -951,6 +1057,7 @@ export function AiCopilot() {
 
     setInput("");
     clearImage();
+    setDocAttachedName(null);
     const uId = makeId();
     const aId = makeId();
 
@@ -1532,6 +1639,22 @@ export function AiCopilot() {
               </div>
             )}
 
+            {/* Persistent doc attachment chip — stays until send or dismissed */}
+            {docAttachedName && !docUploading && !docUploadDone && (
+              <div className="mb-2 flex items-center gap-1.5">
+                <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11px] font-medium"
+                  style={{ background: "rgba(34,211,238,0.08)", border: "1px solid rgba(34,211,238,0.2)", color: "#22d3ee" }}>
+                  <Paperclip size={10} className="shrink-0" />
+                  <span className="truncate max-w-[200px]">{docAttachedName}</span>
+                  <button onClick={() => setDocAttachedName(null)}
+                    className="ml-0.5 hover:text-white transition-colors shrink-0">
+                    <X size={10} />
+                  </button>
+                </div>
+                <span className="text-[10px] text-slate-600">added to Knowledge Base · ask about it</span>
+              </div>
+            )}
+
             {/* Listening indicator strip */}
             {isListening && (
               <div className="mb-1.5 flex items-center gap-2 px-1">
@@ -1605,7 +1728,12 @@ export function AiCopilot() {
                       await chatApi.uploadDocument(f);
                       qc.invalidateQueries({ queryKey: ["chat-docs"] });
                       setDocUploadDone("success");
-                      setTimeout(() => { setDocUploadDone(null); setDocUploadName(null); }, 3000);
+                      // Brief success flash, then collapse into persistent chip
+                      setTimeout(() => {
+                        setDocUploadDone(null);
+                        setDocUploadName(null);
+                        setDocAttachedName(f.name);
+                      }, 1500);
                     } catch {
                       setDocUploadDone("error");
                       setTimeout(() => { setDocUploadDone(null); setDocUploadName(null); }, 4000);
