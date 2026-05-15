@@ -494,6 +494,11 @@ export function AiCopilot() {
   const [searchTerm, setSearchTerm] = useState("");
   const [editingId, setEditingId] = useState<number | null>(null);
   const [editTitle, setEditTitle] = useState("");
+  // Doc upload state
+  const [docUploading, setDocUploading] = useState(false);
+  const [docUploadName, setDocUploadName] = useState<string | null>(null);
+  const [docUploadDone, setDocUploadDone] = useState<"success" | "error" | null>(null);
+
   // Image attachment
   const [attachedImage, setAttachedImage] = useState<File | null>(null);
   const [imagePreview, setImagePreview] = useState<string | null>(null);
@@ -1483,6 +1488,50 @@ export function AiCopilot() {
               </div>
             )}
 
+            {/* Document upload status strip */}
+            {(docUploading || docUploadDone) && docUploadName && (
+              <div className="mb-1.5 flex items-center gap-2 px-1">
+                {docUploading ? (
+                  <>
+                    <Loader2 size={12} className="animate-spin shrink-0 text-brand-400" />
+                    <span className="text-[11px] font-medium" style={{ color: "#22d3ee" }}>
+                      Uploading
+                    </span>
+                    <span
+                      className="text-[11px] truncate max-w-[180px]"
+                      style={{ color: "var(--text-secondary)" }}
+                    >
+                      {docUploadName}
+                    </span>
+                    <span className="text-[10px] text-slate-600 ml-auto">indexing after upload…</span>
+                  </>
+                ) : docUploadDone === "success" ? (
+                  <>
+                    <CheckCircle2 size={12} className="shrink-0 text-emerald-400" />
+                    <span className="text-[11px] font-medium text-emerald-400">Uploaded</span>
+                    <span
+                      className="text-[11px] truncate max-w-[180px]"
+                      style={{ color: "var(--text-secondary)" }}
+                    >
+                      {docUploadName}
+                    </span>
+                    <span className="text-[10px] text-slate-600 ml-auto">ready for questions</span>
+                  </>
+                ) : (
+                  <>
+                    <AlertCircle size={12} className="shrink-0 text-red-400" />
+                    <span className="text-[11px] font-medium text-red-400">Upload failed</span>
+                    <span
+                      className="text-[11px] truncate max-w-[180px]"
+                      style={{ color: "var(--text-secondary)" }}
+                    >
+                      {docUploadName}
+                    </span>
+                  </>
+                )}
+              </div>
+            )}
+
             {/* Listening indicator strip */}
             {isListening && (
               <div className="mb-1.5 flex items-center gap-2 px-1">
@@ -1513,22 +1562,59 @@ export function AiCopilot() {
                 background: "var(--bg-card)",
                 border: isListening
                   ? "1px solid rgba(248,113,113,0.35)"
+                  : docUploading
+                  ? "1px solid rgba(34,211,238,0.35)"
                   : streaming
                   ? "1px solid rgba(34,211,238,0.22)"
+                  : docUploadDone === "success"
+                  ? "1px solid rgba(52,211,153,0.35)"
                   : "1px solid var(--border-card)",
-                boxShadow: isListening ? "0 0 20px rgba(248,113,113,0.07)" : streaming ? "0 0 20px rgba(34,211,238,0.06)" : "none",
+                boxShadow: isListening
+                  ? "0 0 20px rgba(248,113,113,0.07)"
+                  : docUploading
+                  ? "0 0 16px rgba(34,211,238,0.10)"
+                  : streaming
+                  ? "0 0 20px rgba(34,211,238,0.06)"
+                  : docUploadDone === "success"
+                  ? "0 0 14px rgba(52,211,153,0.08)"
+                  : "none",
               }}>
 
               {/* Attach doc to KB */}
-              <label title="Upload document to Knowledge Base"
-                className="text-slate-700 hover:text-brand-400 transition-colors cursor-pointer shrink-0 pb-1">
-                <Paperclip size={16} />
-                <input type="file" accept=".pdf,.docx,.txt,.md,.csv" className="hidden"
+              <label
+                title={docUploading ? "Uploading…" : "Upload document to Knowledge Base"}
+                className={clsx(
+                  "transition-colors cursor-pointer shrink-0 pb-1",
+                  docUploading ? "text-brand-400 cursor-not-allowed" : "text-slate-700 hover:text-brand-400",
+                )}>
+                {docUploading
+                  ? <Loader2 size={16} className="animate-spin" />
+                  : <Paperclip size={16} />}
+                <input
+                  type="file"
+                  accept=".pdf,.docx,.txt,.md,.csv"
+                  className="hidden"
+                  disabled={docUploading}
                   onChange={async e => {
                     const f = e.target.files?.[0];
-                    if (f) { await chatApi.uploadDocument(f); qc.invalidateQueries({ queryKey: ["chat-docs"] }); }
-                    e.target.value = "";
-                  }} />
+                    if (!f) return;
+                    setDocUploading(true);
+                    setDocUploadName(f.name);
+                    setDocUploadDone(null);
+                    try {
+                      await chatApi.uploadDocument(f);
+                      qc.invalidateQueries({ queryKey: ["chat-docs"] });
+                      setDocUploadDone("success");
+                      setTimeout(() => { setDocUploadDone(null); setDocUploadName(null); }, 3000);
+                    } catch {
+                      setDocUploadDone("error");
+                      setTimeout(() => { setDocUploadDone(null); setDocUploadName(null); }, 4000);
+                    } finally {
+                      setDocUploading(false);
+                      e.target.value = "";
+                    }
+                  }}
+                />
               </label>
 
               {/* Attach image for vision */}
