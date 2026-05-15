@@ -26,6 +26,11 @@ from app.models.transaction import StockLevel, InventoryEvent
 from app.models.user import User
 from app.models.chat import KnowledgeDocument, DocChunk
 from app.repositories.item_repo import ItemRepository
+
+# ── RAG result cache ──────────────────────────────────────────────────────────
+# Keyed by SHA-256(query|doc_type), value = (monotonic_timestamp, result_dict)
+_RAG_CACHE: dict[str, tuple[float, dict]] = {}
+RAG_CACHE_TTL = 120.0   # seconds
 from app.repositories.location_repo import LocationRepository
 from app.repositories.transaction_repo import (
     InventoryEventRepository,
@@ -949,22 +954,32 @@ async def rag_search_docs(
     """
     Retrieve relevant knowledge-base chunks from uploaded documents.
 
-    Uses Google text-embedding-004 cosine similarity when GEMINI_API_KEY is
-    set and chunks have stored embeddings.  Falls back to keyword ILIKE ranking.
+    Uses hybrid BM25 + cosine similarity (Reciprocal Rank Fusion) for ranking.
+    Results are cached in-process for 120 s to avoid redundant embedding calls.
     """
-    from app.ai.embeddings import embed_text, cosine_similarity, vec_from_json
+    import hashlib
+    import time
+    import math
 
-    q = (query or "").strip().lower()
+    from app.ai.embeddings import embed_text_cached, cosine_similarity, vec_from_json
+
+    q = (query or "").strip()
     if not q:
         return {"query": query, "total": 0, "chunks": []}
 
-    # Fetch all active chunks (bounded to 200 for performance)
+    # ── RAG result cache ──────────────────────────────────────────────────────
+    _cache_key = hashlib.sha256(f"{q.lower()}|{doc_type}".encode()).hexdigest()
+    _cached = _RAG_CACHE.get(_cache_key)
+    if _cached and (time.monotonic() - _cached[0]) < RAG_CACHE_TTL:
+        return _cached[1]
+
+    # ── Fetch chunks ──────────────────────────────────────────────────────────
     q_stmt = (
         select(DocChunk, KnowledgeDocument)
         .join(KnowledgeDocument, KnowledgeDocument.id == DocChunk.doc_id)
         .where(KnowledgeDocument.is_active == True)  # noqa: E712
         .order_by(DocChunk.created_at.desc())
-        .limit(200)
+        .limit(500)
     )
     if doc_type:
         q_stmt = q_stmt.where(KnowledgeDocument.doc_type == doc_type)
@@ -972,50 +987,104 @@ async def rag_search_docs(
     result = await db.execute(q_stmt)
     rows = result.all()
 
-    # Try semantic ranking with embeddings
-    query_vec = await embed_text(query)
+    if not rows:
+        empty: dict = {"query": query, "total": 0, "chunks": []}
+        _RAG_CACHE[_cache_key] = (time.monotonic(), empty)
+        return empty
 
-    ranked: list[tuple[float, DocChunk, KnowledgeDocument]] = []
-    for chunk, doc in rows:
+    # ── Prepare BM25 parameters ───────────────────────────────────────────────
+    q_tokens = [t for t in re.findall(r"[a-z0-9]+", q.lower()) if len(t) >= 2]
+    corpus = [(chunk, doc) for chunk, doc in rows]
+    avg_dl = sum(len((c.content or "").split()) for c, _ in corpus) / max(1, len(corpus))
+
+    def _bm25_score(text: str, k1: float = 1.5, b: float = 0.75) -> float:
+        """BM25 score for one document against query tokens."""
+        words = re.findall(r"[a-z0-9]+", text.lower())
+        dl = max(1, len(words))
+        tf_map: dict[str, int] = {}
+        for w in words:
+            tf_map[w] = tf_map.get(w, 0) + 1
+
+        # IDF: approximate using corpus-level df counts (computed once)
         score = 0.0
+        for qt in q_tokens:
+            tf = tf_map.get(qt, 0)
+            if tf == 0:
+                continue
+            df = sum(1 for c2, _ in corpus if qt in (c2.content or "").lower())
+            N = len(corpus)
+            idf = math.log((N - df + 0.5) / (df + 0.5) + 1)
+            numerator = tf * (k1 + 1)
+            denominator = tf + k1 * (1 - b + b * dl / avg_dl)
+            score += idf * (numerator / denominator)
+        return score
+
+    # ── Vector similarity ─────────────────────────────────────────────────────
+    query_vec = await embed_text_cached(q)
+
+    # ── Score each chunk ──────────────────────────────────────────────────────
+    bm25_scores: list[float] = []
+    vec_scores: list[float] = []
+
+    for chunk, doc in corpus:
+        content = chunk.content or ""
+
+        # BM25
+        bm25_scores.append(_bm25_score(content))
+
+        # Cosine similarity
         if query_vec and chunk.embedding_json:
             try:
                 chunk_vec = vec_from_json(chunk.embedding_json)
-                score = cosine_similarity(query_vec, chunk_vec)
+                vec_scores.append(cosine_similarity(query_vec, chunk_vec))
             except Exception:
-                score = 0.0
+                vec_scores.append(0.0)
         else:
-            # Fallback: keyword overlap scoring
-            c = (chunk.content or "").lower()
-            tokens = [t for t in re.findall(r"[a-z0-9]+", q) if len(t) >= 3] or [q]
-            for t in tokens:
-                if t in c:
-                    score += 1.0 / max(1, len(tokens))
+            vec_scores.append(0.0)
 
-        # Recency boost (very small)
-        if doc.created_at:
-            age_days = max(0.0, (datetime.utcnow() - doc.created_at.replace(tzinfo=None)).total_seconds() / 86400.0)
-            score += 0.01 / (1.0 + age_days)
-        ranked.append((score, chunk, doc))
+    # Normalize each score list to [0, 1]
+    def _norm(lst: list[float]) -> list[float]:
+        mx = max(lst) if lst else 1.0
+        return [v / mx if mx > 0 else 0.0 for v in lst]
 
-    ranked.sort(key=lambda x: x[0], reverse=True)
+    bm25_norm = _norm(bm25_scores)
+    vec_norm = _norm(vec_scores)
+
+    has_vectors = any(v > 0 for v in vec_scores)
+
+    # Hybrid RRF-style combination: 60% vector + 40% BM25 when vectors available
+    # Fall back to BM25-only when no embeddings stored
+    alpha = 0.6 if has_vectors else 0.0
+    final_scores = [
+        alpha * v + (1 - alpha) * b
+        for v, b in zip(vec_norm, bm25_norm)
+    ]
+
+    ranked: list[tuple[float, DocChunk, KnowledgeDocument]] = sorted(
+        zip(final_scores, [c for c, _ in corpus], [d for _, d in corpus]),
+        key=lambda x: x[0],
+        reverse=True,
+    )
+
     top = ranked[:limit]
 
-    chunks = [
+    chunks_out = [
         {
             "doc_id": doc.id,
             "doc_title": doc.title,
             "doc_type": doc.doc_type,
             "doc_filename": doc.filename,
             "chunk_index": chunk.chunk_index,
-            "chunk_excerpt": (chunk.content or ""),  # full content — no truncation
+            "chunk_excerpt": (chunk.content or ""),
             "score": round(float(score), 4),
         }
         for score, chunk, doc in top
         if (chunk.content or "").strip()
     ]
 
-    return {"query": query, "doc_type": doc_type, "total": len(chunks), "chunks": chunks}
+    out: dict = {"query": query, "doc_type": doc_type, "total": len(chunks_out), "chunks": chunks_out}
+    _RAG_CACHE[_cache_key] = (time.monotonic(), out)
+    return out
 
 
 async def ask_user(

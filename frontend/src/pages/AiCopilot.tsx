@@ -15,6 +15,7 @@ import {
   useRef,
   useState,
 } from "react";
+import { createPortal } from "react-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   chatApi,
@@ -793,7 +794,7 @@ export function AiCopilot() {
 
   const quotaAnchorRef = useRef<HTMLDivElement>(null);
   const [quotaCardOpen, setQuotaCardOpen] = useState(false);
-  const [quotaCardPos, setQuotaCardPos] = useState<{ top: number; left: number; width: number } | null>(null);
+  const [quotaCardPos, setQuotaCardPos] = useState<{ top: number; right: number; width: number } | null>(null);
 
   // Derived state that mirrors the ref (for rendering)
   const [activeSessionId, _setActiveSessionId] = useState<number | null>(null);
@@ -815,30 +816,18 @@ export function AiCopilot() {
 
     const rect = el.getBoundingClientRect();
     const cardWidth = Math.min(300, window.innerWidth - 24);
-    const left = Math.max(12, Math.min(window.innerWidth - cardWidth - 12, rect.right - cardWidth));
-    const top = rect.bottom + 10;
-    setQuotaCardPos({ top, left, width: cardWidth });
+    // Anchor card's right edge to button's right edge, clamped to viewport
+    const right = Math.max(12, window.innerWidth - rect.right);
+    const top = rect.bottom + 8;
+    setQuotaCardPos({ top, right, width: cardWidth });
     setQuotaCardOpen(true);
     if (forceRefetch) {
-      // Fetch fresh quota only on click to avoid excessive network calls on hover.
       void refetchChatRateLimit();
     }
   };
 
   const closeQuotaCard = () => setQuotaCardOpen(false);
 
-  useEffect(() => {
-    if (!quotaCardOpen) return;
-    const onDown = (e: MouseEvent) => {
-      const el = quotaAnchorRef.current;
-      if (!el) return;
-      if (e.target instanceof Node && !el.contains(e.target)) {
-        closeQuotaCard();
-      }
-    };
-    document.addEventListener("mousedown", onDown);
-    return () => document.removeEventListener("mousedown", onDown);
-  }, [quotaCardOpen]);
 
   // Queries
   const { data: sessions = [] } = useQuery({
@@ -1260,119 +1249,131 @@ export function AiCopilot() {
 
           <div ref={quotaAnchorRef} className="shrink-0">
             {chatRateLimit && (
-              <>
-                <button
-                  type="button"
-                  onClick={() => (quotaCardOpen ? closeQuotaCard() : openQuotaCard(true))}
-                  onMouseEnter={() => openQuotaCard(false)}
-                  onMouseLeave={() => setQuotaCardOpen(false)}
-                  className="flex items-center gap-1 px-2.5 py-1 rounded-xl text-[9px] font-semibold transition-all hover:bg-white/5"
-                  style={{
-                    background: quotaCardOpen ? "rgba(34,211,238,0.12)" : "rgba(34,211,238,0.08)",
-                    border: "1px solid rgba(34,211,238,0.18)",
-                    color: "#22d3ee",
-                  }}
-                  title="Click/hover for AI quota details"
-                >
-                  <Bot size={12} className="shrink-0" />
-                  AI {chatRateLimit.remaining}/{chatRateLimit.limit}/min
-                </button>
-
-                {quotaCardOpen && quotaCardPos && (
-                  <div
-                    style={{
-                      position: "fixed",
-                      top: quotaCardPos.top,
-                      left: quotaCardPos.left,
-                      width: quotaCardPos.width,
-                      maxWidth: "calc(100vw - 24px)",
-                      zIndex: 60,
-                      background: "var(--bg-topbar)",
-                      border: "1px solid var(--border-card)",
-                      boxShadow: "0 18px 60px rgba(0,0,0,0.25)",
-                      backdropFilter: "blur(24px) saturate(1.8)",
-                      borderRadius: 16,
-                      overflow: "hidden",
-                    }}
-                  >
-                    {/* Header */}
-                    <div style={{ padding: "12px 14px 10px", borderBottom: "1px solid var(--border-card)" }}>
-                      <div className="flex items-center gap-2">
-                        <Bot size={13} style={{ color: "#22d3ee", flexShrink: 0 }} />
-                        <span className="text-sm font-semibold" style={{ color: "var(--text-primary)" }}>
-                          AI Copilot Quota
-                        </span>
-                        <span
-                          className="ml-auto text-[9px] font-bold px-1.5 py-0.5 rounded-full"
-                          style={{ background: "rgba(34,211,238,0.12)", color: "#22d3ee", border: "1px solid rgba(34,211,238,0.25)" }}
-                        >
-                          LIVE
-                        </span>
-                      </div>
-                      <div className="mt-1 text-[11px]" style={{ color: "var(--text-secondary)" }}>
-                        Model:{" "}
-                        <span className="font-semibold" style={{ color: "var(--text-primary)" }}>
-                          {chatRateLimit.model ?? "Gemini"}
-                        </span>
-                      </div>
-                    </div>
-
-                    {/* Body */}
-                    <div style={{ padding: "12px 14px 14px", display: "flex", flexDirection: "column", gap: 10 }}>
-                      {/* Remaining + progress */}
-                      <div>
-                        <div className="flex items-center justify-between mb-1.5">
-                          <span className="text-[11px]" style={{ color: "var(--text-secondary)" }}>Remaining</span>
-                          <span className="text-[11px] font-bold" style={{ color: "#22d3ee" }}>
-                            {chatRateLimit.remaining}
-                            <span className="font-normal" style={{ color: "var(--text-muted)" }}>
-                              {" "}/ {chatRateLimit.limit} per 60s
-                            </span>
-                          </span>
-                        </div>
-                        <div style={{ height: 7, background: "rgba(34,211,238,0.10)", borderRadius: 999, overflow: "hidden", border: "1px solid rgba(34,211,238,0.15)" }}>
-                          <div
-                            style={{
-                              width: `${Math.round((chatRateLimit.remaining / Math.max(1, chatRateLimit.limit)) * 100)}%`,
-                              height: "100%",
-                              background: chatRateLimit.remaining > chatRateLimit.limit * 0.3
-                                ? "linear-gradient(90deg,#0891b2,#22d3ee)"
-                                : "linear-gradient(90deg,#b45309,#f59e0b)",
-                              transition: "width 0.4s ease",
-                            }}
-                          />
-                        </div>
-                      </div>
-
-                      {/* Stats row */}
-                      <div className="flex items-center justify-between">
-                        <div className="text-center" style={{ flex: 1 }}>
-                          <p className="text-base font-bold" style={{ color: "var(--text-primary)" }}>{chatRateLimit.used}</p>
-                          <p className="text-[10px]" style={{ color: "var(--text-muted)" }}>Used</p>
-                        </div>
-                        <div style={{ width: 1, height: 32, background: "var(--border-subtle)" }} />
-                        <div className="text-center" style={{ flex: 1 }}>
-                          <p className="text-base font-bold" style={{ color: chatRateLimit.retry_after_seconds > 0 ? "#f59e0b" : "#22d3ee" }}>
-                            {chatRateLimit.retry_after_seconds > 0 ? `${chatRateLimit.retry_after_seconds}s` : "now"}
-                          </p>
-                          <p className="text-[10px]" style={{ color: "var(--text-muted)" }}>Reset in</p>
-                        </div>
-                        <div style={{ width: 1, height: 32, background: "var(--border-subtle)" }} />
-                        <div className="text-center" style={{ flex: 1 }}>
-                          <p className="text-base font-bold" style={{ color: "var(--text-primary)" }}>{chatRateLimit.limit}</p>
-                          <p className="text-[10px]" style={{ color: "var(--text-muted)" }}>Limit/min</p>
-                        </div>
-                      </div>
-
-                      <p className="text-[10px] leading-snug" style={{ color: "var(--text-muted)", borderTop: "1px solid var(--border-subtle)", paddingTop: 8 }}>
-                        Enforced per IP to keep the copilot responsive under load.
-                      </p>
-                    </div>
-                  </div>
-                )}
-              </>
+              <button
+                type="button"
+                onClick={() => (quotaCardOpen ? closeQuotaCard() : openQuotaCard(true))}
+                className="flex items-center gap-1 px-2 py-1 rounded-xl text-[9px] font-semibold transition-all hover:bg-white/5"
+                style={{
+                  background: quotaCardOpen ? "rgba(34,211,238,0.12)" : "rgba(34,211,238,0.08)",
+                  border: "1px solid rgba(34,211,238,0.18)",
+                  color: "#22d3ee",
+                }}
+                title="Tap for AI quota details"
+              >
+                <Bot size={12} className="shrink-0" />
+                <span className="hidden sm:inline ml-0.5">{chatRateLimit.remaining}/{chatRateLimit.limit}</span>
+              </button>
             )}
           </div>
+
+          {/* Quota card — rendered via portal to escape backdrop-filter stacking context (Safari) */}
+          {quotaCardOpen && quotaCardPos && chatRateLimit && createPortal(
+            <>
+              {/* Backdrop tap-to-close on mobile */}
+              <div
+                className="fixed inset-0 z-[9998]"
+                onClick={closeQuotaCard}
+              />
+              <div
+                style={{
+                  position: "fixed",
+                  top: quotaCardPos.top,
+                  right: quotaCardPos.right,
+                  width: quotaCardPos.width,
+                  maxWidth: "calc(100vw - 24px)",
+                  zIndex: 9999,
+                  background: "var(--bg-topbar)",
+                  border: "1px solid var(--border-card)",
+                  boxShadow: "0 18px 60px rgba(0,0,0,0.30)",
+                  backdropFilter: "blur(24px) saturate(1.8)",
+                  borderRadius: 16,
+                  overflow: "hidden",
+                }}
+                onClick={e => e.stopPropagation()}
+              >
+                {/* Header */}
+                <div style={{ padding: "12px 14px 10px", borderBottom: "1px solid var(--border-card)" }}>
+                  <div className="flex items-center gap-2">
+                    <Bot size={13} style={{ color: "#22d3ee", flexShrink: 0 }} />
+                    <span className="text-sm font-semibold" style={{ color: "var(--text-primary)" }}>
+                      AI Copilot Quota
+                    </span>
+                    <span
+                      className="ml-auto text-[9px] font-bold px-1.5 py-0.5 rounded-full"
+                      style={{ background: "rgba(34,211,238,0.12)", color: "#22d3ee", border: "1px solid rgba(34,211,238,0.25)" }}
+                    >
+                      LIVE
+                    </span>
+                    <button
+                      onClick={closeQuotaCard}
+                      className="p-0.5 rounded-lg text-slate-600 hover:text-slate-300 transition-colors"
+                    >
+                      <X size={13} />
+                    </button>
+                  </div>
+                  <div className="mt-1 text-[11px]" style={{ color: "var(--text-secondary)" }}>
+                    Model:{" "}
+                    <span className="font-semibold" style={{ color: "var(--text-primary)" }}>
+                      {chatRateLimit.model ?? "Gemini"}
+                    </span>
+                  </div>
+                </div>
+
+                {/* Body */}
+                <div style={{ padding: "12px 14px 14px", display: "flex", flexDirection: "column", gap: 10 }}>
+                  {/* Remaining + progress */}
+                  <div>
+                    <div className="flex items-center justify-between mb-1.5">
+                      <span className="text-[11px]" style={{ color: "var(--text-secondary)" }}>Remaining</span>
+                      <span className="text-[11px] font-bold" style={{ color: "#22d3ee" }}>
+                        {chatRateLimit.remaining}
+                        <span className="font-normal" style={{ color: "var(--text-muted)" }}>
+                          {" "}/ {chatRateLimit.limit} per 60s
+                        </span>
+                      </span>
+                    </div>
+                    <div style={{ height: 7, background: "rgba(34,211,238,0.10)", borderRadius: 999, overflow: "hidden", border: "1px solid rgba(34,211,238,0.15)" }}>
+                      <div
+                        style={{
+                          width: `${Math.round((chatRateLimit.remaining / Math.max(1, chatRateLimit.limit)) * 100)}%`,
+                          height: "100%",
+                          background: chatRateLimit.remaining > chatRateLimit.limit * 0.3
+                            ? "linear-gradient(90deg,#0891b2,#22d3ee)"
+                            : "linear-gradient(90deg,#b45309,#f59e0b)",
+                          transition: "width 0.4s ease",
+                        }}
+                      />
+                    </div>
+                  </div>
+
+                  {/* Stats row */}
+                  <div className="flex items-center justify-between">
+                    <div className="text-center" style={{ flex: 1 }}>
+                      <p className="text-base font-bold" style={{ color: "var(--text-primary)" }}>{chatRateLimit.used}</p>
+                      <p className="text-[10px]" style={{ color: "var(--text-muted)" }}>Used</p>
+                    </div>
+                    <div style={{ width: 1, height: 32, background: "var(--border-subtle)" }} />
+                    <div className="text-center" style={{ flex: 1 }}>
+                      <p className="text-base font-bold" style={{ color: chatRateLimit.retry_after_seconds > 0 ? "#f59e0b" : "#22d3ee" }}>
+                        {chatRateLimit.retry_after_seconds > 0 ? `${chatRateLimit.retry_after_seconds}s` : "now"}
+                      </p>
+                      <p className="text-[10px]" style={{ color: "var(--text-muted)" }}>Reset in</p>
+                    </div>
+                    <div style={{ width: 1, height: 32, background: "var(--border-subtle)" }} />
+                    <div className="text-center" style={{ flex: 1 }}>
+                      <p className="text-base font-bold" style={{ color: "var(--text-primary)" }}>{chatRateLimit.limit}</p>
+                      <p className="text-[10px]" style={{ color: "var(--text-muted)" }}>Limit/min</p>
+                    </div>
+                  </div>
+
+                  <p className="text-[10px] leading-snug" style={{ color: "var(--text-muted)", borderTop: "1px solid var(--border-subtle)", paddingTop: 8 }}>
+                    Enforced per IP to keep the copilot responsive under load.
+                  </p>
+                </div>
+              </div>
+            </>,
+            document.body
+          )}
 
           {streaming && (
             <button onClick={() => { abortRef.current?.abort(); setStreaming(false); setMessages(prev => prev.map(m => m.streaming ? { ...m, streaming: false } : m)); }}

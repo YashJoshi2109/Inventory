@@ -147,12 +147,27 @@ async def run_copilot(
     for vision-capable models (Gemini).
     """
     from app.core.database import AsyncSessionLocal
+    from app.ai.llm_cache import llm_cache_get, llm_cache_set
 
     async def _get_db():
         if db is not None:
             return db, False   # (session, should_close)
         s = AsyncSessionLocal()
         return s, True
+
+    # ── LLM response cache ────────────────────────────────────────────────────
+    # Only use cache when there's no image (vision not cacheable) and we have
+    # messages to key on.  The cache is keyed on the last 5 turns + doc version.
+    _can_cache = (image_bytes is None)
+    if _can_cache:
+        _cached_response = llm_cache_get(messages)
+        if _cached_response:
+            # Stream cached tokens in small chunks to preserve streaming UX
+            _CHUNK = 80
+            for i in range(0, len(_cached_response), _CHUNK):
+                yield _sse({"type": "token", "content": _cached_response[i:i + _CHUNK]})
+            yield _sse({"type": "done"})
+            return
 
     # ── RAG pre-injection (runs for ALL providers) ────────────────────────
     # Detect if the user query references uploaded documents and inject KB
@@ -205,7 +220,7 @@ async def run_copilot(
             _rag_result = await _rag_fn(
                 db=_rag_session,
                 query=_last_user_text,
-                limit=6,
+                limit=8,
             )
         except Exception:
             _rag_result = {}
@@ -259,6 +274,7 @@ async def run_copilot(
                 get_db=_get_db,
                 actor_id=actor_id,
                 actor_roles=actor_roles,
+                original_messages=messages,
             ):
                 _started = True
                 yield chunk
@@ -530,11 +546,14 @@ async def _run_openai_compat_loop(
     get_db,  # callable: () -> Awaitable[(session, should_close)]
     actor_id: int,
     actor_roles: list[str],
+    original_messages: list[dict] | None = None,  # for LLM cache keying
 ) -> AsyncIterator[str]:
     """
     Generic agentic loop for any OpenAI-compatible API (OpenRouter, OpenAI, etc.).
     Yields SSE strings. Raises on API errors so the caller can try the next provider.
     """
+    from app.ai.llm_cache import llm_cache_set
+    _cache_key_msgs = original_messages if original_messages is not None else messages
     msgs = list(messages)  # local copy so retries don't corrupt the outer list
 
     for _round in range(6):
@@ -571,6 +590,9 @@ async def _run_openai_compat_loop(
                             accumulated_tool_calls[idx]["args"] += tc.function.arguments
 
         if not accumulated_tool_calls:
+            # Pure text response (no tool calls) — cache it
+            if accumulated_content:
+                llm_cache_set(_cache_key_msgs, accumulated_content)
             break
 
         assistant_msg: dict[str, Any] = {"role": "assistant", "content": accumulated_content or None}
@@ -724,6 +746,7 @@ async def _openai_compat_fallback(
                 get_db=get_db,
                 actor_id=actor_id,
                 actor_roles=actor_roles,
+                original_messages=messages,
             ):
                 _started = True
                 yield chunk

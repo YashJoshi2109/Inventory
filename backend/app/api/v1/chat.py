@@ -409,11 +409,15 @@ async def upload_document(
     try:
         chunks = _extract_text_chunks(tmp_path, file.content_type or "")
         tmp_path.unlink(missing_ok=True)  # clean up temp file after extraction
-        from app.ai.embeddings import embed_text, vec_to_json
+        from app.ai.embeddings import embed_text_cached, vec_to_json
+        from app.ai.llm_cache import llm_cache_invalidate_docs
+        from app.ai.tools import _RAG_CACHE  # clear RAG result cache on new upload
+        _RAG_CACHE.clear()
         for i, chunk_text in enumerate(chunks):
             embedding_json: str | None = None
             try:
-                vec = await embed_text(chunk_text[:2000])  # text-embedding-004 handles 2048 tokens
+                # Cached: same text won't re-hit the API across re-uploads
+                vec = await embed_text_cached(chunk_text[:2000])
                 if vec:
                     embedding_json = vec_to_json(vec)
             except Exception:
@@ -427,6 +431,7 @@ async def upload_document(
             ))
         doc.chunk_count = len(chunks)
         doc.status = DocStatus.READY
+        llm_cache_invalidate_docs()  # new doc = stale LLM cache
         await db.flush()
     except Exception:
         tmp_path.unlink(missing_ok=True)
@@ -502,13 +507,26 @@ async def delete_document(doc_id: int, db: DbSession, current_user: CurrentUser)
         raise HTTPException(status_code=404, detail="Document not found")
     doc.is_active = False
     await db.flush()
+    from app.ai.llm_cache import llm_cache_invalidate_docs
+    from app.ai.tools import _RAG_CACHE
+    _RAG_CACHE.clear()
+    llm_cache_invalidate_docs()
     return {"ok": True}
 
 
 # ── Text extraction ────────────────────────────────────────────────────────────
 
-def _extract_text_chunks(path: Path, mime_type: str, chunk_size: int = 600) -> list[str]:
-    text = ""
+def _extract_text_chunks(
+    path: Path,
+    mime_type: str,
+    chunk_size: int = 500,
+    overlap: int = 80,
+) -> list[str]:
+    """
+    Recursive splitter: paragraphs → sentences → words, with overlap.
+    overlap words are repeated at the start of the next chunk to preserve
+    context across chunk boundaries (reduces lost context for long documents).
+    """
     suffix = path.suffix.lower()
     if suffix == ".pdf" or "pdf" in mime_type:
         text = _read_pdf(path)
@@ -519,18 +537,46 @@ def _extract_text_chunks(path: Path, mime_type: str, chunk_size: int = 600) -> l
     else:
         text = path.read_text(encoding="utf-8", errors="replace")
 
-    paragraphs = [p.strip() for p in text.split("\n\n") if p.strip()]
+    return _recursive_split(text, chunk_size=chunk_size, overlap=overlap)
+
+
+def _recursive_split(text: str, chunk_size: int = 500, overlap: int = 80) -> list[str]:
+    """
+    Split text into chunks of ~chunk_size words with overlap words shared
+    between consecutive chunks.  Tries to split at paragraph → sentence
+    → word boundaries in that order.
+    """
+    words = text.split()
+    if not words:
+        return []
+
     chunks: list[str] = []
-    current = ""
-    for para in paragraphs:
-        if len(current.split()) + len(para.split()) < chunk_size:
-            current = (current + "\n\n" + para).strip()
-        else:
-            if current:
-                chunks.append(current)
-            current = para
-    if current:
-        chunks.append(current)
+    start = 0
+    while start < len(words):
+        end = min(start + chunk_size, len(words))
+        chunk_words = words[start:end]
+
+        # Find a clean sentence break near the end (within last 20% of chunk)
+        window = max(1, len(chunk_words) // 5)
+        cut = len(chunk_words)
+        for i in range(len(chunk_words) - 1, max(0, len(chunk_words) - window) - 1, -1):
+            if chunk_words[i].endswith((".", "!", "?", ":", "…")):
+                cut = i + 1
+                break
+
+        final_words = chunk_words[:cut]
+        chunk_text = " ".join(final_words).strip()
+        if chunk_text:
+            chunks.append(chunk_text)
+
+        if end >= len(words):
+            break
+
+        # Overlap never exceeds half the actual chunk to guarantee forward progress
+        effective_overlap = min(overlap, max(0, cut // 2))
+        advance = max(1, cut - effective_overlap)
+        start += advance
+
     return chunks or [text[:4000]]
 
 
