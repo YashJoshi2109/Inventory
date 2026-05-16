@@ -34,6 +34,9 @@ frontend/blob-report/
 # ─── Playwright MCP (browser console/network captures — may contain 3rd-party keys) ──
 .playwright-mcp/
 
+# ─── Superpowers brainstorm visual companion artifacts ────────────────────────
+.superpowers/
+
 # ─── OS ───────────────────────────────────────────────────────────────────────
 .DS_Store
 Thumbs.db
