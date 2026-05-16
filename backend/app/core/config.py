@@ -104,6 +104,9 @@ class Settings(BaseSettings):
     GRAFANA_DATASOURCE_UID: str = "P2C2B70520A8E42FD"
     INFLUXDB_BUCKET: str = "energy_data"
 
+    # Sandbox mode — set to true on sandbox Cloud Run only
+    SANDBOX_MODE: bool = False
+
     # MQTT — domain events to external subscribers (analytics, IoT, ERP)
     MQTT_ENABLED: bool = False
     MQTT_BROKER_HOST: str = "localhost"

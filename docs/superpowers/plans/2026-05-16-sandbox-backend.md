@@ -587,7 +587,7 @@ async def seed_user_sandbox(session: AsyncSession, user: User) -> None:
             event_kind=EventKind.STOCK_IN,
             item_id=item.id,
             to_location_id=location.id,
-            quantity_delta=initial_qty,
+            quantity=initial_qty,
             performed_by=owner_id,
             occurred_at=now - timedelta(days=30),
             notes="Initial sandbox stock",
@@ -621,7 +621,7 @@ async def seed_user_sandbox(session: AsyncSession, user: User) -> None:
                     item_id=item.id,
                     from_location_id=from_loc.id,
                     to_location_id=to_loc.id,
-                    quantity_delta=Decimal(str(rng.randint(1, 3))),
+                    quantity=Decimal(str(rng.randint(1, 3))),
                     performed_by=owner_id,
                     occurred_at=occurred,
                 )
@@ -632,7 +632,7 @@ async def seed_user_sandbox(session: AsyncSession, user: User) -> None:
                     item_id=item.id,
                     to_location_id=loc.id if kind == EventKind.STOCK_IN else None,
                     from_location_id=loc.id if kind == EventKind.STOCK_OUT else None,
-                    quantity_delta=Decimal(str(rng.randint(1, 4))),
+                    quantity=Decimal(str(rng.randint(1, 4))),
                     performed_by=owner_id,
                     occurred_at=occurred,
                 )
@@ -646,7 +646,7 @@ async def seed_user_sandbox(session: AsyncSession, user: User) -> None:
             item_id=item.id,
             severity=AlertSeverity.WARNING,
             message=f"{item.name} is below reorder level",
-            is_read=False,
+            is_resolved=False,
         )
         session.add(alert)
     # Expired item alert
