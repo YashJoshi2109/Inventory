@@ -16,6 +16,7 @@ from fastapi import APIRouter, Depends, Query
 from sqlalchemy import text
 
 from app.api.v1.auth import CurrentUser, require_roles
+from app.core.config import settings
 from app.core.database import AsyncSessionLocal, DbSession
 from app.models.user import RoleName
 
@@ -182,7 +183,7 @@ def _row_to_dict(row: Any) -> dict[str, Any]:
 @router.get("/dashboard")
 async def get_dashboard(
     session: DbSession,
-    _current_user: CurrentUser,
+    current_user: CurrentUser,
     hours: int = Query(default=24, ge=1, le=168),
 ) -> dict[str, Any]:
     """
@@ -190,15 +191,19 @@ async def get_dashboard(
     Matches the shape consumed by the React EnergyDashboard component.
     """
     since = datetime.now(timezone.utc) - timedelta(hours=hours)
+    owner_filter = "AND owner_id = :owner_id" if settings.SANDBOX_MODE else ""
+    owner_params: dict[str, Any] = {"owner_id": current_user.id} if settings.SANDBOX_MODE else {}
 
     # ── Latest reading ─────────────────────────────────────────────────────────
     latest_result = await session.execute(
-        text("""
+        text(f"""
             SELECT *
             FROM energy_readings
+            WHERE 1=1 {owner_filter}
             ORDER BY timestamp DESC
             LIMIT 1
-        """)
+        """),
+        owner_params,
     )
     latest_row = latest_result.fetchone()
 
@@ -216,7 +221,7 @@ async def get_dashboard(
 
     # ── Historical data for chart ──────────────────────────────────────────────
     history_result = await session.execute(
-        text("""
+        text(f"""
             SELECT
                 timestamp,
                 solar_current_power_w,
@@ -227,11 +232,11 @@ async def get_dashboard(
                 ac_power_mode,
                 hwh_running
             FROM energy_readings
-            WHERE timestamp >= :since
+            WHERE timestamp >= :since {owner_filter}
             ORDER BY timestamp ASC
             LIMIT 288
         """),
-        {"since": since},
+        {"since": since, **owner_params},
     )
     history_rows = [_row_to_dict(r) for r in history_result.fetchall()]
     history_rows = [_derive(r) for r in history_rows]
@@ -258,14 +263,14 @@ async def get_dashboard(
     # ── Today's summary stats ──────────────────────────────────────────────────
     today_start = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
     stats_result = await session.execute(
-        text("""
+        text(f"""
             SELECT
                 MAX(solar_current_power_w) AS solar_peak_today,
                 AVG(total_consumption_w)   AS total_consumption_avg
             FROM energy_readings
-            WHERE timestamp >= :today
+            WHERE timestamp >= :today {owner_filter}
         """),
-        {"today": today_start},
+        {"today": today_start, **owner_params},
     )
     stats_row = stats_result.fetchone()
     solar_peak = float(stats_row.solar_peak_today or 0) if stats_row else 0
@@ -286,10 +291,13 @@ async def get_dashboard(
 
 
 @router.get("/latest")
-async def get_latest(session: DbSession, _current_user: CurrentUser) -> dict[str, Any]:
+async def get_latest(session: DbSession, current_user: CurrentUser) -> dict[str, Any]:
     """Return only the latest reading."""
+    owner_filter = "AND owner_id = :owner_id" if settings.SANDBOX_MODE else ""
+    owner_params: dict[str, Any] = {"owner_id": current_user.id} if settings.SANDBOX_MODE else {}
     result = await session.execute(
-        text("SELECT * FROM energy_readings ORDER BY timestamp DESC LIMIT 1")
+        text(f"SELECT * FROM energy_readings WHERE 1=1 {owner_filter} ORDER BY timestamp DESC LIMIT 1"),
+        owner_params,
     )
     row = result.fetchone()
     if not row:

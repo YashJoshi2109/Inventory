@@ -1,0 +1,38 @@
+steps:
+  # Build the Docker image (same Dockerfile as prod)
+  - name: 'gcr.io/cloud-builders/docker'
+    args:
+      - 'build'
+      - '-t'
+      - 'us-central1-docker.pkg.dev/$PROJECT_ID/inventory-repo/inventory-backend:sandbox-$SHORT_SHA'
+      - '-f'
+      - 'backend/Dockerfile'
+      - 'backend'
+
+  # Push image to Artifact Registry
+  - name: 'gcr.io/cloud-builders/docker'
+    args:
+      - 'push'
+      - 'us-central1-docker.pkg.dev/$PROJECT_ID/inventory-repo/inventory-backend:sandbox-$SHORT_SHA'
+
+  # Deploy to sandbox Cloud Run service
+  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+    entrypoint: gcloud
+    args:
+      - 'run'
+      - 'deploy'
+      - 'inventory-sandbox'
+      - '--image=us-central1-docker.pkg.dev/$PROJECT_ID/inventory-repo/inventory-backend:sandbox-$SHORT_SHA'
+      - '--region=us-central1'
+      - '--platform=managed'
+      - '--allow-unauthenticated'
+      - '--set-env-vars=SANDBOX_MODE=true,ENVIRONMENT=staging'
+      - '--set-secrets=POSTGRES_HOST=sandbox-db-host:latest,POSTGRES_DB=sandbox-db-name:latest,POSTGRES_USER=sandbox-db-user:latest,POSTGRES_PASSWORD=sandbox-db-password:latest,SECRET_KEY=jwt-secret-key:latest'
+      - '--min-instances=1'
+      - '--max-instances=5'
+
+images:
+  - 'us-central1-docker.pkg.dev/$PROJECT_ID/inventory-repo/inventory-backend:sandbox-$SHORT_SHA'
+
+options:
+  logging: CLOUD_LOGGING_ONLY
