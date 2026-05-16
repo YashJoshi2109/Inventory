@@ -16,12 +16,15 @@ class AreaRepository(BaseRepository[Area]):
         )
         return result.scalar_one_or_none()
 
-    async def get_all_with_locations(self) -> list[Area]:
-        result = await self.session.execute(
+    async def get_all_with_locations(self, owner_id: int | None = None) -> list[Area]:
+        q = (
             select(Area)
             .options(selectinload(Area.locations).selectinload(Location.barcodes))
             .order_by(Area.name)
         )
+        if owner_id is not None:
+            q = q.where(Area.owner_id == owner_id)
+        result = await self.session.execute(q)
         return list(result.scalars().unique().all())
 
 

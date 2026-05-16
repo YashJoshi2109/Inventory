@@ -1,14 +1,17 @@
+import React from "react";
 import { NavLink } from "react-router-dom";
 import {
   LayoutDashboard, Package, MapPin, QrCode,
   ClipboardList, Upload, Users,
-  Beaker, BrainCircuit, Bell, LogOut, Bot, Settings, Camera, Zap, Wifi,
+  Beaker, BrainCircuit, Bell, LogOut, Bot, Settings, Camera, Zap, Wifi, FlaskConical,
 } from "lucide-react";
 import { clsx } from "clsx";
 import { useAuthStore } from "@/store/auth";
-import { useQuery } from "@tanstack/react-query";
+import { useSandboxStore } from "@/store/sandbox";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { transactionsApi } from "@/api/transactions";
 import { roleRequestApi } from "@/api/auth";
+import { apiClient } from "@/api/client";
 
 type NavItem = {
   to: string;
@@ -248,9 +251,106 @@ export function Sidebar() {
         })}
       </nav>
 
+      {/* Sandbox toggle */}
+      <SandboxToggle />
+
       {/* User card */}
       <UserCard />
     </aside>
+  );
+}
+
+function SandboxToggle() {
+  const { sandboxMode, setSandboxMode } = useSandboxStore();
+  const queryClient = useQueryClient();
+  const [seeding, setSeeding] = React.useState(false);
+
+  const handleToggle = async () => {
+    const next = !sandboxMode;
+    setSandboxMode(next);
+    queryClient.clear();
+
+    if (next) {
+      setSeeding(true);
+      try {
+        await apiClient.post("/sandbox/seed", {}, {
+          headers: { "X-Sandbox-Mode": "true" },
+        });
+      } catch {
+        // Non-fatal: already seeded or backend not yet migrated
+      } finally {
+        setSeeding(false);
+        queryClient.invalidateQueries();
+      }
+    } else {
+      queryClient.invalidateQueries();
+    }
+  };
+
+  return (
+    <div className="px-3 pb-2 shrink-0">
+      <button
+        onClick={handleToggle}
+        disabled={seeding}
+        title={sandboxMode ? "Exit sandbox mode" : "Enter sandbox mode"}
+        style={{
+          width: "100%",
+          display: "flex",
+          alignItems: "center",
+          gap: 10,
+          padding: "8px 12px",
+          borderRadius: 10,
+          border: `1px solid ${sandboxMode ? "rgba(139,92,246,0.35)" : "var(--border-card)"}`,
+          background: sandboxMode ? "rgba(139,92,246,0.08)" : "transparent",
+          cursor: seeding ? "not-allowed" : "pointer",
+          transition: "all 0.2s ease",
+          opacity: seeding ? 0.7 : 1,
+        }}
+      >
+        <FlaskConical
+          size={15}
+          style={{ color: sandboxMode ? "#8b5cf6" : "var(--text-muted)", flexShrink: 0 }}
+        />
+        <span
+          style={{
+            flex: 1,
+            fontSize: 12,
+            fontWeight: 500,
+            textAlign: "left",
+            color: sandboxMode ? "#8b5cf6" : "var(--text-muted)",
+          }}
+        >
+          {seeding ? "Setting up…" : "Sandbox Mode"}
+        </span>
+        {/* Toggle pill */}
+        <span
+          style={{
+            display: "inline-flex",
+            width: 32,
+            height: 18,
+            borderRadius: 999,
+            background: sandboxMode ? "#8b5cf6" : "var(--border-subtle)",
+            position: "relative",
+            transition: "background 0.2s ease",
+            flexShrink: 0,
+          }}
+        >
+          <span
+            style={{
+              position: "absolute",
+              top: 2,
+              left: sandboxMode ? 16 : 2,
+              width: 14,
+              height: 14,
+              borderRadius: "50%",
+              background: "white",
+              transition: "left 0.2s ease",
+              boxShadow: "0 1px 3px rgba(0,0,0,0.3)",
+            }}
+          />
+        </span>
+      </button>
+    </div>
   );
 }
 

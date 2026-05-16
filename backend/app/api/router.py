@@ -1,6 +1,7 @@
 from fastapi import APIRouter
 
 from app.api.v1 import auth, items, locations, barcodes, scans, transactions, dashboard, imports, ai, users, chat, passkeys, energy, energy_influx, rfid
+from app.core.config import settings
 
 api_router = APIRouter()
 
@@ -19,3 +20,6 @@ api_router.include_router(chat.router)
 api_router.include_router(energy.router)
 api_router.include_router(energy_influx.router)
 api_router.include_router(rfid.router)
+
+from app.api.v1 import sandbox
+api_router.include_router(sandbox.router)

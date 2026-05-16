@@ -587,8 +587,8 @@ async def seed_user_sandbox(session: AsyncSession, user: User) -> None:
             event_kind=EventKind.STOCK_IN,
             item_id=item.id,
             to_location_id=location.id,
-            quantity_delta=initial_qty,
-            performed_by=owner_id,
+            quantity=initial_qty,
+            actor_id=owner_id,
             occurred_at=now - timedelta(days=30),
             notes="Initial sandbox stock",
         )
@@ -621,8 +621,8 @@ async def seed_user_sandbox(session: AsyncSession, user: User) -> None:
                     item_id=item.id,
                     from_location_id=from_loc.id,
                     to_location_id=to_loc.id,
-                    quantity_delta=Decimal(str(rng.randint(1, 3))),
-                    performed_by=owner_id,
+                    quantity=Decimal(str(rng.randint(1, 3))),
+                    actor_id=owner_id,
                     occurred_at=occurred,
                 )
             else:
@@ -632,8 +632,8 @@ async def seed_user_sandbox(session: AsyncSession, user: User) -> None:
                     item_id=item.id,
                     to_location_id=loc.id if kind == EventKind.STOCK_IN else None,
                     from_location_id=loc.id if kind == EventKind.STOCK_OUT else None,
-                    quantity_delta=Decimal(str(rng.randint(1, 4))),
-                    performed_by=owner_id,
+                    quantity=Decimal(str(rng.randint(1, 4))),
+                    actor_id=owner_id,
                     occurred_at=occurred,
                 )
             session.add(event)
@@ -646,7 +646,7 @@ async def seed_user_sandbox(session: AsyncSession, user: User) -> None:
             item_id=item.id,
             severity=AlertSeverity.WARNING,
             message=f"{item.name} is below reorder level",
-            is_read=False,
+            is_resolved=False,
         )
         session.add(alert)
     # Expired item alert
@@ -845,7 +845,7 @@ async def seed_sandbox(session: DbSession, current_user: CurrentUser) -> SeedSta
     from app.models.location import Location
 
     item_count = (await session.execute(select(func.count()).select_from(Item).where(Item.owner_id == current_user.id))).scalar_one()
-    event_count = (await session.execute(select(func.count()).select_from(InventoryEvent).where(InventoryEvent.performed_by == current_user.id))).scalar_one()
+    event_count = (await session.execute(select(func.count()).select_from(InventoryEvent).where(InventoryEvent.actor_id == current_user.id))).scalar_one()
     location_count = (await session.execute(select(func.count()).select_from(Location).where(Location.owner_id == current_user.id))).scalar_one()
 
     return SeedStatusResponse(
@@ -883,15 +883,15 @@ async def reset_sandbox(
     for model, col in [
         (Alert, "item_id"),
         (StockLevel, "item_id"),
-        (InventoryEvent, "performed_by"),
+        (InventoryEvent, "actor_id"),
         (Item, "owner_id"),
         (Category, "owner_id"),
         (Location, "owner_id"),
         (Area, "owner_id"),
     ]:
-        if col == "performed_by":
+        if col == "actor_id":
             await session.execute(
-                text(f"DELETE FROM inventory_events WHERE performed_by = :uid"),
+                text("DELETE FROM inventory_events WHERE actor_id = :uid"),
                 {"uid": target_user_id},
             )
         elif col == "item_id":
@@ -934,7 +934,7 @@ async def sandbox_status(session: DbSession, current_user: CurrentUser) -> SeedS
     from app.models.location import Location
 
     item_count = (await session.execute(select(func.count()).select_from(Item).where(Item.owner_id == current_user.id))).scalar_one()
-    event_count = (await session.execute(select(func.count()).select_from(InventoryEvent).where(InventoryEvent.performed_by == current_user.id))).scalar_one()
+    event_count = (await session.execute(select(func.count()).select_from(InventoryEvent).where(InventoryEvent.actor_id == current_user.id))).scalar_one()
     location_count = (await session.execute(select(func.count()).select_from(Location).where(Location.owner_id == current_user.id))).scalar_one()
 
     return SeedStatusResponse(
