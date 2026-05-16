@@ -29,6 +29,7 @@ class Category(Base):
     icon: Mapped[str | None] = mapped_column(String(50))   # lucide icon name
     description: Mapped[str | None] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    owner_id: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=True, index=True)
 
     items: Mapped[list["Item"]] = relationship("Item", back_populates="category")
 
@@ -69,6 +70,7 @@ class Item(Base):
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
     )
+    owner_id: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=True, index=True)
 
     category: Mapped["Category | None"] = relationship("Category", back_populates="items")
     barcodes: Mapped[list["ItemBarcode"]] = relationship(

@@ -20,6 +20,7 @@ class Area(Base):
     room: Mapped[str | None] = mapped_column(String(50))
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    owner_id: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=True, index=True)
 
     locations: Mapped[list["Location"]] = relationship(
         "Location", back_populates="area", cascade="all, delete-orphan"
@@ -45,6 +46,7 @@ class Location(Base):
     capacity: Mapped[int | None] = mapped_column(Integer)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    owner_id: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=True, index=True)
 
     area: Mapped["Area"] = relationship("Area", back_populates="locations")
     barcodes: Mapped[list["LocationBarcode"]] = relationship(
