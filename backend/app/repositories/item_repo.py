@@ -39,6 +39,7 @@ class ItemRepository(BaseRepository[Item]):
         category_id: int | None = None,
         is_active: bool | None = True,
         status: str | None = None,
+        owner_id: int | None = None,
         skip: int = 0,
         limit: int = 50,
     ) -> tuple[list[Item], int]:
@@ -51,6 +52,8 @@ class ItemRepository(BaseRepository[Item]):
             base_q = base_q.where(Item.is_active == is_active)
         if category_id:
             base_q = base_q.where(Item.category_id == category_id)
+        if owner_id is not None:
+            base_q = base_q.where(Item.owner_id == owner_id)
         if query:
             pattern = f"%{query}%"
             base_q = base_q.where(
@@ -126,3 +129,10 @@ class CategoryRepository(BaseRepository[Category]):
             .order_by(Category.name)
         )
         return list(result.all())
+
+    async def get_all_filtered(self, owner_id: int | None = None) -> list[Category]:
+        q = select(Category)
+        if owner_id is not None:
+            q = q.where(Category.owner_id == owner_id)
+        result = await self.session.execute(q.order_by(Category.name))
+        return list(result.scalars().all())
