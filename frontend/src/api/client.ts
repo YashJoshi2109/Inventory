@@ -1,5 +1,6 @@
 import axios, { type AxiosInstance, type AxiosRequestConfig } from "axios";
 import { useAuthStore } from "@/store/auth";
+import { useSandboxStore } from "@/store/sandbox";
 import { offlineQueue } from "@/offline/queue";
 
 /**
@@ -42,11 +43,14 @@ export const apiClient: AxiosInstance = axios.create({
   headers: { "Content-Type": "application/json" },
 });
 
-// ── Request interceptor: attach JWT ───────────────────────────────────────────
+// ── Request interceptor: attach JWT + sandbox header ─────────────────────────
 apiClient.interceptors.request.use((config) => {
   const token = useAuthStore.getState().accessToken;
   if (token) {
     config.headers.Authorization = `Bearer ${token}`;
+  }
+  if (useSandboxStore.getState().sandboxMode) {
+    config.headers["X-Sandbox-Mode"] = "true";
   }
   return config;
 });

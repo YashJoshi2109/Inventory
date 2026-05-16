@@ -12,12 +12,12 @@ import logging
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Query, Request
 from sqlalchemy import text
 
 from app.api.v1.auth import CurrentUser, require_roles
-from app.core.config import settings
 from app.core.database import AsyncSessionLocal, DbSession
+from app.core.sandbox import is_sandbox_request
 from app.models.user import RoleName
 
 logger = logging.getLogger(__name__)
@@ -182,6 +182,7 @@ def _row_to_dict(row: Any) -> dict[str, Any]:
 
 @router.get("/dashboard")
 async def get_dashboard(
+    request: Request,
     session: DbSession,
     current_user: CurrentUser,
     hours: int = Query(default=24, ge=1, le=168),
@@ -191,8 +192,9 @@ async def get_dashboard(
     Matches the shape consumed by the React EnergyDashboard component.
     """
     since = datetime.now(timezone.utc) - timedelta(hours=hours)
-    owner_filter = "AND owner_id = :owner_id" if settings.SANDBOX_MODE else ""
-    owner_params: dict[str, Any] = {"owner_id": current_user.id} if settings.SANDBOX_MODE else {}
+    _sandbox = is_sandbox_request(request)
+    owner_filter = "AND owner_id = :owner_id" if _sandbox else ""
+    owner_params: dict[str, Any] = {"owner_id": current_user.id} if _sandbox else {}
 
     # ── Latest reading ─────────────────────────────────────────────────────────
     latest_result = await session.execute(
@@ -291,10 +293,11 @@ async def get_dashboard(
 
 
 @router.get("/latest")
-async def get_latest(session: DbSession, current_user: CurrentUser) -> dict[str, Any]:
+async def get_latest(request: Request, session: DbSession, current_user: CurrentUser) -> dict[str, Any]:
     """Return only the latest reading."""
-    owner_filter = "AND owner_id = :owner_id" if settings.SANDBOX_MODE else ""
-    owner_params: dict[str, Any] = {"owner_id": current_user.id} if settings.SANDBOX_MODE else {}
+    _sandbox = is_sandbox_request(request)
+    owner_filter = "AND owner_id = :owner_id" if _sandbox else ""
+    owner_params: dict[str, Any] = {"owner_id": current_user.id} if _sandbox else {}
     result = await session.execute(
         text(f"SELECT * FROM energy_readings WHERE 1=1 {owner_filter} ORDER BY timestamp DESC LIMIT 1"),
         owner_params,

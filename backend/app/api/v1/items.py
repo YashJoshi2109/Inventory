@@ -2,7 +2,7 @@ import base64
 from decimal import Decimal
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from sqlalchemy import inspect as sa_inspect
 from sqlalchemy.orm.attributes import NO_VALUE
 
@@ -48,9 +48,9 @@ def _to_item_read(item: Item, total_qty: Decimal) -> ItemRead:
 # ─── Categories ─────────────────────────────────────────────────────────────
 
 @router.get("/categories", response_model=list[CategoryRead])
-async def list_categories(session: DbSession, current_user: CurrentUser) -> list[CategoryRead]:
+async def list_categories(request: Request, session: DbSession, current_user: CurrentUser) -> list[CategoryRead]:
     repo = CategoryRepository(session)
-    cats = await repo.get_all_filtered(owner_id=sandbox_owner_id(current_user))
+    cats = await repo.get_all_filtered(owner_id=sandbox_owner_id(request, current_user))
     return [CategoryRead.model_validate(c) for c in cats]
 
 
@@ -75,6 +75,7 @@ async def create_category(body: CategoryCreate, session: DbSession, current_user
 
 @router.get("", response_model=PaginatedResponse[ItemSummary])
 async def list_items(
+    request: Request,
     session: DbSession,
     current_user: CurrentUser,
     q: str | None = Query(default=None, description="Search query"),
@@ -90,7 +91,7 @@ async def list_items(
     items, total = await repo.search(
         query=q,
         category_id=category_id,
-        owner_id=sandbox_owner_id(current_user),
+        owner_id=sandbox_owner_id(request, current_user),
         skip=skip,
         limit=page_size,
     )

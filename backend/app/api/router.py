@@ -21,6 +21,5 @@ api_router.include_router(energy.router)
 api_router.include_router(energy_influx.router)
 api_router.include_router(rfid.router)
 
-if settings.SANDBOX_MODE:
-    from app.api.v1 import sandbox
-    api_router.include_router(sandbox.router)
+from app.api.v1 import sandbox
+api_router.include_router(sandbox.router)
