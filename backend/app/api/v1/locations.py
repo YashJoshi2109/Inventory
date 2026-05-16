@@ -2,6 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 
 from app.api.v1.auth import CurrentUser, require_roles
 from app.core.database import DbSession
+from app.core.sandbox import sandbox_owner_id
 from app.models.location import Area, Location, LocationBarcode
 from app.models.user import RoleName
 from app.repositories.location_repo import AreaRepository, LocationRepository
@@ -30,7 +31,7 @@ def _model_dict(model, exclude: set[str] | None = None) -> dict:
 @router.get("/areas", response_model=list[AreaRead])
 async def list_areas(session: DbSession, current_user: CurrentUser) -> list[AreaRead]:
     repo = AreaRepository(session)
-    areas = await repo.get_all_with_locations()
+    areas = await repo.get_all_with_locations(owner_id=sandbox_owner_id(current_user))
     return [
         AreaRead(
             **_model_dict(area, {"locations"}),
