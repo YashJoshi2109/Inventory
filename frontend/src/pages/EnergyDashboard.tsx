@@ -344,6 +344,13 @@ export function EnergyDashboard() {
   const anyLive    = influxLive || !!data?.live;
 
   // Merge: InfluxDB overrides Postgres where non-null
+  // When InfluxDB balance sensor reports net, derive total load as solar - net
+  // so displayed Load/Net/Solar numbers are internally consistent.
+  const influxDerivedLoad =
+    influx?.net_balance_w != null && influx.solar_current_power_w != null
+      ? Math.round((influx.solar_current_power_w ?? 0) - influx.net_balance_w)
+      : null;
+
   const mergedLatest = latest
     ? {
         ...latest,
@@ -351,6 +358,7 @@ export function EnergyDashboard() {
         net_balance_w:         influx?.net_balance_w         ?? latest.net_balance_w,
         ac_consumption_w:      influx?.ac_consumption_w      ?? latest.ac_consumption_w,
         hwh_consumption_w:     influx?.hwh_consumption_w     ?? latest.hwh_consumption_w,
+        total_consumption_w:   influxDerivedLoad              ?? latest.total_consumption_w,
       }
     : null;
 
@@ -649,7 +657,7 @@ export function EnergyDashboard() {
                   <div>
                     <p className="text-[10px] uppercase tracking-wide" style={{ color: "var(--text-muted)" }}>Load</p>
                     <p className="text-sm font-black tabular-nums" style={{ color: "#0088ff" }}>
-                      {Math.round(latest?.total_consumption_w ?? 0).toLocaleString()} W
+                      {Math.round(mergedLatest?.total_consumption_w ?? 0).toLocaleString()} W
                     </p>
                   </div>
                 </div>
