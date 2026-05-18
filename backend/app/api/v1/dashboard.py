@@ -84,8 +84,10 @@ async def get_dashboard_stats(request: Request, session: DbSession, current_user
     today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
     week_start = today_start - timedelta(days=7)
 
-    txn_today = await event_repo.get_transactions_count_since(today_start, actor_id=owner_id)
-    txn_week = await event_repo.get_transactions_count_since(week_start, actor_id=owner_id)
+    # actor_id filter: sandbox=user.id, normal=None (show all transactions)
+    txn_actor_id = owner_id or None
+    txn_today = await event_repo.get_transactions_count_since(today_start, actor_id=txn_actor_id)
+    txn_week = await event_repo.get_transactions_count_since(week_start, actor_id=txn_actor_id)
 
     # Active alerts
     active_alerts = await alert_repo.count_active(owner_id=owner_id)
@@ -104,11 +106,11 @@ async def get_dashboard_stats(request: Request, session: DbSession, current_user
     ]
 
     # Recent activity (last 15 events)
-    recent_events = await event_repo.get_recent_activity(limit=15, actor_id=owner_id)
+    recent_events = await event_repo.get_recent_activity(limit=15, actor_id=txn_actor_id)
     recent_activity = [_to_event_read(e) for e in recent_events]
 
     # Top consumed (last 30 days)
-    top_consumed = await event_repo.get_top_consumed(days=30, limit=8, actor_id=owner_id)
+    top_consumed = await event_repo.get_top_consumed(days=30, limit=8, actor_id=txn_actor_id)
 
     return DashboardStats(
         total_items=total_skus,

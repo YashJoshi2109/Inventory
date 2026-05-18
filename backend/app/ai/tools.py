@@ -355,7 +355,8 @@ async def get_dashboard_summary(db: AsyncSession, owner_id: int | None = None) -
 
     txn_where = [text("occurred_at::date = CURRENT_DATE")]
     if owner_id is not None:
-        txn_where.append(InventoryEvent.actor_id == owner_id if owner_id > 0 else InventoryEvent.actor_id == None)  # noqa: E711
+        if owner_id and owner_id > 0:
+        txn_where.append(InventoryEvent.actor_id == owner_id)
     txn_today_r = await db.execute(
         select(func.count()).select_from(InventoryEvent).where(*txn_where)
     )
@@ -539,7 +540,8 @@ async def get_transaction_history(
     if item_id:
         q = q.where(InventoryEvent.item_id == item_id)
     if owner_id is not None:
-        q = q.where(InventoryEvent.actor_id == owner_id if owner_id > 0 else InventoryEvent.actor_id == None)  # noqa: E711
+        if owner_id and owner_id > 0:
+            q = q.where(InventoryEvent.actor_id == owner_id)
     result = await db.execute(q)
     events = result.scalars().all()
 

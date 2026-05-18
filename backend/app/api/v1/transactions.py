@@ -4,7 +4,7 @@ from fastapi import APIRouter, Query, Request
 
 from app.api.v1.auth import CurrentUser
 from app.core.database import DbSession
-from app.core.sandbox import sandbox_owner_id as _sandbox_oid
+from app.core.sandbox import sandbox_owner_id as _sandbox_oid, REAL_DATA
 from app.repositories.transaction_repo import AlertRepository, InventoryEventRepository
 from app.schemas.common import PaginatedResponse
 from app.schemas.transaction import AlertRead, InventoryEventRead
@@ -55,7 +55,7 @@ async def list_transactions(
         event_kind=event_kind,
         start_date=start_date,
         end_date=end_date,
-        actor_id=_sandbox_oid(request, current_user),
+        actor_id=_sandbox_oid(request, current_user) or None,
         skip=skip,
         limit=page_size,
     )
