@@ -8,13 +8,14 @@ Flow:
   4. Frontend POSTs to POST /rfid/scan → item resolved via scan_service.
   5. User selects action (stock-in / stock-out) → POST /rfid/batch-stock-in|out.
 """
-from fastapi import APIRouter, Depends, Header, HTTPException, status
+from fastapi import APIRouter, Depends, Header, HTTPException, Request, status
 from pydantic import BaseModel
 from sqlalchemy import select
 
 from app.api.v1.auth import CurrentUser, require_roles
 from app.core.config import settings
 from app.core.database import DbSession
+from app.core.sandbox import sandbox_owner_id as _sandbox_oid
 from app.models.item import ItemBarcode
 from app.models.user import RoleName
 from app.repositories.item_repo import ItemRepository
@@ -106,8 +107,8 @@ class RegisterEpcRequest(BaseModel):
 
 # ── Helper ────────────────────────────────────────────────────────────────────
 
-async def _resolve_epc(epc: str, session: DbSession) -> ResolvedRfidItem | None:
-    result = await ScanService(session).resolve(epc.strip().upper())
+async def _resolve_epc(epc: str, session: DbSession, sandbox_owner_id: int | None = None) -> ResolvedRfidItem | None:
+    result = await ScanService(session).resolve(epc.strip().upper(), sandbox_owner_id=sandbox_owner_id)
     if result.result_type != ScanResultType.ITEM or result.id is None:
         return None
     return ResolvedRfidItem(
@@ -128,18 +129,20 @@ async def _resolve_epc(epc: str, session: DbSession) -> ResolvedRfidItem | None:
 @router.post("/scan", response_model=EpcScanResponse)
 async def scan_single_epc(
     body: EpcScanRequest,
+    request: Request,
     session: DbSession,
     current_user: CurrentUser,
 ) -> EpcScanResponse:
     """Resolve a single EPC to an inventory item (called per RP902 HID scan)."""
     epc = body.epc.strip().upper()
-    item = await _resolve_epc(epc, session)
+    item = await _resolve_epc(epc, session, sandbox_owner_id=_sandbox_oid(request, current_user))
     return EpcScanResponse(found=item is not None, epc=epc, item=item)
 
 
 @router.post("/batch-scan", response_model=BatchScanResponse)
 async def scan_batch_epcs(
     body: BatchScanRequest,
+    request: Request,
     session: DbSession,
     current_user: CurrentUser,
 ) -> BatchScanResponse:
@@ -147,8 +150,9 @@ async def scan_batch_epcs(
     matched: list[ResolvedRfidItem] = []
     unknown: list[str] = []
     seen: set[int] = set()
+    owner_id = _sandbox_oid(request, current_user)
     for epc in body.epcs:
-        item = await _resolve_epc(epc, session)
+        item = await _resolve_epc(epc, session, sandbox_owner_id=owner_id)
         if item is None:
             unknown.append(epc.strip().upper())
         elif item.item_id not in seen:
@@ -160,12 +164,14 @@ async def scan_batch_epcs(
 @router.post("/batch-stock-in", response_model=list[BatchActionResult])
 async def batch_stock_in(
     body: BatchStockInRequest,
+    request: Request,
     session: DbSession,
     current_user: CurrentUser,
 ) -> list[BatchActionResult]:
     """Stock in multiple items from one RFID scan session."""
     svc = InventoryService(session)
     repo = ItemRepository(session)
+    owner_id = _sandbox_oid(request, current_user)
     results: list[BatchActionResult] = []
     for item_id in body.item_ids:
         item = await repo.get_by_id(item_id)
@@ -180,7 +186,7 @@ async def batch_stock_in(
                 reference=body.reference,
                 notes=body.notes,
                 source="rfid",
-            ), current_user.id)
+            ), current_user.id, sandbox_owner_id=owner_id)
             results.append(BatchActionResult(item_id=item_id, sku=item.sku, success=True))
         except Exception as exc:
             results.append(BatchActionResult(item_id=item_id, sku=item.sku, success=False, error=str(exc)))
@@ -190,6 +196,7 @@ async def batch_stock_in(
 @router.post("/batch-stock-out", response_model=list[BatchActionResult])
 async def batch_stock_out(
     body: BatchStockOutRequest,
+    request: Request,
     session: DbSession,
     current_user: CurrentUser,
 ) -> list[BatchActionResult]:
@@ -197,6 +204,7 @@ async def batch_stock_out(
     svc = InventoryService(session)
     repo = ItemRepository(session)
     actor_roles = [ur.role.name for ur in current_user.roles if ur.role]
+    owner_id = _sandbox_oid(request, current_user)
     results: list[BatchActionResult] = []
     for item_id in body.item_ids:
         item = await repo.get_by_id(item_id)
@@ -211,7 +219,7 @@ async def batch_stock_out(
                 reason=body.reason,
                 notes=body.notes,
                 source="rfid",
-            ), current_user.id, actor_roles)
+            ), current_user.id, actor_roles, sandbox_owner_id=owner_id)
             results.append(BatchActionResult(item_id=item_id, sku=item.sku, success=True))
         except Exception as exc:
             results.append(BatchActionResult(item_id=item_id, sku=item.sku, success=False, error=str(exc)))

@@ -11,11 +11,12 @@ The scan endpoints power the mobile-first scan flows:
 All writes are idempotent when scan_session_id is provided.
 The frontend groups events by scan_session_id for undo / review.
 """
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, HTTPException, Request, status
 from pydantic import BaseModel
 
 from app.api.v1.auth import CurrentUser
 from app.core.database import DbSession
+from app.core.sandbox import sandbox_owner_id as _sandbox_oid
 from app.core.events import DomainEvent, EventType, event_bus
 from app.schemas.transaction import (
     AdjustmentRequest,
@@ -66,9 +67,9 @@ def _event_to_read(event, session) -> InventoryEventRead:
 
 
 @router.post("/lookup", response_model=ScanLookupResponse)
-async def lookup_barcode(body: ScanLookupRequest, session: DbSession, current_user: CurrentUser) -> ScanLookupResponse:
+async def lookup_barcode(body: ScanLookupRequest, request: Request, session: DbSession, current_user: CurrentUser) -> ScanLookupResponse:
     svc = ScanService(session)
-    result: ScanResult = await svc.resolve(body.barcode_value)
+    result: ScanResult = await svc.resolve(body.barcode_value, sandbox_owner_id=_sandbox_oid(request, current_user))
     return ScanLookupResponse(
         result_type=result.result_type,
         id=result.id,
@@ -83,9 +84,9 @@ async def lookup_barcode(body: ScanLookupRequest, session: DbSession, current_us
     response_model=InventoryEventRead,
     status_code=status.HTTP_201_CREATED,
 )
-async def stock_in(body: StockInRequest, session: DbSession, current_user: CurrentUser) -> InventoryEventRead:
+async def stock_in(body: StockInRequest, request: Request, session: DbSession, current_user: CurrentUser) -> InventoryEventRead:
     svc = InventoryService(session)
-    event = await svc.stock_in(body, current_user.id)
+    event = await svc.stock_in(body, current_user.id, sandbox_owner_id=_sandbox_oid(request, current_user))
     await session.refresh(event, ["item", "to_location", "actor"])
     return _event_to_read(event, session)
 
@@ -95,10 +96,10 @@ async def stock_in(body: StockInRequest, session: DbSession, current_user: Curre
     response_model=InventoryEventRead,
     status_code=status.HTTP_201_CREATED,
 )
-async def stock_out(body: StockOutRequest, session: DbSession, current_user: CurrentUser) -> InventoryEventRead:
+async def stock_out(body: StockOutRequest, request: Request, session: DbSession, current_user: CurrentUser) -> InventoryEventRead:
     svc = InventoryService(session)
     actor_roles = [ur.role.name for ur in current_user.roles if ur.role]
-    event = await svc.stock_out(body, current_user.id, actor_roles)
+    event = await svc.stock_out(body, current_user.id, actor_roles, sandbox_owner_id=_sandbox_oid(request, current_user))
     await session.refresh(event, ["item", "from_location", "actor"])
     return _event_to_read(event, session)
 
@@ -108,9 +109,9 @@ async def stock_out(body: StockOutRequest, session: DbSession, current_user: Cur
     response_model=InventoryEventRead,
     status_code=status.HTTP_201_CREATED,
 )
-async def transfer(body: TransferRequest, session: DbSession, current_user: CurrentUser) -> InventoryEventRead:
+async def transfer(body: TransferRequest, request: Request, session: DbSession, current_user: CurrentUser) -> InventoryEventRead:
     svc = InventoryService(session)
-    event = await svc.transfer(body, current_user.id)
+    event = await svc.transfer(body, current_user.id, sandbox_owner_id=_sandbox_oid(request, current_user))
     await session.refresh(event, ["item", "from_location", "to_location", "actor"])
     return _event_to_read(event, session)
 
@@ -120,9 +121,9 @@ async def transfer(body: TransferRequest, session: DbSession, current_user: Curr
     response_model=InventoryEventRead,
     status_code=status.HTTP_201_CREATED,
 )
-async def adjustment(body: AdjustmentRequest, session: DbSession, current_user: CurrentUser) -> InventoryEventRead:
+async def adjustment(body: AdjustmentRequest, request: Request, session: DbSession, current_user: CurrentUser) -> InventoryEventRead:
     svc = InventoryService(session)
-    event = await svc.adjustment(body, current_user.id)
+    event = await svc.adjustment(body, current_user.id, sandbox_owner_id=_sandbox_oid(request, current_user))
     await session.refresh(event, ["item", "to_location", "actor"])
     return _event_to_read(event, session)
 
@@ -134,12 +135,13 @@ async def adjustment(body: AdjustmentRequest, session: DbSession, current_user: 
 )
 async def apply_scan_event(
     body: BarcodeScanApplyRequest,
+    request: Request,
     session: DbSession,
     current_user: CurrentUser,
 ) -> InventoryEventRead:
     svc = InventoryService(session)
     actor_roles = [ur.role.name for ur in current_user.roles if ur.role]
-    event = await svc.apply_barcode_scan(body, current_user.id, actor_roles)
+    event = await svc.apply_barcode_scan(body, current_user.id, actor_roles, sandbox_owner_id=_sandbox_oid(request, current_user))
     await session.refresh(event, ["item", "from_location", "to_location", "actor"])
     return _event_to_read(event, session)
 
@@ -151,6 +153,7 @@ async def apply_scan_event(
 )
 async def smart_apply(
     body: SmartApplyRequest,
+    request: Request,
     session: DbSession,
     current_user: CurrentUser,
 ) -> SmartApplyResponse:
@@ -170,6 +173,7 @@ async def smart_apply(
     stock_repo = StockLevelRepository(session)
     svc = InventoryService(session)
     actor_roles = [ur.role.name for ur in current_user.roles if ur.role]
+    _owner_id = _sandbox_oid(request, current_user)
 
     all_levels = await stock_repo.list_by_item(body.item_id)
     target = next((l for l in all_levels if l.location_id == body.location_id), None)
@@ -200,7 +204,7 @@ async def smart_apply(
             scan_session_id=body.scan_session_id,
             source=body.source,
         )
-        event = await svc.stock_out(req, current_user.id, actor_roles)
+        event = await svc.stock_out(req, current_user.id, actor_roles, sandbox_owner_id=_owner_id)
         await session.refresh(event, ["item", "from_location", "actor"])
         return SmartApplyResponse(
             action="stock_out", previous_quantity=target_qty, new_quantity=new_qty,
@@ -220,7 +224,7 @@ async def smart_apply(
             scan_session_id=body.scan_session_id,
             source=body.source,
         )
-        event = await svc.stock_in(req, current_user.id)
+        event = await svc.stock_in(req, current_user.id, sandbox_owner_id=_owner_id)
         await session.refresh(event, ["item", "to_location", "actor"])
         return SmartApplyResponse(
             action="stock_in", previous_quantity=target_qty, new_quantity=new_qty,
@@ -276,7 +280,7 @@ async def smart_apply(
         notes=body.notes,
         scan_session_id=body.scan_session_id,
     )
-    event = await svc.transfer(req, current_user.id)
+    event = await svc.transfer(req, current_user.id, sandbox_owner_id=_owner_id)
     await session.refresh(event, ["item", "from_location", "to_location", "actor"])
     return SmartApplyResponse(
         action="transfer", previous_quantity=target_qty, new_quantity=new_qty,
@@ -313,6 +317,7 @@ class ModifyItemResponse(BaseModel):
 @router.post("/modify-item", response_model=ModifyItemResponse)
 async def modify_item_by_scan(
     body: ModifyItemRequest,
+    request: Request,
     session: DbSession,
     current_user: CurrentUser,
 ) -> ModifyItemResponse:
@@ -321,6 +326,9 @@ async def modify_item_by_scan(
     repo = ItemRepository(session)
     item = await repo.get_by_id(body.item_id)
     if not item:
+        raise HTTPException(status_code=404, detail="Item not found")
+    owner_id = _sandbox_oid(request, current_user)
+    if owner_id is not None and item.owner_id != owner_id:
         raise HTTPException(status_code=404, detail="Item not found")
     update_data = body.model_dump(exclude={"item_id"}, exclude_none=True)
     for field, value in update_data.items():
