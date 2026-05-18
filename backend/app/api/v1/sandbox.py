@@ -27,6 +27,13 @@ class SeedStatusResponse(BaseModel):
     location_count: int
 
 
+class CopilotQuotaResponse(BaseModel):
+    msgs_used: int
+    limit: int
+    remaining: int
+    is_sandbox: bool
+
+
 @router.post("/seed", response_model=SeedStatusResponse)
 async def seed_sandbox(session: DbSession, current_user: CurrentUser) -> SeedStatusResponse:
     """Idempotent: seeds inventory + energy data for the calling user. Safe to call multiple times."""
@@ -99,6 +106,7 @@ async def reset_sandbox(
     await session.execute(text("DELETE FROM energy_readings WHERE owner_id = :uid"), {"uid": uid})
 
     target_user.sandbox_seeded = False
+    target_user.sandbox_copilot_msgs_used = 0
     session.add(target_user)
     await session.flush()
 
@@ -107,6 +115,19 @@ async def reset_sandbox(
     await session.commit()
 
     return SeedStatusResponse(seeded=True, item_count=30, event_count=50, location_count=8)
+
+
+@router.get("/copilot-quota", response_model=CopilotQuotaResponse)
+async def copilot_quota(current_user: CurrentUser) -> CopilotQuotaResponse:
+    """Returns sandbox copilot message usage for the calling user."""
+    used = current_user.sandbox_copilot_msgs_used
+    limit = settings.SANDBOX_COPILOT_LIMIT
+    return CopilotQuotaResponse(
+        msgs_used=used,
+        limit=limit,
+        remaining=max(0, limit - used),
+        is_sandbox=settings.SANDBOX_MODE,
+    )
 
 
 @router.get("/status", response_model=SeedStatusResponse)

@@ -29,7 +29,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import AsyncIterator
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile, status
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Request, UploadFile, status
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from sqlalchemy import func, select
@@ -38,6 +38,7 @@ from app.ai.copilot import SYSTEM_PROMPT, run_copilot
 from app.api.v1.auth import CurrentUser
 from app.core.config import settings
 from app.core.database import AsyncSessionLocal, DbSession
+from app.core.sandbox import is_sandbox_request
 from app.models.chat import (
     ChatMessage,
     ChatSession,
@@ -223,6 +224,7 @@ async def get_messages(
 @router.post("/sessions/{session_id}/messages")
 async def send_message(
     session_id: int,
+    request: Request,
     db: DbSession,
     current_user: CurrentUser,
     # Accept content as EITHER a query-param (old clients) OR a form field (new clients).
@@ -257,6 +259,21 @@ async def send_message(
     session = sess_result.scalar_one_or_none()
     if not session:
         raise HTTPException(status_code=404, detail="Session not found")
+
+    # ── Sandbox quota gate ────────────────────────────────────────────────
+    if is_sandbox_request(request):
+        if current_user.sandbox_copilot_msgs_used >= settings.SANDBOX_COPILOT_LIMIT:
+            raise HTTPException(
+                status_code=429,
+                detail={
+                    "code": "SANDBOX_QUOTA",
+                    "message": f"Sandbox copilot limit reached ({settings.SANDBOX_COPILOT_LIMIT} messages). Ask an admin to reset your quota.",
+                    "msgs_used": current_user.sandbox_copilot_msgs_used,
+                    "limit": settings.SANDBOX_COPILOT_LIMIT,
+                },
+            )
+        current_user.sandbox_copilot_msgs_used += 1
+        await db.flush()
 
     # ── Persist user message NOW (before stream starts) ───────────────────
     user_msg = ChatMessage(
