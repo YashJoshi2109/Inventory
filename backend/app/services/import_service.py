@@ -60,7 +60,7 @@ class ImportService:
         self._loc_repo = LocationRepository(session)
         self._stock_repo = StockLevelRepository(session)
 
-    async def import_excel(self, file_bytes: bytes, filename: str, actor_id: int) -> ImportJob:
+    async def import_excel(self, file_bytes: bytes, filename: str, actor_id: int, sandbox_owner_id: int | None = None) -> ImportJob:
         job = ImportJob(filename=filename, status="processing", actor_id=actor_id)
         self._session.add(job)
         await self._session.flush()
@@ -82,7 +82,7 @@ class ImportService:
                 for idx, row in df_items.iterrows():
                     try:
                         cat_name = str(row.get("Category", "Other")).strip() or "Other"
-                        category = await self._get_or_create_category(cat_name)
+                        category = await self._get_or_create_category(cat_name, owner_id=sandbox_owner_id)
 
                         sku = str(row["SKU"]).strip().upper()
                         existing = await self._item_repo.get_by_sku(sku)
@@ -107,6 +107,7 @@ class ImportService:
                                 reorder_level=reorder,
                                 reorder_qty=reorder * 2,
                                 lead_days=lead,
+                                owner_id=sandbox_owner_id,
                             )
                             self._session.add(item)
                             await self._session.flush()
@@ -202,13 +203,14 @@ class ImportService:
         await self._session.flush()
         return job
 
-    async def _get_or_create_category(self, name: str) -> Category:
+    async def _get_or_create_category(self, name: str, owner_id: int | None = None) -> Category:
         cat = await self._cat_repo.get_by_name(name)
-        if not cat:
+        if not cat or (owner_id is not None and cat.owner_id != owner_id):
             cat = Category(
                 name=name,
                 item_type="consumable",
                 color=LEGACY_CATEGORY_COLOR_MAP.get(name, "#6b7280"),
+                owner_id=owner_id,
             )
             self._session.add(cat)
             await self._session.flush()

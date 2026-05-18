@@ -37,9 +37,11 @@ class InventoryService:
         self._event_repo = InventoryEventRepository(session)
         self._stock_repo = StockLevelRepository(session)
 
-    async def stock_in(self, req: StockInRequest, actor_id: int) -> InventoryEvent:
+    async def stock_in(self, req: StockInRequest, actor_id: int, sandbox_owner_id: int | None = None) -> InventoryEvent:
         item = await self._item_repo.get_by_id(req.item_id)
         if not item or not item.is_active:
+            raise HTTPException(status_code=404, detail="Item not found")
+        if sandbox_owner_id is not None and item.owner_id != sandbox_owner_id:
             raise HTTPException(status_code=404, detail="Item not found")
 
         location = await self._loc_repo.get_with_area(req.location_id)
@@ -70,10 +72,12 @@ class InventoryService:
         return event
 
     async def stock_out(
-        self, req: StockOutRequest, actor_id: int, actor_roles: list[str]
+        self, req: StockOutRequest, actor_id: int, actor_roles: list[str], sandbox_owner_id: int | None = None
     ) -> InventoryEvent:
         item = await self._item_repo.get_by_id(req.item_id)
         if not item or not item.is_active:
+            raise HTTPException(status_code=404, detail="Item not found")
+        if sandbox_owner_id is not None and item.owner_id != sandbox_owner_id:
             raise HTTPException(status_code=404, detail="Item not found")
 
         location = await self._loc_repo.get_with_area(req.location_id)
@@ -127,9 +131,11 @@ class InventoryService:
         ))
         return event
 
-    async def transfer(self, req: TransferRequest, actor_id: int) -> InventoryEvent:
+    async def transfer(self, req: TransferRequest, actor_id: int, sandbox_owner_id: int | None = None) -> InventoryEvent:
         item = await self._item_repo.get_by_id(req.item_id)
         if not item:
+            raise HTTPException(status_code=404, detail="Item not found")
+        if sandbox_owner_id is not None and item.owner_id != sandbox_owner_id:
             raise HTTPException(status_code=404, detail="Item not found")
 
         src = await self._loc_repo.get_with_area(req.from_location_id)
@@ -178,10 +184,12 @@ class InventoryService:
         ))
         return event
 
-    async def adjustment(self, req: AdjustmentRequest, actor_id: int) -> InventoryEvent:
+    async def adjustment(self, req: AdjustmentRequest, actor_id: int, sandbox_owner_id: int | None = None) -> InventoryEvent:
         """Cycle count correction — sets absolute quantity at a location."""
         item = await self._item_repo.get_by_id(req.item_id)
         if not item:
+            raise HTTPException(status_code=404, detail="Item not found")
+        if sandbox_owner_id is not None and item.owner_id != sandbox_owner_id:
             raise HTTPException(status_code=404, detail="Item not found")
 
         sl = await self._stock_repo.get_by_item_location(req.item_id, req.location_id)
@@ -225,11 +233,12 @@ class InventoryService:
         req: BarcodeScanApplyRequest,
         actor_id: int,
         actor_roles: list[str],
+        sandbox_owner_id: int | None = None,
     ) -> InventoryEvent:
         """Resolve barcodes and route to stock-in/out/transfer operations."""
         scan_service = ScanService(self._session)
 
-        item_result = await scan_service.resolve(req.item_barcode)
+        item_result = await scan_service.resolve(req.item_barcode, sandbox_owner_id=sandbox_owner_id)
         if item_result.result_type != "item" or item_result.id is None:
             raise HTTPException(status_code=404, detail=f"Item barcode not found: {req.item_barcode}")
 
@@ -249,6 +258,7 @@ class InventoryService:
                     source=req.source,
                 ),
                 actor_id,
+                sandbox_owner_id=sandbox_owner_id,
             )
 
         if req.event_type == "stock_out":
@@ -267,6 +277,7 @@ class InventoryService:
                 ),
                 actor_id,
                 actor_roles,
+                sandbox_owner_id=sandbox_owner_id,
             )
 
         dest_result = await scan_service.resolve(req.destination_rack_barcode or "")
@@ -287,4 +298,5 @@ class InventoryService:
                 scan_session_id=req.scan_session_id,
             ),
             actor_id,
+            sandbox_owner_id=sandbox_owner_id,
         )

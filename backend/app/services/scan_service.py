@@ -50,6 +50,9 @@ class ScanService:
         self._item_repo = ItemRepository(session)
         self._loc_repo = LocationRepository(session)
 
+    def _sandbox_allows(self, item, sandbox_owner_id: int | None) -> bool:
+        return sandbox_owner_id is None or item.owner_id == sandbox_owner_id
+
     async def _item_result(self, item) -> ScanResult:
         total_qty = await self._item_repo.get_total_quantity(item.id)
         return ScanResult(
@@ -66,7 +69,7 @@ class ScanService:
             },
         )
 
-    async def resolve(self, barcode_value: str) -> ScanResult:
+    async def resolve(self, barcode_value: str, sandbox_owner_id: int | None = None) -> ScanResult:
         clean = barcode_value.strip()
 
         # ── 1. Location barcode ───────────────────────────────────────────────
@@ -136,31 +139,31 @@ class ScanService:
             gtin14 = parse_gs1_digital_link(clean)
             if gtin14:
                 item = await self._item_repo.get_by_barcode(gtin14)
-                if item:
+                if item and self._sandbox_allows(item, sandbox_owner_id):
                     return await self._item_result(item)
                 # Also try GTIN-12 (drop leading 00)
                 if gtin14.startswith("00"):
                     item = await self._item_repo.get_by_barcode(gtin14[2:])
-                    if item:
+                    if item and self._sandbox_allows(item, sandbox_owner_id):
                         return await self._item_result(item)
 
         # ── 3. Bare GTIN (12–14 all-digit string) ────────────────────────────
         gtin14 = normalize_gtin(clean)
         if gtin14:
             item = await self._item_repo.get_by_barcode(gtin14)
-            if item:
+            if item and self._sandbox_allows(item, sandbox_owner_id):
                 return await self._item_result(item)
             # Also try without leading 00 for items stored as GTIN-12
             if gtin14.startswith("00"):
                 item = await self._item_repo.get_by_barcode(gtin14[2:])
-                if item:
+                if item and self._sandbox_allows(item, sandbox_owner_id):
                     return await self._item_result(item)
 
         # ── 3b. SGTIN-96 EPC hex (proper GS1 RFID EPC, 24 hex chars) ────────────
         decoded_id = decode_sgtin96_epc(clean)
         if decoded_id is not None:
             item = await self._item_repo.get_with_details(decoded_id)
-            if item:
+            if item and self._sandbox_allows(item, sandbox_owner_id):
                 return await self._item_result(item)
 
         # ── 3c. Reverse SEAR Lab GTIN-14 → item_id (labels not yet in DB) ──────
@@ -174,19 +177,19 @@ class ScanService:
                     derived_id = int(_candidate[len(SEAR_LAB_GCP):len(SEAR_LAB_GCP) + 3])
                     if derived_id > 0:
                         item = await self._item_repo.get_with_details(derived_id)
-                        if item:
+                        if item and self._sandbox_allows(item, sandbox_owner_id):
                             return await self._item_result(item)
                 except (ValueError, IndexError):
                     pass
 
         # ── 4. Exact barcode registry match (GTIN-14 or legacy EPC) ──────────
         item = await self._item_repo.get_by_barcode(clean)
-        if item:
+        if item and self._sandbox_allows(item, sandbox_owner_id):
             return await self._item_result(item)
 
         # ── 5. Direct SKU match ───────────────────────────────────────────────
         item = await self._item_repo.get_by_sku(clean)
-        if item:
+        if item and self._sandbox_allows(item, sandbox_owner_id):
             total_qty = await self._item_repo.get_total_quantity(item.id)
             return ScanResult(
                 result_type=ScanResultType.ITEM,
@@ -211,7 +214,7 @@ class ScanService:
                     item = await self._item_repo.get_by_barcode(probe)
                     if not item:
                         item = await self._item_repo.get_by_sku(probe)
-                    if item:
+                    if item and self._sandbox_allows(item, sandbox_owner_id):
                         return await self._item_result(item)
             except Exception:
                 pass
@@ -223,12 +226,12 @@ class ScanService:
                 if part.upper().startswith("SKU:"):
                     sku_val = part[4:].strip()
                     item = await self._item_repo.get_by_sku(sku_val)
-                    if item:
+                    if item and self._sandbox_allows(item, sandbox_owner_id):
                         return await self._item_result(item)
                 elif part.upper().startswith("EPC:"):
                     epc_val = part[4:].strip()
                     item = await self._item_repo.get_by_barcode(epc_val)
-                    if item:
+                    if item and self._sandbox_allows(item, sandbox_owner_id):
                         return await self._item_result(item)
 
         return ScanResult(
