@@ -141,10 +141,9 @@ async def create_item(body: ItemCreate, session: DbSession, current_user: Curren
     from app.services.barcode_service import (
         render_qr_png,
         gtin14_for_item,
-        gtin12_for_item,
-        serial_for_item,
         gs1_digital_link_url,
         generate_epc_serial,
+        sgtin96_epc_hex,
     )
     item = Item(**body.model_dump())
     session.add(item)
@@ -153,20 +152,26 @@ async def create_item(body: ItemCreate, session: DbSession, current_user: Curren
     # SEAR Lab Standard: Code128 encodes GTIN-14; QR encodes GS1 Digital Link URL
     gtin14 = gtin14_for_item(item.id)
     gs1_url = gs1_digital_link_url(item.id, item.name)
-    qr_bytes = render_qr_png(gs1_url)   # QR encodes the GS1 Digital Link URL
-    bc = ItemBarcode(
+    qr_bytes = render_qr_png(gs1_url)
+    session.add(ItemBarcode(
         item_id=item.id,
         barcode_type="qr+code128",
-        barcode_value=gtin14,        # Code128 encodes GTIN-14; lookup key for scanner
+        barcode_value=gtin14,
         qr_image=qr_bytes,
         is_primary=True,
-    )
-    session.add(bc)
+    ))
 
-    # RFID EPC — RP902 HID scan resolves via scan_service exact barcode match
+    # RFID EPC: GS1-standard SGTIN-96 hex (matches scan_service step 3b + migration format)
     session.add(ItemBarcode(
         item_id=item.id,
         barcode_type="rfid_epc",
+        barcode_value=sgtin96_epc_hex(item.id),
+        is_primary=False,
+    ))
+    # Legacy EPC string for backward compat with existing RFID readers
+    session.add(ItemBarcode(
+        item_id=item.id,
+        barcode_type="rfid_epc_legacy",
         barcode_value=generate_epc_serial(item.id),
         is_primary=False,
     ))

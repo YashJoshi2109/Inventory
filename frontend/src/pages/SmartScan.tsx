@@ -270,21 +270,14 @@ export default function SmartScan() {
     let resolved: ScanResult;
     try {
       resolved = await scanApi.lookup(raw);
-    } catch {
-      // Unknown barcode — offer to add it as a new item
+    } catch (err) {
+      // API / network error — show error state so user knows it's NOT "item not found"
       scanning.current = false;
-      setState((s) => ({
-        ...s,
-        phase: "add_item",
-        lastUnknown: raw,
-        newItemSku: raw.slice(0, 64),
-        newItemName: "",
-        newItemDesc: "",
-        addingItem: false,
-      }));
+      setState((s) => ({ ...s, phase: "error", errorMsg: apiErrMsg(err) }));
       return;
     }
     if (resolved.result_type === "unknown") {
+      // Barcode decoded fine but not in inventory — offer quick-create form
       scanning.current = false;
       setState((s) => ({
         ...s,
