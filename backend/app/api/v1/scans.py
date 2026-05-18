@@ -16,7 +16,7 @@ from pydantic import BaseModel
 
 from app.api.v1.auth import CurrentUser
 from app.core.database import DbSession
-from app.core.sandbox import sandbox_owner_id as _sandbox_oid
+from app.core.sandbox import sandbox_owner_id as _sandbox_oid, owns
 from app.core.events import DomainEvent, EventType, event_bus
 from app.schemas.transaction import (
     AdjustmentRequest,
@@ -328,7 +328,7 @@ async def modify_item_by_scan(
     if not item:
         raise HTTPException(status_code=404, detail="Item not found")
     owner_id = _sandbox_oid(request, current_user)
-    if owner_id is not None and item.owner_id != owner_id:
+    if not owns(item.owner_id, owner_id):
         raise HTTPException(status_code=404, detail="Item not found")
     update_data = body.model_dump(exclude={"item_id"}, exclude_none=True)
     for field, value in update_data.items():

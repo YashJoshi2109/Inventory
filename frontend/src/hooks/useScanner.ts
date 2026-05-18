@@ -60,19 +60,13 @@ export function useScanner({ onScan, onError, preferBackCamera = true, cooldownM
         hints.set(DecodeHintType.POSSIBLE_FORMATS, [
           BarcodeFormat.QR_CODE,
           BarcodeFormat.CODE_128,
-          BarcodeFormat.CODE_39,
           BarcodeFormat.EAN_13,
           BarcodeFormat.EAN_8,
           BarcodeFormat.UPC_A,
           BarcodeFormat.UPC_E,
-          BarcodeFormat.DATA_MATRIX,
-          BarcodeFormat.ITF,
-          BarcodeFormat.PDF_417,
-          BarcodeFormat.AZTEC,
         ]);
-        hints.set(DecodeHintType.TRY_HARDER, true);
         readerRef.current = new BrowserMultiFormatReader(hints, {
-          delayBetweenScanAttempts: 150,
+          delayBetweenScanAttempts: 100,
         });
       }
       const deviceId = selectedCamera ?? undefined;

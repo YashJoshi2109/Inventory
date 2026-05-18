@@ -18,6 +18,7 @@ from enum import StrEnum
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.sandbox import owns
 from app.repositories.item_repo import ItemRepository
 from app.repositories.location_repo import LocationRepository
 from app.services.barcode_service import (
@@ -51,7 +52,7 @@ class ScanService:
         self._loc_repo = LocationRepository(session)
 
     def _sandbox_allows(self, item, sandbox_owner_id: int | None) -> bool:
-        return sandbox_owner_id is None or item.owner_id == sandbox_owner_id
+        return owns(item.owner_id, sandbox_owner_id)
 
     async def _item_result(self, item) -> ScanResult:
         total_qty = await self._item_repo.get_total_quantity(item.id)
