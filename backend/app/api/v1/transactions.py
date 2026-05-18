@@ -1,9 +1,10 @@
 from datetime import datetime
 
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, Query, Request
 
 from app.api.v1.auth import CurrentUser
 from app.core.database import DbSession
+from app.core.sandbox import sandbox_owner_id as _sandbox_oid
 from app.repositories.transaction_repo import AlertRepository, InventoryEventRepository
 from app.schemas.common import PaginatedResponse
 from app.schemas.transaction import AlertRead, InventoryEventRead
@@ -35,6 +36,7 @@ def _to_read(event) -> InventoryEventRead:
 
 @router.get("", response_model=PaginatedResponse[InventoryEventRead])
 async def list_transactions(
+    request: Request,
     session: DbSession,
     current_user: CurrentUser,
     item_id: int | None = None,
@@ -53,6 +55,7 @@ async def list_transactions(
         event_kind=event_kind,
         start_date=start_date,
         end_date=end_date,
+        actor_id=_sandbox_oid(request, current_user),
         skip=skip,
         limit=page_size,
     )
@@ -67,6 +70,7 @@ async def list_transactions(
 
 @router.get("/alerts", response_model=list[AlertRead])
 async def list_alerts(
+    request: Request,
     session: DbSession,
     current_user: CurrentUser,
     page: int = Query(default=1, ge=1),
@@ -74,7 +78,7 @@ async def list_alerts(
 ) -> list[AlertRead]:
     repo = AlertRepository(session)
     skip = (page - 1) * page_size
-    alerts = await repo.get_active_alerts(skip=skip, limit=page_size)
+    alerts = await repo.get_active_alerts(skip=skip, limit=page_size, owner_id=_sandbox_oid(request, current_user))
     return [
         AlertRead(
             id=a.id,

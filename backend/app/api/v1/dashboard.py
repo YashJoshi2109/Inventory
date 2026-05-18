@@ -1,10 +1,11 @@
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Request
 
 from app.api.v1.auth import CurrentUser
 from app.core.database import DbSession
+from app.core.sandbox import sandbox_owner_id as _sandbox_oid
 from app.core.notifications import get_email_service_status_for_ui
 from app.repositories.item_repo import ItemRepository, CategoryRepository
 from app.repositories.transaction_repo import (
@@ -46,18 +47,19 @@ def _to_event_read(event) -> InventoryEventRead:
 
 
 @router.get("/stats", response_model=DashboardStats)
-async def get_dashboard_stats(session: DbSession, current_user: CurrentUser) -> DashboardStats:
+async def get_dashboard_stats(request: Request, session: DbSession, current_user: CurrentUser) -> DashboardStats:
     item_repo = ItemRepository(session)
     cat_repo = CategoryRepository(session)
     event_repo = InventoryEventRepository(session)
     stock_repo = StockLevelRepository(session)
     alert_repo = AlertRepository(session)
+    owner_id = _sandbox_oid(request, current_user)
 
     # Total items & SKUs
-    total_skus = await item_repo.count()
+    total_skus = await item_repo.count(owner_id=owner_id)
 
     # Low stock / out of stock
-    low_stock_items = await item_repo.get_low_stock_items()
+    low_stock_items = await item_repo.get_low_stock_items(owner_id=owner_id)
     items_low = sum(1 for _, qty in low_stock_items if qty > 0)
     items_out = sum(1 for _, qty in low_stock_items if qty <= 0)
 
@@ -66,11 +68,14 @@ async def get_dashboard_stats(session: DbSession, current_user: CurrentUser) -> 
     from app.models.transaction import StockLevel
     from app.models.item import Item
 
-    value_result = await session.execute(
+    value_q = (
         select(func.sum(StockLevel.quantity * Item.unit_cost))
         .join(Item, StockLevel.item_id == Item.id)
         .where(Item.is_active == True)  # noqa: E712
     )
+    if owner_id is not None:
+        value_q = value_q.where(Item.owner_id == owner_id)
+    value_result = await session.execute(value_q)
     total_value = Decimal(str(value_result.scalar_one() or 0))
 
     # Transaction counts
@@ -78,14 +83,14 @@ async def get_dashboard_stats(session: DbSession, current_user: CurrentUser) -> 
     today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
     week_start = today_start - timedelta(days=7)
 
-    txn_today = await event_repo.get_transactions_count_since(today_start)
-    txn_week = await event_repo.get_transactions_count_since(week_start)
+    txn_today = await event_repo.get_transactions_count_since(today_start, actor_id=owner_id)
+    txn_week = await event_repo.get_transactions_count_since(week_start, actor_id=owner_id)
 
     # Active alerts
-    active_alerts = await alert_repo.count_active()
+    active_alerts = await alert_repo.count_active(owner_id=owner_id)
 
     # Category breakdown
-    cats_with_counts = await cat_repo.get_all_with_counts()
+    cats_with_counts = await cat_repo.get_all_with_counts(owner_id=owner_id)
     category_breakdown = [
         {
             "id": cat.id,
@@ -98,11 +103,11 @@ async def get_dashboard_stats(session: DbSession, current_user: CurrentUser) -> 
     ]
 
     # Recent activity (last 15 events)
-    recent_events = await event_repo.get_recent_activity(limit=15)
+    recent_events = await event_repo.get_recent_activity(limit=15, actor_id=owner_id)
     recent_activity = [_to_event_read(e) for e in recent_events]
 
     # Top consumed (last 30 days)
-    top_consumed = await event_repo.get_top_consumed(days=30, limit=8)
+    top_consumed = await event_repo.get_top_consumed(days=30, limit=8, actor_id=owner_id)
 
     return DashboardStats(
         total_items=total_skus,

@@ -217,14 +217,12 @@ class AlertRepository(BaseRepository[Alert]):
     def __init__(self, session: AsyncSession) -> None:
         super().__init__(Alert, session)
 
-    async def get_active_alerts(self, skip: int = 0, limit: int = 50) -> list[Alert]:
-        result = await self.session.execute(
-            select(Alert)
-            .where(Alert.is_resolved == False)  # noqa: E712
-            .order_by(Alert.created_at.desc())
-            .offset(skip)
-            .limit(limit)
-        )
+    async def get_active_alerts(self, skip: int = 0, limit: int = 50, owner_id: int | None = None) -> list[Alert]:
+        q = select(Alert).where(Alert.is_resolved == False)  # noqa: E712
+        if owner_id is not None:
+            q = q.join(Item, Alert.item_id == Item.id).where(Item.owner_id == owner_id)
+        q = q.order_by(Alert.created_at.desc()).offset(skip).limit(limit)
+        result = await self.session.execute(q)
         return list(result.scalars().all())
 
     async def count_active(self, owner_id: int | None = None) -> int:
