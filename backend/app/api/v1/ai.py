@@ -20,6 +20,7 @@ from app.ai.demand_forecaster import forecast as run_forecast
 from app.ai.nlp_search import get_global_index, global_search, rebuild_global_index
 from app.api.v1.auth import CurrentUser, require_roles
 from app.core.database import DbSession
+from app.core.sandbox import sandbox_owner_id as _sandbox_oid
 from app.core.rate_limit import _chat_limiter, _get_client_ip, check_vision_quota, vision_quota_status as _vision_quota_status
 from app.core.config import settings
 from app.models.user import RoleName
@@ -163,6 +164,7 @@ async def get_vision_quota_status(
 
 @router.get("/search", response_model=SearchResponse)
 async def nlp_search(
+    request: Request,
     q: str = Query(min_length=2, description="Natural language search query"),
     session: DbSession = None,
     current_user: CurrentUser = None,
@@ -189,6 +191,7 @@ async def nlp_search(
         skip=0,
         limit=limit,
         is_active=True,
+        owner_id=_sandbox_oid(request, current_user),
     )
     db_id_set = {i.id for i in db_items}
 
@@ -231,6 +234,7 @@ async def nlp_search(
 @router.get("/forecast/{item_id}", response_model=ForecastResponse)
 async def demand_forecast(
     item_id: int,
+    request: Request,
     session: DbSession,
     current_user: CurrentUser,
     days: int = Query(default=90, ge=14, le=365),
@@ -241,6 +245,9 @@ async def demand_forecast(
 
     item = await item_repo.get_by_id(item_id)
     if not item:
+        raise HTTPException(status_code=404, detail="Item not found")
+    oid = _sandbox_oid(request, current_user)
+    if oid is not None and item.owner_id != oid:
         raise HTTPException(status_code=404, detail="Item not found")
 
     daily_data = await event_repo.get_consumption_time_series(item_id, days=days)

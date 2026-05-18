@@ -1,12 +1,13 @@
 from datetime import datetime
 import logging
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import Response
 from pydantic import BaseModel
 
 from app.api.v1.auth import CurrentUser, require_roles
 from app.core.database import DbSession
+from app.core.sandbox import sandbox_owner_id as _sandbox_oid
 from app.core.notifications import send_item_qr_email
 from app.models.user import RoleName
 from app.repositories.item_repo import ItemRepository
@@ -57,10 +58,13 @@ _BULK_PRINT_MAX_ITEMS = 2000
 
 
 @router.get("/item/{item_id}/qr/png")
-async def item_qr_png(item_id: int, session: DbSession, current_user: CurrentUser) -> Response:
+async def item_qr_png(item_id: int, request: Request, session: DbSession, current_user: CurrentUser) -> Response:
     repo = ItemRepository(session)
     item = await repo.get_with_details(item_id)
     if not item:
+        raise HTTPException(status_code=404, detail="Item not found")
+    oid = _sandbox_oid(request, current_user)
+    if oid is not None and item.owner_id != oid:
         raise HTTPException(status_code=404, detail="Item not found")
     primary = next((b for b in item.barcodes if b.is_primary), None)
     if primary and primary.qr_image:
@@ -72,10 +76,13 @@ async def item_qr_png(item_id: int, session: DbSession, current_user: CurrentUse
 
 
 @router.post("/item/{item_id}/qr/send-email", response_model=MessageResponse)
-async def item_qr_send_email(item_id: int, session: DbSession, current_user: CurrentUser) -> MessageResponse:
+async def item_qr_send_email(item_id: int, request: Request, session: DbSession, current_user: CurrentUser) -> MessageResponse:
     repo = ItemRepository(session)
     item = await repo.get_with_details(item_id)
     if not item:
+        raise HTTPException(status_code=404, detail="Item not found")
+    oid = _sandbox_oid(request, current_user)
+    if oid is not None and item.owner_id != oid:
         raise HTTPException(status_code=404, detail="Item not found")
 
     if not current_user.email:
@@ -99,11 +106,14 @@ async def item_qr_send_email(item_id: int, session: DbSession, current_user: Cur
 
 
 @router.get("/item/{item_id}/zpl")
-async def item_label_zpl(item_id: int, session: DbSession, current_user: CurrentUser) -> Response:
+async def item_label_zpl(item_id: int, request: Request, session: DbSession, current_user: CurrentUser) -> Response:
     """ZPL II label for one item — 4\" × 2\" @ 203 DPI with RFID EPC (SGTIN-96) embedding."""
     repo = ItemRepository(session)
     item = await repo.get_with_details(item_id)
     if not item:
+        raise HTTPException(status_code=404, detail="Item not found")
+    oid = _sandbox_oid(request, current_user)
+    if oid is not None and item.owner_id != oid:
         raise HTTPException(status_code=404, detail="Item not found")
     zpl = generate_item_label_zpl(item_id, item.name, item.sku)
     return Response(
@@ -164,11 +174,14 @@ async def item_barcode_meta(item_id: int, session: DbSession, current_user: Curr
 
 
 @router.get("/item/{item_id}/png")
-async def item_barcode_png(item_id: int, session: DbSession, current_user: CurrentUser) -> Response:
+async def item_barcode_png(item_id: int, request: Request, session: DbSession, current_user: CurrentUser) -> Response:
     """Code 128 barcode PNG for this item (encodes GTIN-14)."""
     repo = ItemRepository(session)
     item = await repo.get_with_details(item_id)
     if not item:
+        raise HTTPException(status_code=404, detail="Item not found")
+    oid = _sandbox_oid(request, current_user)
+    if oid is not None and item.owner_id != oid:
         raise HTTPException(status_code=404, detail="Item not found")
     primary = next((b for b in item.barcodes if b.is_primary), None)
     stored_bv = primary.barcode_value if primary and primary.barcode_value else None
@@ -288,6 +301,7 @@ async def print_label_sheet(
     dependencies=[Depends(require_roles(RoleName.ADMIN, RoleName.MANAGER, RoleName.OPERATOR))],
 )
 async def print_bulk_labels(
+    request: Request,
     session: DbSession,
     current_user: CurrentUser,
     q: str | None = Query(default=None, description="Search query — same as /items"),
@@ -310,6 +324,7 @@ async def print_bulk_labels(
         query=q,
         category_id=category_id,
         is_active=True,
+        owner_id=_sandbox_oid(request, current_user),
         skip=0,
         limit=limit,
     )

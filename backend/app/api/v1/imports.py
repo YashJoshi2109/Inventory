@@ -1,7 +1,8 @@
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, status
+from fastapi import APIRouter, Depends, HTTPException, Request, UploadFile, File, status
 
 from app.api.v1.auth import CurrentUser, require_roles
 from app.core.database import DbSession
+from app.core.sandbox import sandbox_owner_id as _sandbox_oid
 from app.models.user import RoleName
 from app.models.transaction import ImportJob
 from app.services.import_service import ImportService
@@ -65,6 +66,7 @@ class ImportJobRead(OrmBase):
     dependencies=[Depends(require_roles(RoleName.ADMIN, RoleName.MANAGER))],
 )
 async def import_excel(
+    request: Request,
     session: DbSession,
     current_user: CurrentUser,
     file: UploadFile = File(...),
@@ -74,7 +76,7 @@ async def import_excel(
 
     content = await file.read()
     svc = ImportService(session)
-    job = await svc.import_excel(content, file.filename, current_user.id)
+    job = await svc.import_excel(content, file.filename, current_user.id, sandbox_owner_id=_sandbox_oid(request, current_user))
     return ImportJobRead.model_validate(job)
 
 
@@ -85,6 +87,7 @@ async def import_excel(
     dependencies=[Depends(require_roles(RoleName.ADMIN, RoleName.MANAGER))],
 )
 async def import_csv(
+    request: Request,
     session: DbSession,
     current_user: CurrentUser,
     file: UploadFile = File(...),
@@ -110,7 +113,7 @@ async def import_csv(
         with pd.ExcelWriter(buf, engine="openpyxl") as writer:
             df.to_excel(writer, sheet_name="Items_Master", index=False)
         svc = ImportService(session)
-        job = await svc.import_excel(buf.getvalue(), file.filename, current_user.id)
+        job = await svc.import_excel(buf.getvalue(), file.filename, current_user.id, sandbox_owner_id=_sandbox_oid(request, current_user))
     except HTTPException:
         raise
     except Exception as e:
