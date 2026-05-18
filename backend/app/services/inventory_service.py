@@ -14,6 +14,7 @@ from fastapi import HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.events import DomainEvent, EventType, event_bus
+from app.core.sandbox import owns
 from app.models.transaction import InventoryEvent, EventKind
 from app.models.user import RoleName
 from app.repositories.item_repo import ItemRepository
@@ -41,7 +42,7 @@ class InventoryService:
         item = await self._item_repo.get_by_id(req.item_id)
         if not item or not item.is_active:
             raise HTTPException(status_code=404, detail="Item not found")
-        if sandbox_owner_id is not None and item.owner_id != sandbox_owner_id:
+        if not owns(item.owner_id, sandbox_owner_id):
             raise HTTPException(status_code=404, detail="Item not found")
 
         location = await self._loc_repo.get_with_area(req.location_id)
@@ -77,7 +78,7 @@ class InventoryService:
         item = await self._item_repo.get_by_id(req.item_id)
         if not item or not item.is_active:
             raise HTTPException(status_code=404, detail="Item not found")
-        if sandbox_owner_id is not None and item.owner_id != sandbox_owner_id:
+        if not owns(item.owner_id, sandbox_owner_id):
             raise HTTPException(status_code=404, detail="Item not found")
 
         location = await self._loc_repo.get_with_area(req.location_id)
@@ -135,7 +136,7 @@ class InventoryService:
         item = await self._item_repo.get_by_id(req.item_id)
         if not item:
             raise HTTPException(status_code=404, detail="Item not found")
-        if sandbox_owner_id is not None and item.owner_id != sandbox_owner_id:
+        if not owns(item.owner_id, sandbox_owner_id):
             raise HTTPException(status_code=404, detail="Item not found")
 
         src = await self._loc_repo.get_with_area(req.from_location_id)
@@ -189,7 +190,7 @@ class InventoryService:
         item = await self._item_repo.get_by_id(req.item_id)
         if not item:
             raise HTTPException(status_code=404, detail="Item not found")
-        if sandbox_owner_id is not None and item.owner_id != sandbox_owner_id:
+        if not owns(item.owner_id, sandbox_owner_id):
             raise HTTPException(status_code=404, detail="Item not found")
 
         sl = await self._stock_repo.get_by_item_location(req.item_id, req.location_id)

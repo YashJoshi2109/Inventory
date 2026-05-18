@@ -1,4 +1,4 @@
-import { useMemo, useState, useEffect } from "react";
+import { useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import {
   AreaChart,
@@ -49,40 +49,41 @@ const DAY_NAMES = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
 interface LabStatus { isOpen: boolean; label: string; detail: string; next: string; }
 
-function getLabStatus(): LabStatus {
-  const now = new Date();
-  const day = now.getDay();
-  const h = now.getHours() + now.getMinutes() / 60;
-  const sched = LAB_SCHEDULE[day];
+// Lab open/closed is inferred from live energy data, not hardcoded hours.
+//
+// Rules (in priority order):
+//  1. OPEN  — AC unit is actively running (HVAC on = someone set the climate)
+//  2. OPEN  — Total load exceeds standby baseline (>600 W means equipment beyond
+//             the always-on 500 W base systems is drawing power)
+//  3. CLOSED — only standby load, no climate control → nobody in the lab
+//
+// BASE_STANDBY_W: ~500 W of always-on networking/monitoring equipment.
+// OCCUPANCY_W:    600 W — base + any meaningful appliance (AC, workstation, etc.)
+const BASE_STANDBY_W = 500;
+const OCCUPANCY_W    = 600;
 
-  if (!sched || h >= sched.close) {
-    let nd = (day + 1) % 7, tries = 0;
-    while (!LAB_SCHEDULE[nd] && tries++ < 6) nd = (nd + 1) % 7;
-    const ns = LAB_SCHEDULE[nd];
+function getLabStatusFromEnergy(
+  solarW: number,
+  loadW: number,
+  acOn: boolean,
+): LabStatus {
+  if (loadW === 0 && solarW === 0) {
+    return { isOpen: false, label: "NO DATA", detail: "Awaiting sensor data", next: "—" };
+  }
+  const isOpen = acOn || loadW > OCCUPANCY_W;
+  if (isOpen) {
     return {
-      isOpen: false,
-      label: "CLOSED",
-      detail: !sched ? "Closed today" : "Closed for today",
-      next: ns ? `Opens ${DAY_NAMES[nd]} ${ns.open}:00` : "—",
+      isOpen: true,
+      label: "OPEN",
+      detail: `${Math.round(loadW)} W load · ${Math.round(solarW)} W solar`,
+      next: acOn ? "HVAC active · occupancy detected" : `${Math.round(loadW - BASE_STANDBY_W)} W above standby`,
     };
   }
-
-  if (h < sched.open) {
-    const mins = Math.round((sched.open - h) * 60);
-    return {
-      isOpen: false,
-      label: "CLOSED",
-      detail: `Opens at ${sched.open}:00`,
-      next: `In ${Math.floor(mins / 60)}h ${mins % 60}m`,
-    };
-  }
-
-  const rem = sched.close - h;
   return {
-    isOpen: true,
-    label: "OPEN",
-    detail: `Until ${sched.close}:00`,
-    next: `${Math.floor(rem)}h ${Math.round((rem % 1) * 60)}m left`,
+    isOpen: false,
+    label: "CLOSED",
+    detail: `Standby · ${Math.round(loadW)} W`,
+    next: solarW > 200 ? "Solar active · no occupancy" : "No activity detected",
   };
 }
 
@@ -319,12 +320,6 @@ function ApplianceRow({
 // ── Main Component ────────────────────────────────────────────────────────────
 
 export function EnergyDashboard() {
-  const [labStatus, setLabStatus] = useState<LabStatus>(getLabStatus);
-
-  useEffect(() => {
-    const id = setInterval(() => setLabStatus(getLabStatus()), 60_000);
-    return () => clearInterval(id);
-  }, []);
 
   const { data, isLoading, isError, dataUpdatedAt, refetch } = useQuery({
     queryKey: ["energy-dashboard"],
@@ -396,6 +391,12 @@ export function EnergyDashboard() {
   const hwhWatts = mergedLatest?.hwh_consumption_w ?? 0;
   const acOn  = influx?.ac_consumption_w  != null ? acWatts  > 50 : AC_ON(latest?.ac_power_mode ?? null);
   const hwhOn = influx?.hwh_consumption_w != null ? hwhWatts > 50 : !!(latest?.hwh_running);
+
+  // Lab open/closed — energy-based, updates every 15 s with live InfluxDB data
+  const labStatus = useMemo(
+    () => getLabStatusFromEnergy(currentSolarW, currentLoadW, acOn),
+    [currentSolarW, currentLoadW, acOn],
+  );
 
   const indoorTempC  = influx?.ac_current_temp_c ?? null;
   const targetTempC  = influx?.ac_target_temp_c  ?? null;
