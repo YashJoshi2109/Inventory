@@ -147,6 +147,17 @@ class ScanService:
                     item = await self._item_repo.get_by_barcode(gtin14[2:])
                     if item and self._sandbox_allows(item, sandbox_owner_id):
                         return await self._item_result(item)
+                # Barcode registry miss — SEAR Lab GTIN reverse lookup
+                # (item exists in DB but GTIN-14 not yet registered in item_barcodes)
+                if gtin14[:len(SEAR_LAB_GCP)] == SEAR_LAB_GCP:
+                    try:
+                        derived_id = int(gtin14[len(SEAR_LAB_GCP):len(SEAR_LAB_GCP) + 3])
+                        if derived_id > 0:
+                            item = await self._item_repo.get_with_details(derived_id)
+                            if item and self._sandbox_allows(item, sandbox_owner_id):
+                                return await self._item_result(item)
+                    except (ValueError, IndexError):
+                        pass
 
         # ── 3. Bare GTIN (12–14 all-digit string) ────────────────────────────
         gtin14 = normalize_gtin(clean)

@@ -7,7 +7,7 @@ from pydantic import BaseModel
 
 from app.api.v1.auth import CurrentUser, require_roles
 from app.core.database import DbSession
-from app.core.sandbox import sandbox_owner_id as _sandbox_oid
+from app.core.sandbox import sandbox_owner_id as _sandbox_oid, owns
 from app.core.notifications import send_item_qr_email
 from app.models.user import RoleName
 from app.repositories.item_repo import ItemRepository
@@ -64,7 +64,7 @@ async def item_qr_png(item_id: int, request: Request, session: DbSession, curren
     if not item:
         raise HTTPException(status_code=404, detail="Item not found")
     oid = _sandbox_oid(request, current_user)
-    if oid is not None and item.owner_id != oid:
+    if not owns(item.owner_id, oid):
         raise HTTPException(status_code=404, detail="Item not found")
     primary = next((b for b in item.barcodes if b.is_primary), None)
     if primary and primary.qr_image:
@@ -82,7 +82,7 @@ async def item_qr_send_email(item_id: int, request: Request, session: DbSession,
     if not item:
         raise HTTPException(status_code=404, detail="Item not found")
     oid = _sandbox_oid(request, current_user)
-    if oid is not None and item.owner_id != oid:
+    if not owns(item.owner_id, oid):
         raise HTTPException(status_code=404, detail="Item not found")
 
     if not current_user.email:
@@ -113,7 +113,7 @@ async def item_label_zpl(item_id: int, request: Request, session: DbSession, cur
     if not item:
         raise HTTPException(status_code=404, detail="Item not found")
     oid = _sandbox_oid(request, current_user)
-    if oid is not None and item.owner_id != oid:
+    if not owns(item.owner_id, oid):
         raise HTTPException(status_code=404, detail="Item not found")
     zpl = generate_item_label_zpl(item_id, item.name, item.sku)
     return Response(
@@ -181,7 +181,7 @@ async def item_barcode_png(item_id: int, request: Request, session: DbSession, c
     if not item:
         raise HTTPException(status_code=404, detail="Item not found")
     oid = _sandbox_oid(request, current_user)
-    if oid is not None and item.owner_id != oid:
+    if not owns(item.owner_id, oid):
         raise HTTPException(status_code=404, detail="Item not found")
     primary = next((b for b in item.barcodes if b.is_primary), None)
     stored_bv = primary.barcode_value if primary and primary.barcode_value else None
