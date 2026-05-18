@@ -106,6 +106,7 @@ class Settings(BaseSettings):
 
     # Sandbox mode — set to true on sandbox Cloud Run only
     SANDBOX_MODE: bool = False
+    SANDBOX_COPILOT_LIMIT: int = 10
 
     # MQTT — domain events to external subscribers (analytics, IoT, ERP)
     MQTT_ENABLED: bool = False
