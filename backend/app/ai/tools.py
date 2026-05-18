@@ -354,8 +354,7 @@ async def get_dashboard_summary(db: AsyncSession, owner_id: int | None = None) -
     low = low_r.scalar() or 0
 
     txn_where = [text("occurred_at::date = CURRENT_DATE")]
-    if owner_id is not None:
-        if owner_id and owner_id > 0:
+    if owner_id and owner_id > 0:
         txn_where.append(InventoryEvent.actor_id == owner_id)
     txn_today_r = await db.execute(
         select(func.count()).select_from(InventoryEvent).where(*txn_where)
