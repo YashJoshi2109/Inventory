@@ -20,7 +20,7 @@ from app.ai.demand_forecaster import forecast as run_forecast
 from app.ai.nlp_search import get_global_index, global_search, rebuild_global_index
 from app.api.v1.auth import CurrentUser, require_roles
 from app.core.database import DbSession
-from app.core.sandbox import sandbox_owner_id as _sandbox_oid
+from app.core.sandbox import sandbox_owner_id as _sandbox_oid, owns
 from app.core.rate_limit import _chat_limiter, _get_client_ip, check_vision_quota, vision_quota_status as _vision_quota_status
 from app.core.config import settings
 from app.models.user import RoleName
@@ -247,7 +247,7 @@ async def demand_forecast(
     if not item:
         raise HTTPException(status_code=404, detail="Item not found")
     oid = _sandbox_oid(request, current_user)
-    if oid is not None and item.owner_id != oid:
+    if not owns(item.owner_id, oid):
         raise HTTPException(status_code=404, detail="Item not found")
 
     daily_data = await event_repo.get_consumption_time_series(item_id, days=days)
