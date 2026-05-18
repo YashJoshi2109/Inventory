@@ -139,12 +139,12 @@ class ScanService:
         if clean.startswith("http"):
             gtin14 = parse_gs1_digital_link(clean)
             if gtin14:
-                item = await self._item_repo.get_by_barcode(gtin14)
+                item = await self._item_repo.get_by_barcode(gtin14, sandbox_owner_id)
                 if item and self._sandbox_allows(item, sandbox_owner_id):
                     return await self._item_result(item)
                 # Also try GTIN-12 (drop leading 00)
                 if gtin14.startswith("00"):
-                    item = await self._item_repo.get_by_barcode(gtin14[2:])
+                    item = await self._item_repo.get_by_barcode(gtin14[2:], sandbox_owner_id)
                     if item and self._sandbox_allows(item, sandbox_owner_id):
                         return await self._item_result(item)
                 # Barcode registry miss — SEAR Lab GTIN reverse lookup
@@ -162,12 +162,12 @@ class ScanService:
         # ── 3. Bare GTIN (12–14 all-digit string) ────────────────────────────
         gtin14 = normalize_gtin(clean)
         if gtin14:
-            item = await self._item_repo.get_by_barcode(gtin14)
+            item = await self._item_repo.get_by_barcode(gtin14, sandbox_owner_id)
             if item and self._sandbox_allows(item, sandbox_owner_id):
                 return await self._item_result(item)
             # Also try without leading 00 for items stored as GTIN-12
             if gtin14.startswith("00"):
-                item = await self._item_repo.get_by_barcode(gtin14[2:])
+                item = await self._item_repo.get_by_barcode(gtin14[2:], sandbox_owner_id)
                 if item and self._sandbox_allows(item, sandbox_owner_id):
                     return await self._item_result(item)
 
@@ -195,7 +195,7 @@ class ScanService:
                     pass
 
         # ── 4. Exact barcode registry match (GTIN-14 or legacy EPC) ──────────
-        item = await self._item_repo.get_by_barcode(clean)
+        item = await self._item_repo.get_by_barcode(clean, sandbox_owner_id)
         if item and self._sandbox_allows(item, sandbox_owner_id):
             return await self._item_result(item)
 
@@ -223,7 +223,7 @@ class ScanService:
                 payload = _json.loads(clean)
                 probe = payload.get("epc") or payload.get("sku")
                 if probe:
-                    item = await self._item_repo.get_by_barcode(probe)
+                    item = await self._item_repo.get_by_barcode(probe, sandbox_owner_id)
                     if not item:
                         item = await self._item_repo.get_by_sku(probe)
                     if item and self._sandbox_allows(item, sandbox_owner_id):
@@ -242,7 +242,7 @@ class ScanService:
                         return await self._item_result(item)
                 elif part.upper().startswith("EPC:"):
                     epc_val = part[4:].strip()
-                    item = await self._item_repo.get_by_barcode(epc_val)
+                    item = await self._item_repo.get_by_barcode(epc_val, sandbox_owner_id)
                     if item and self._sandbox_allows(item, sandbox_owner_id):
                         return await self._item_result(item)
 

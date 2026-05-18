@@ -15,10 +15,11 @@ from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from app.models.item import Category, Item
+from app.models.item import Category, Item, ItemBarcode
 from app.models.location import Area, Location
 from app.models.transaction import InventoryEvent, StockLevel, EventKind
 from app.models.user import User
+from app.services.barcode_service import gtin14_for_item, generate_epc_serial, sgtin96_epc_hex
 
 logger = logging.getLogger(__name__)
 
@@ -129,6 +130,26 @@ async def seed_user_sandbox(session: AsyncSession, user: User) -> None:
         )
         session.add(new_item)
         await session.flush()
+
+        # Register SEAR Lab barcodes so scan_service can find sandbox items
+        session.add(ItemBarcode(
+            item_id=new_item.id,
+            barcode_type="qr+code128",
+            barcode_value=gtin14_for_item(new_item.id),
+            is_primary=True,
+        ))
+        session.add(ItemBarcode(
+            item_id=new_item.id,
+            barcode_type="rfid_epc",
+            barcode_value=sgtin96_epc_hex(new_item.id),
+            is_primary=False,
+        ))
+        session.add(ItemBarcode(
+            item_id=new_item.id,
+            barcode_type="rfid_epc_legacy",
+            barcode_value=generate_epc_serial(new_item.id),
+            is_primary=False,
+        ))
 
         # Clone stock levels, remapping location ids
         for sl in ri.stock_levels:

@@ -77,13 +77,17 @@ class ItemRepository(BaseRepository[Item]):
         )
         return list(items_result.scalars().all()), total
 
-    async def get_by_barcode(self, barcode_value: str) -> Item | None:
-        result = await self.session.execute(
+    async def get_by_barcode(self, barcode_value: str, owner_id: int | None = None) -> Item | None:
+        q = (
             select(Item)
             .join(ItemBarcode)
             .where(ItemBarcode.barcode_value == barcode_value)
             .options(selectinload(Item.category), selectinload(Item.barcodes))
         )
+        f = owner_filter(Item.owner_id, owner_id)
+        if f is not None:
+            q = q.where(f)
+        result = await self.session.execute(q)
         return result.scalar_one_or_none()
 
     async def count(self, owner_id: int | None = None) -> int:
