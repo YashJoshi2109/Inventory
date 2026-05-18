@@ -84,23 +84,33 @@ class ItemRepository(BaseRepository[Item]):
         )
         return result.scalar_one_or_none()
 
-    async def get_low_stock_items(self) -> list[tuple[Item, Decimal]]:
+    async def count(self, owner_id: int | None = None) -> int:
+        q = select(func.count()).select_from(Item).where(Item.is_active == True)  # noqa: E712
+        if owner_id is not None:
+            q = q.where(Item.owner_id == owner_id)
+        result = await self.session.execute(q)
+        return result.scalar_one()
+
+    async def get_low_stock_items(self, owner_id: int | None = None) -> list[tuple[Item, Decimal]]:
         """Returns items where total stock <= reorder_level."""
         stock_sum = (
             select(StockLevel.item_id, func.sum(StockLevel.quantity).label("total_qty"))
             .group_by(StockLevel.item_id)
             .subquery()
         )
-        result = await self.session.execute(
+        q = (
             select(Item, stock_sum.c.total_qty)
             .outerjoin(stock_sum, Item.id == stock_sum.c.item_id)
             .where(
-                Item.is_active == True,
+                Item.is_active == True,  # noqa: E712
                 func.coalesce(stock_sum.c.total_qty, 0) <= Item.reorder_level,
             )
             .options(selectinload(Item.category))
             .order_by(Item.name)
         )
+        if owner_id is not None:
+            q = q.where(Item.owner_id == owner_id)
+        result = await self.session.execute(q)
         return [(row[0], row[1] or Decimal("0")) for row in result.all()]
 
     async def get_total_quantity(self, item_id: int) -> Decimal:
@@ -121,13 +131,16 @@ class CategoryRepository(BaseRepository[Category]):
         )
         return result.scalar_one_or_none()
 
-    async def get_all_with_counts(self) -> list[tuple[Category, int]]:
-        result = await self.session.execute(
+    async def get_all_with_counts(self, owner_id: int | None = None) -> list[tuple[Category, int]]:
+        q = (
             select(Category, func.count(Item.id).label("item_count"))
             .outerjoin(Item, Item.category_id == Category.id)
             .group_by(Category.id)
             .order_by(Category.name)
         )
+        if owner_id is not None:
+            q = q.where(Category.owner_id == owner_id)
+        result = await self.session.execute(q)
         return list(result.all())
 
     async def get_all_filtered(self, owner_id: int | None = None) -> list[Category]:

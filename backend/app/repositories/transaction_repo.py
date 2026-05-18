@@ -23,6 +23,7 @@ class InventoryEventRepository(BaseRepository[InventoryEvent]):
         event_kind: str | None = None,
         start_date: datetime | None = None,
         end_date: datetime | None = None,
+        actor_id: int | None = None,
         skip: int = 0,
         limit: int = 50,
     ) -> tuple[list[InventoryEvent], int]:
@@ -50,6 +51,8 @@ class InventoryEventRepository(BaseRepository[InventoryEvent]):
             filters.append(InventoryEvent.occurred_at >= start_date)
         if end_date:
             filters.append(InventoryEvent.occurred_at <= end_date)
+        if actor_id is not None:
+            filters.append(InventoryEvent.actor_id == actor_id)
 
         if filters:
             q = q.where(and_(*filters))
@@ -82,8 +85,8 @@ class InventoryEventRepository(BaseRepository[InventoryEvent]):
         )
         return [{"day": row.day.isoformat(), "qty": float(row.qty)} for row in result.all()]
 
-    async def get_recent_activity(self, limit: int = 20) -> list[InventoryEvent]:
-        result = await self.session.execute(
+    async def get_recent_activity(self, limit: int = 20, actor_id: int | None = None) -> list[InventoryEvent]:
+        q = (
             select(InventoryEvent)
             .options(
                 joinedload(InventoryEvent.item),
@@ -91,22 +94,23 @@ class InventoryEventRepository(BaseRepository[InventoryEvent]):
                 joinedload(InventoryEvent.to_location),
                 joinedload(InventoryEvent.actor),
             )
-            .order_by(InventoryEvent.occurred_at.desc())
-            .limit(limit)
         )
+        if actor_id is not None:
+            q = q.where(InventoryEvent.actor_id == actor_id)
+        q = q.order_by(InventoryEvent.occurred_at.desc()).limit(limit)
+        result = await self.session.execute(q)
         return list(result.scalars().unique().all())
 
-    async def get_transactions_count_since(self, since: datetime) -> int:
-        result = await self.session.execute(
-            select(func.count()).select_from(InventoryEvent).where(
-                InventoryEvent.occurred_at >= since
-            )
-        )
+    async def get_transactions_count_since(self, since: datetime, actor_id: int | None = None) -> int:
+        q = select(func.count()).select_from(InventoryEvent).where(InventoryEvent.occurred_at >= since)
+        if actor_id is not None:
+            q = q.where(InventoryEvent.actor_id == actor_id)
+        result = await self.session.execute(q)
         return result.scalar_one()
 
-    async def get_top_consumed(self, days: int = 30, limit: int = 10) -> list[dict]:
+    async def get_top_consumed(self, days: int = 30, limit: int = 10, actor_id: int | None = None) -> list[dict]:
         cutoff = datetime.now(timezone.utc) - timedelta(days=days)
-        result = await self.session.execute(
+        q = (
             select(
                 Item.id,
                 Item.sku,
@@ -118,10 +122,11 @@ class InventoryEventRepository(BaseRepository[InventoryEvent]):
                 InventoryEvent.event_kind == "STOCK_OUT",
                 InventoryEvent.occurred_at >= cutoff,
             )
-            .group_by(Item.id, Item.sku, Item.name)
-            .order_by(func.sum(InventoryEvent.quantity).desc())
-            .limit(limit)
         )
+        if actor_id is not None:
+            q = q.where(InventoryEvent.actor_id == actor_id)
+        q = q.group_by(Item.id, Item.sku, Item.name).order_by(func.sum(InventoryEvent.quantity).desc()).limit(limit)
+        result = await self.session.execute(q)
         return [
             {"id": r.id, "sku": r.sku, "name": r.name, "total_consumed": float(r.total_consumed)}
             for r in result.all()
@@ -222,10 +227,11 @@ class AlertRepository(BaseRepository[Alert]):
         )
         return list(result.scalars().all())
 
-    async def count_active(self) -> int:
-        result = await self.session.execute(
-            select(func.count()).select_from(Alert).where(Alert.is_resolved == False)  # noqa: E712
-        )
+    async def count_active(self, owner_id: int | None = None) -> int:
+        q = select(func.count()).select_from(Alert).where(Alert.is_resolved == False)  # noqa: E712
+        if owner_id is not None:
+            q = q.join(Item, Alert.item_id == Item.id).where(Item.owner_id == owner_id)
+        result = await self.session.execute(q)
         return result.scalar_one()
 
     async def get_for_item(self, item_id: int) -> list[Alert]:
