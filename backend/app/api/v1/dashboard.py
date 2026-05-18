@@ -5,7 +5,7 @@ from fastapi import APIRouter, Request
 
 from app.api.v1.auth import CurrentUser
 from app.core.database import DbSession
-from app.core.sandbox import sandbox_owner_id as _sandbox_oid
+from app.core.sandbox import sandbox_owner_id as _sandbox_oid, owner_filter
 from app.core.notifications import get_email_service_status_for_ui
 from app.repositories.item_repo import ItemRepository, CategoryRepository
 from app.repositories.transaction_repo import (
@@ -73,8 +73,9 @@ async def get_dashboard_stats(request: Request, session: DbSession, current_user
         .join(Item, StockLevel.item_id == Item.id)
         .where(Item.is_active == True)  # noqa: E712
     )
-    if owner_id is not None:
-        value_q = value_q.where(Item.owner_id == owner_id)
+    f = owner_filter(Item.owner_id, owner_id)
+    if f is not None:
+        value_q = value_q.where(f)
     value_result = await session.execute(value_q)
     total_value = Decimal(str(value_result.scalar_one() or 0))
 

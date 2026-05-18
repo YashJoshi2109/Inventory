@@ -38,6 +38,7 @@ from app.repositories.transaction_repo import (
 )
 from app.schemas.item import ItemCreate, ItemUpdate
 from app.schemas.transaction import StockInRequest, StockOutRequest, TransferRequest
+from app.core.sandbox import owner_filter, owns
 from app.services.inventory_service import InventoryService
 
 
@@ -70,8 +71,9 @@ async def search_inventory(
             | func.lower(Item.supplier).like(q)
         ),
     ]
-    if owner_id is not None:
-        where_clause.append(Item.owner_id == owner_id)
+    f = owner_filter(Item.owner_id, owner_id)
+    if f is not None:
+        where_clause.append(f)
     result = await db.execute(
         select(Item).where(*where_clause).limit(limit)
     )
@@ -123,9 +125,7 @@ async def get_item_details(
         )
         item = result.scalar_one_or_none()
 
-    if item is None:
-        return {"error": f"Item '{item_id_or_sku}' not found"}
-    if owner_id is not None and item.owner_id != owner_id:
+    if item is None or not owns(item.owner_id, owner_id):
         return {"error": f"Item '{item_id_or_sku}' not found"}
 
     # stock levels per location
@@ -208,8 +208,9 @@ async def get_location_contents(
         return {"error": f"Location '{location_code}' not found"}
 
     sl_where = [StockLevel.location_id == loc.id, StockLevel.quantity > 0]
-    if owner_id is not None:
-        sl_where.append(Item.owner_id == owner_id)
+    f = owner_filter(Item.owner_id, owner_id)
+    if f is not None:
+        sl_where.append(f)
     sl_result = await db.execute(
         select(StockLevel, Item)
         .join(Item, StockLevel.item_id == Item.id)
@@ -249,8 +250,9 @@ async def list_low_stock_items(
         .subquery()
     )
     where = [Item.is_active == True, Item.reorder_level > 0]  # noqa: E712
-    if owner_id is not None:
-        where.append(Item.owner_id == owner_id)
+    f = owner_filter(Item.owner_id, owner_id)
+    if f is not None:
+        where.append(f)
     result = await db.execute(
         select(Item, stock_totals_subq.c.total_qty)
         .outerjoin(stock_totals_subq, Item.id == stock_totals_subq.c.item_id)
@@ -295,8 +297,9 @@ async def list_overdue_items(
         .scalar_subquery()
     )
     where = [Item.is_active == True, ~Item.id.in_(subq)]  # noqa: E712
-    if owner_id is not None:
-        where.append(Item.owner_id == owner_id)
+    f = owner_filter(Item.owner_id, owner_id)
+    if f is not None:
+        where.append(f)
     result = await db.execute(
         select(Item).where(*where).limit(limit)
     )
@@ -326,8 +329,9 @@ async def list_overdue_items(
 async def get_dashboard_summary(db: AsyncSession, owner_id: int | None = None) -> dict:
     """High-level inventory KPI summary."""
     item_where = [Item.is_active == True]  # noqa: E712
-    if owner_id is not None:
-        item_where.append(Item.owner_id == owner_id)
+    fi = owner_filter(Item.owner_id, owner_id)
+    if fi is not None:
+        item_where.append(fi)
 
     total_skus_r = await db.execute(select(func.count()).select_from(Item).where(*item_where))
     total_skus = total_skus_r.scalar() or 0
@@ -351,15 +355,16 @@ async def get_dashboard_summary(db: AsyncSession, owner_id: int | None = None) -
 
     txn_where = [text("occurred_at::date = CURRENT_DATE")]
     if owner_id is not None:
-        txn_where.append(InventoryEvent.actor_id == owner_id)
+        txn_where.append(InventoryEvent.actor_id == owner_id if owner_id > 0 else InventoryEvent.actor_id == None)  # noqa: E711
     txn_today_r = await db.execute(
         select(func.count()).select_from(InventoryEvent).where(*txn_where)
     )
     txn_today = txn_today_r.scalar() or 0
 
-    loc_where = []
-    if owner_id is not None:
-        loc_where.append(Location.owner_id == owner_id)
+    loc_where: list = []
+    fl = owner_filter(Location.owner_id, owner_id)
+    if fl is not None:
+        loc_where.append(fl)
     locs_r = await db.execute(select(func.count()).select_from(Location).where(*loc_where))
     locations = locs_r.scalar() or 0
 
@@ -487,8 +492,9 @@ async def list_locations(
     # Areas
     if location_type in (None, "area"):
         area_where = [Area.is_active == True]  # noqa: E712
-        if owner_id is not None:
-            area_where.append(Area.owner_id == owner_id)
+        fa = owner_filter(Area.owner_id, owner_id)
+        if fa is not None:
+            area_where.append(fa)
         area_res = await db.execute(select(Area).where(*area_where))
         for a in area_res.scalars().all():
             out.append({
@@ -502,8 +508,9 @@ async def list_locations(
     # Racks / bins (Location)
     if location_type in (None, "rack"):
         loc_where = [Location.is_active == True]  # noqa: E712
-        if owner_id is not None:
-            loc_where.append(Location.owner_id == owner_id)
+        fl = owner_filter(Location.owner_id, owner_id)
+        if fl is not None:
+            loc_where.append(fl)
         loc_res = await db.execute(select(Location).where(*loc_where))
         for l in loc_res.scalars().all():
             out.append({
@@ -532,7 +539,7 @@ async def get_transaction_history(
     if item_id:
         q = q.where(InventoryEvent.item_id == item_id)
     if owner_id is not None:
-        q = q.where(InventoryEvent.actor_id == owner_id)
+        q = q.where(InventoryEvent.actor_id == owner_id if owner_id > 0 else InventoryEvent.actor_id == None)  # noqa: E711
     result = await db.execute(q)
     events = result.scalars().all()
 
@@ -628,7 +635,7 @@ async def update_item(
         item = result.scalar_one_or_none()
     if item is None:
         return {"error": f"Item '{item_id_or_sku}' not found"}
-    if sandbox_owner_id is not None and item.owner_id != sandbox_owner_id:
+    if not owns(item.owner_id, sandbox_owner_id):
         return {"error": f"Item '{item_id_or_sku}' not found"}
 
     changes: list[str] = []
@@ -687,7 +694,7 @@ async def delete_item(
         item = result.scalar_one_or_none()
     if item is None:
         return {"error": f"Item '{item_id_or_sku}' not found"}
-    if sandbox_owner_id is not None and item.owner_id != sandbox_owner_id:
+    if not owns(item.owner_id, sandbox_owner_id):
         return {"error": f"Item '{item_id_or_sku}' not found"}
 
     if hard_delete:
@@ -709,8 +716,9 @@ async def delete_item(
 async def list_categories(db: AsyncSession, owner_id: int | None = None) -> dict:
     """List all available item categories with their IDs, names, and types."""
     q = select(Category).order_by(Category.name)
-    if owner_id is not None:
-        q = q.where(Category.owner_id == owner_id)
+    f = owner_filter(Category.owner_id, owner_id)
+    if f is not None:
+        q = q.where(f)
     result = await db.execute(q)
     cats = result.scalars().all()
     return {
@@ -778,7 +786,7 @@ async def update_category(
         cat = await repo.get_by_name(category_id_or_name)
     if cat is None:
         return {"error": f"Category '{category_id_or_name}' not found"}
-    if sandbox_owner_id is not None and cat.owner_id != sandbox_owner_id:
+    if not owns(cat.owner_id, sandbox_owner_id):
         return {"error": f"Category '{category_id_or_name}' not found"}
 
     changes: list[str] = []
@@ -818,7 +826,7 @@ async def delete_category(
         cat = await repo.get_by_name(category_id_or_name)
     if cat is None:
         return {"error": f"Category '{category_id_or_name}' not found"}
-    if sandbox_owner_id is not None and cat.owner_id != sandbox_owner_id:
+    if not owns(cat.owner_id, sandbox_owner_id):
         return {"error": f"Category '{category_id_or_name}' not found"}
 
     # Count items that will be orphaned so caller can warn the user.
@@ -931,7 +939,7 @@ async def update_location(
         loc = await repo.get_by_code(location_id_or_code)
     if loc is None:
         return {"error": f"Location '{location_id_or_code}' not found"}
-    if sandbox_owner_id is not None and loc.owner_id != sandbox_owner_id:
+    if not owns(loc.owner_id, sandbox_owner_id):
         return {"error": f"Location '{location_id_or_code}' not found"}
 
     changes: list[str] = []
@@ -977,7 +985,7 @@ async def delete_location(
         loc = await repo.get_by_code(location_id_or_code)
     if loc is None:
         return {"error": f"Location '{location_id_or_code}' not found"}
-    if sandbox_owner_id is not None and loc.owner_id != sandbox_owner_id:
+    if not owns(loc.owner_id, sandbox_owner_id):
         return {"error": f"Location '{location_id_or_code}' not found"}
 
     if hard_delete:

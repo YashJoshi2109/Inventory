@@ -2,6 +2,7 @@ from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload, joinedload
 
+from app.core.sandbox import owner_filter
 from app.models.location import Area, Location, LocationBarcode
 from app.repositories.base import BaseRepository
 
@@ -22,8 +23,9 @@ class AreaRepository(BaseRepository[Area]):
             .options(selectinload(Area.locations).selectinload(Location.barcodes))
             .order_by(Area.name)
         )
-        if owner_id is not None:
-            q = q.where(Area.owner_id == owner_id)
+        f = owner_filter(Area.owner_id, owner_id)
+        if f is not None:
+            q = q.where(f)
         result = await self.session.execute(q)
         return list(result.scalars().unique().all())
 
@@ -58,7 +60,7 @@ class LocationRepository(BaseRepository[Location]):
         return result.scalar_one_or_none()
 
     async def get_all_with_area(self, area_id: int | None = None, owner_id: int | None = None) -> list[Location]:
-        """Fetch all locations (or filtered by area/owner) with area eager-loaded — single query."""
+        """Fetch all locations (or filtered by area/owner) with area eager-loaded."""
         q = (
             select(Location)
             .options(joinedload(Location.area), selectinload(Location.barcodes))
@@ -66,8 +68,9 @@ class LocationRepository(BaseRepository[Location]):
         )
         if area_id is not None:
             q = q.where(Location.area_id == area_id)
-        if owner_id is not None:
-            q = q.where(Location.owner_id == owner_id)
+        f = owner_filter(Location.owner_id, owner_id)
+        if f is not None:
+            q = q.where(f)
         result = await self.session.execute(q)
         return list(result.scalars().unique().all())
 

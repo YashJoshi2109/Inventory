@@ -4,6 +4,7 @@ from sqlalchemy import select, func, or_
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from app.core.sandbox import owner_filter
 from app.models.item import Item, ItemBarcode, Category
 from app.models.transaction import StockLevel
 from app.repositories.base import BaseRepository
@@ -52,8 +53,9 @@ class ItemRepository(BaseRepository[Item]):
             base_q = base_q.where(Item.is_active == is_active)
         if category_id:
             base_q = base_q.where(Item.category_id == category_id)
-        if owner_id is not None:
-            base_q = base_q.where(Item.owner_id == owner_id)
+        f = owner_filter(Item.owner_id, owner_id)
+        if f is not None:
+            base_q = base_q.where(f)
         if query:
             pattern = f"%{query}%"
             base_q = base_q.where(
@@ -86,8 +88,9 @@ class ItemRepository(BaseRepository[Item]):
 
     async def count(self, owner_id: int | None = None) -> int:
         q = select(func.count()).select_from(Item).where(Item.is_active == True)  # noqa: E712
-        if owner_id is not None:
-            q = q.where(Item.owner_id == owner_id)
+        f = owner_filter(Item.owner_id, owner_id)
+        if f is not None:
+            q = q.where(f)
         result = await self.session.execute(q)
         return result.scalar_one()
 
@@ -108,8 +111,9 @@ class ItemRepository(BaseRepository[Item]):
             .options(selectinload(Item.category))
             .order_by(Item.name)
         )
-        if owner_id is not None:
-            q = q.where(Item.owner_id == owner_id)
+        f = owner_filter(Item.owner_id, owner_id)
+        if f is not None:
+            q = q.where(f)
         result = await self.session.execute(q)
         return [(row[0], row[1] or Decimal("0")) for row in result.all()]
 
@@ -138,14 +142,16 @@ class CategoryRepository(BaseRepository[Category]):
             .group_by(Category.id)
             .order_by(Category.name)
         )
-        if owner_id is not None:
-            q = q.where(Category.owner_id == owner_id)
+        f = owner_filter(Category.owner_id, owner_id)
+        if f is not None:
+            q = q.where(f)
         result = await self.session.execute(q)
         return list(result.all())
 
     async def get_all_filtered(self, owner_id: int | None = None) -> list[Category]:
         q = select(Category)
-        if owner_id is not None:
-            q = q.where(Category.owner_id == owner_id)
+        f = owner_filter(Category.owner_id, owner_id)
+        if f is not None:
+            q = q.where(f)
         result = await self.session.execute(q.order_by(Category.name))
         return list(result.scalars().all())
