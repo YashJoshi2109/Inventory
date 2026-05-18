@@ -172,6 +172,15 @@ export const chatApi = {
       const raw = await response.text().catch(() => "");
       let message = `HTTP ${response.status}: ${raw || "Unknown error"}`;
       if (response.status === 429) {
+        try {
+          const parsed = JSON.parse(raw);
+          const detail = parsed?.detail;
+          if (detail?.code === "SANDBOX_QUOTA") {
+            message = detail.message ?? `Sandbox copilot limit reached. Ask an admin to reset your quota.`;
+            onEvent({ type: "error", message, sandboxQuotaExhausted: true } as never);
+            return;
+          }
+        } catch { /* fall through to generic */ }
         message = "Rate limit reached — please wait a moment before sending another message.";
       } else if (response.status === 401 || response.status === 403) {
         message = "Authentication error. Please refresh the page and sign in again.";

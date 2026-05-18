@@ -134,6 +134,7 @@ async def run_copilot(
     actor_roles: list[str],
     image_bytes: bytes | None = None,
     image_mime: str | None = None,
+    sandbox_owner_id: int | None = None,
 ) -> AsyncIterator[str]:
     """
     Main agentic loop. Yields SSE strings.
@@ -407,7 +408,7 @@ async def run_copilot(
 
             if stream_error is not None:
                 log.warning("Gemini streaming error (%s): trying OpenRouter/OpenAI fallback", type(stream_error).__name__)
-                async for chunk in _openai_compat_fallback(messages, _get_db, actor_id, actor_roles):
+                async for chunk in _openai_compat_fallback(messages, _get_db, actor_id, actor_roles, sandbox_owner_id=sandbox_owner_id):
                     yield chunk
                 return
 
@@ -426,7 +427,7 @@ async def run_copilot(
                     # Gemini returned nothing — route to fallback for a proper response
                     session_for_fb, close_fb = await _get_db()
                     try:
-                        async for chunk in _fallback_responder(messages, session_for_fb, actor_id, actor_roles):
+                        async for chunk in _fallback_responder(messages, session_for_fb, actor_id, actor_roles, sandbox_owner_id=sandbox_owner_id):
                             yield chunk
                     finally:
                         if close_fb:
@@ -456,6 +457,7 @@ async def run_copilot(
                         actor_id=actor_id,
                         actor_roles=actor_roles,
                         role_names=actor_roles,
+                        sandbox_owner_id=sandbox_owner_id,
                     )
                     if tool_should_close:
                         await tool_session.commit()
@@ -497,6 +499,7 @@ async def run_copilot(
                                 actor_id=actor_id,
                                 actor_roles=actor_roles,
                                 role_names=actor_roles,
+                                sandbox_owner_id=sandbox_owner_id,
                             )
                             if loc_close2:
                                 await loc_session2.commit()
@@ -532,7 +535,7 @@ async def run_copilot(
         return
 
     # ── Fallback: no Gemini key → try OpenRouter → OpenAI → rule-based ───
-    async for chunk in _openai_compat_fallback(messages, _get_db, actor_id, actor_roles):
+    async for chunk in _openai_compat_fallback(messages, _get_db, actor_id, actor_roles, sandbox_owner_id=sandbox_owner_id):
         yield chunk
 
 
@@ -547,6 +550,7 @@ async def _run_openai_compat_loop(
     actor_id: int,
     actor_roles: list[str],
     original_messages: list[dict] | None = None,  # for LLM cache keying
+    sandbox_owner_id: int | None = None,
 ) -> AsyncIterator[str]:
     """
     Generic agentic loop for any OpenAI-compatible API (OpenRouter, OpenAI, etc.).
@@ -625,6 +629,7 @@ async def _run_openai_compat_loop(
                         actor_id=actor_id,
                         actor_roles=actor_roles,
                         role_names=actor_roles,
+                        sandbox_owner_id=sandbox_owner_id,
                     )
                     if tool_should_close:
                         await tool_session.commit()
@@ -668,6 +673,7 @@ async def _run_openai_compat_loop(
                             actor_id=actor_id,
                             actor_roles=actor_roles,
                             role_names=actor_roles,
+                            sandbox_owner_id=sandbox_owner_id,
                         )
                         if loc_close:
                             await loc_session.commit()
@@ -716,6 +722,7 @@ async def _openai_compat_fallback(
     get_db,
     actor_id: int,
     actor_roles: list[str],
+    sandbox_owner_id: int | None = None,
 ) -> AsyncIterator[str]:
     """
     Try OpenRouter, then OpenAI, then rule-based — in that order.
@@ -747,6 +754,7 @@ async def _openai_compat_fallback(
                 actor_id=actor_id,
                 actor_roles=actor_roles,
                 original_messages=messages,
+                sandbox_owner_id=sandbox_owner_id,
             ):
                 _started = True
                 yield chunk
@@ -762,7 +770,7 @@ async def _openai_compat_fallback(
     log.info("Copilot: all LLM providers failed/unconfigured, using rule-based fallback")
     session, should_close = await get_db()
     try:
-        async for chunk in _fallback_responder(messages, session, actor_id, actor_roles):
+        async for chunk in _fallback_responder(messages, session, actor_id, actor_roles, sandbox_owner_id=sandbox_owner_id):
             yield chunk
     finally:
         if should_close:
@@ -777,6 +785,7 @@ async def _fallback_responder(
     db: AsyncSession,
     actor_id: int,
     actor_roles: list[str],
+    sandbox_owner_id: int | None = None,
 ) -> AsyncIterator[str]:
     """
     Rule-based fallback when no OpenAI API key is configured.
@@ -885,12 +894,12 @@ async def _fallback_responder(
             w for w in text.split() if w not in {"show", "what", "is", "in", "the", "at", "items", "stock", "from"}
         )
         yield _sse({"type": "tool_call", "name": "get_location_contents", "args": {"location_code": location_query}})
-        result = await dispatch_tool("get_location_contents", {"location_code": location_query}, db, actor_id, actor_roles, actor_roles)
+        result = await dispatch_tool("get_location_contents", {"location_code": location_query}, db, actor_id, actor_roles, actor_roles, sandbox_owner_id=sandbox_owner_id)
         yield _sse({"type": "tool_result", "name": "get_location_contents", "data": result})
         if "error" in result:
             # Try listing all locations as a fallback
             yield _sse({"type": "tool_call", "name": "list_locations", "args": {}})
-            locs = await dispatch_tool("list_locations", {}, db, actor_id, actor_roles, actor_roles)
+            locs = await dispatch_tool("list_locations", {}, db, actor_id, actor_roles, actor_roles, sandbox_owner_id=sandbox_owner_id)
             yield _sse({"type": "tool_result", "name": "list_locations", "data": locs})
             loc_list = locs.get("locations", [])
             response = f"Location '{location_query}' not found. Available locations:\n\n"
@@ -908,7 +917,7 @@ async def _fallback_responder(
 
     elif any(k in text for k in ["low stock", "low-stock", "running out", "reorder", "shortage"]):
         yield _sse({"type": "tool_call", "name": "list_low_stock_items", "args": {}})
-        result = await dispatch_tool("list_low_stock_items", {}, db, actor_id, actor_roles, actor_roles)
+        result = await dispatch_tool("list_low_stock_items", {}, db, actor_id, actor_roles, actor_roles, sandbox_owner_id=sandbox_owner_id)
         yield _sse({"type": "tool_result", "name": "list_low_stock_items", "data": result})
         count = result.get("total", 0)
         items = result.get("items", [])
@@ -920,7 +929,7 @@ async def _fallback_responder(
 
     elif any(k in text for k in ["summary", "overview", "dashboard", "how many", "total", "status"]):
         yield _sse({"type": "tool_call", "name": "get_dashboard_summary", "args": {}})
-        result = await dispatch_tool("get_dashboard_summary", {}, db, actor_id, actor_roles, actor_roles)
+        result = await dispatch_tool("get_dashboard_summary", {}, db, actor_id, actor_roles, actor_roles, sandbox_owner_id=sandbox_owner_id)
         yield _sse({"type": "tool_result", "name": "get_dashboard_summary", "data": result})
         response = (
             f"**Inventory Overview**\n\n"
@@ -934,7 +943,7 @@ async def _fallback_responder(
 
     elif any(k in text for k in ["overdue", "unused", "idle", "sitting", "not used"]):
         yield _sse({"type": "tool_call", "name": "list_overdue_items", "args": {"days_unused": 90}})
-        result = await dispatch_tool("list_overdue_items", {"days_unused": 90}, db, actor_id, actor_roles, actor_roles)
+        result = await dispatch_tool("list_overdue_items", {"days_unused": 90}, db, actor_id, actor_roles, actor_roles, sandbox_owner_id=sandbox_owner_id)
         yield _sse({"type": "tool_result", "name": "list_overdue_items", "data": result})
         count = result.get("total", 0)
         items = result.get("items", [])
@@ -946,7 +955,7 @@ async def _fallback_responder(
 
     elif any(k in text for k in ["transaction", "history", "recent", "last", "activity"]):
         yield _sse({"type": "tool_call", "name": "get_transaction_history", "args": {"limit": 10}})
-        result = await dispatch_tool("get_transaction_history", {"limit": 10}, db, actor_id, actor_roles, actor_roles)
+        result = await dispatch_tool("get_transaction_history", {"limit": 10}, db, actor_id, actor_roles, actor_roles, sandbox_owner_id=sandbox_owner_id)
         yield _sse({"type": "tool_result", "name": "get_transaction_history", "data": result})
         transactions = result.get("transactions", [])
         response = "**Recent Transactions:**\n\n"
@@ -960,7 +969,7 @@ async def _fallback_responder(
         words = [w for w in text.split() if len(w) > 2]
         query = " ".join(words[:5]) if words else "item"
         yield _sse({"type": "tool_call", "name": "search_inventory", "args": {"query": query}})
-        result = await dispatch_tool("search_inventory", {"query": query}, db, actor_id, actor_roles, actor_roles)
+        result = await dispatch_tool("search_inventory", {"query": query}, db, actor_id, actor_roles, actor_roles, sandbox_owner_id=sandbox_owner_id)
         yield _sse({"type": "tool_result", "name": "search_inventory", "data": result})
         items = result.get("items", [])
         if items:

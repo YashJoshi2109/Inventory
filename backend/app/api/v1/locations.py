@@ -79,6 +79,7 @@ async def update_area(area_id: int, body: AreaUpdate, session: DbSession, curren
 
 @router.get("", response_model=list[LocationRead])
 async def list_locations(
+    request: Request,
     session: DbSession,
     current_user: CurrentUser,
     area_id: int | None = None,
@@ -88,8 +89,9 @@ async def list_locations(
     repo = LocationRepository(session)
     stock_repo = StockLevelRepository(session)
 
+    oid = sandbox_owner_id(request, current_user)
     # Single query: all locations with area eager-loaded
-    locs = await repo.get_all_with_area(area_id=area_id)
+    locs = await repo.get_all_with_area(area_id=area_id, owner_id=oid)
 
     # Batch-fetch item counts per location — one SQL query total
     loc_ids = [loc.id for loc in locs]

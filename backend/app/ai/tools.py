@@ -57,21 +57,23 @@ async def search_inventory(
     db: AsyncSession,
     query: str,
     limit: int = 10,
+    owner_id: int | None = None,
 ) -> dict:
     """Search inventory items by name, SKU, description, or supplier."""
     q = f"%{query.lower()}%"
+    where_clause = [
+        Item.is_active == True,  # noqa: E712
+        (
+            func.lower(Item.name).like(q)
+            | func.lower(Item.sku).like(q)
+            | func.lower(Item.description).like(q)
+            | func.lower(Item.supplier).like(q)
+        ),
+    ]
+    if owner_id is not None:
+        where_clause.append(Item.owner_id == owner_id)
     result = await db.execute(
-        select(Item)
-        .where(
-            Item.is_active == True,  # noqa: E712
-            (
-                func.lower(Item.name).like(q)
-                | func.lower(Item.sku).like(q)
-                | func.lower(Item.description).like(q)
-                | func.lower(Item.supplier).like(q)
-            ),
-        )
-        .limit(limit)
+        select(Item).where(*where_clause).limit(limit)
     )
     items = result.scalars().all()
 
@@ -97,6 +99,7 @@ async def search_inventory(
 async def get_item_details(
     db: AsyncSession,
     item_id_or_sku: str,
+    owner_id: int | None = None,
 ) -> dict:
     """Get full details for one item including all stock levels and last 5 transactions."""
     repo = ItemRepository(db)
@@ -121,6 +124,8 @@ async def get_item_details(
         item = result.scalar_one_or_none()
 
     if item is None:
+        return {"error": f"Item '{item_id_or_sku}' not found"}
+    if owner_id is not None and item.owner_id != owner_id:
         return {"error": f"Item '{item_id_or_sku}' not found"}
 
     # stock levels per location
@@ -182,6 +187,7 @@ async def get_item_details(
 async def get_location_contents(
     db: AsyncSession,
     location_code: str,
+    owner_id: int | None = None,
 ) -> dict:
     """List all items currently stocked at a given location."""
     loc_result = await db.execute(
@@ -201,10 +207,13 @@ async def get_location_contents(
     if loc is None:
         return {"error": f"Location '{location_code}' not found"}
 
+    sl_where = [StockLevel.location_id == loc.id, StockLevel.quantity > 0]
+    if owner_id is not None:
+        sl_where.append(Item.owner_id == owner_id)
     sl_result = await db.execute(
         select(StockLevel, Item)
         .join(Item, StockLevel.item_id == Item.id)
-        .where(StockLevel.location_id == loc.id, StockLevel.quantity > 0)
+        .where(*sl_where)
     )
     rows = sl_result.all()
     items = [
@@ -231,18 +240,21 @@ async def get_location_contents(
 async def list_low_stock_items(
     db: AsyncSession,
     limit: int = 20,
+    owner_id: int | None = None,
 ) -> dict:
     """Return items whose total stock is at or below their reorder level."""
-    # Single query: JOIN items with aggregated stock totals
     stock_totals_subq = (
         select(StockLevel.item_id, func.sum(StockLevel.quantity).label("total_qty"))
         .group_by(StockLevel.item_id)
         .subquery()
     )
+    where = [Item.is_active == True, Item.reorder_level > 0]  # noqa: E712
+    if owner_id is not None:
+        where.append(Item.owner_id == owner_id)
     result = await db.execute(
         select(Item, stock_totals_subq.c.total_qty)
         .outerjoin(stock_totals_subq, Item.id == stock_totals_subq.c.item_id)
-        .where(Item.is_active == True, Item.reorder_level > 0)  # noqa: E712
+        .where(*where)
     )
     rows = result.all()
 
@@ -269,6 +281,7 @@ async def list_overdue_items(
     db: AsyncSession,
     days_unused: int = 90,
     limit: int = 20,
+    owner_id: int | None = None,
 ) -> dict:
     """Items that have had no stock-out or transfer event in the last N days."""
     cutoff_sql = f"NOW() - INTERVAL '{days_unused} days'"
@@ -281,10 +294,11 @@ async def list_overdue_items(
         .distinct()
         .scalar_subquery()
     )
+    where = [Item.is_active == True, ~Item.id.in_(subq)]  # noqa: E712
+    if owner_id is not None:
+        where.append(Item.owner_id == owner_id)
     result = await db.execute(
-        select(Item)
-        .where(Item.is_active == True, ~Item.id.in_(subq))  # noqa: E712
-        .limit(limit)
+        select(Item).where(*where).limit(limit)
     )
     items = result.scalars().all()
 
@@ -309,12 +323,15 @@ async def list_overdue_items(
     }
 
 
-async def get_dashboard_summary(db: AsyncSession) -> dict:
+async def get_dashboard_summary(db: AsyncSession, owner_id: int | None = None) -> dict:
     """High-level inventory KPI summary."""
-    total_skus_r = await db.execute(select(func.count()).where(Item.is_active == True))  # noqa: E712
+    item_where = [Item.is_active == True]  # noqa: E712
+    if owner_id is not None:
+        item_where.append(Item.owner_id == owner_id)
+
+    total_skus_r = await db.execute(select(func.count()).select_from(Item).where(*item_where))
     total_skus = total_skus_r.scalar() or 0
 
-    # Count low-stock items with a single aggregated query
     stock_totals_subq = (
         select(StockLevel.item_id, func.sum(StockLevel.quantity).label("total_qty"))
         .group_by(StockLevel.item_id)
@@ -325,21 +342,25 @@ async def get_dashboard_summary(db: AsyncSession) -> dict:
         .select_from(Item)
         .outerjoin(stock_totals_subq, Item.id == stock_totals_subq.c.item_id)
         .where(
-            Item.is_active == True,  # noqa: E712
+            *item_where,
             Item.reorder_level > 0,
             func.coalesce(stock_totals_subq.c.total_qty, 0) <= Item.reorder_level,
         )
     )
     low = low_r.scalar() or 0
 
+    txn_where = [text("occurred_at::date = CURRENT_DATE")]
+    if owner_id is not None:
+        txn_where.append(InventoryEvent.actor_id == owner_id)
     txn_today_r = await db.execute(
-        select(func.count()).where(
-            text("occurred_at::date = CURRENT_DATE")
-        ).select_from(InventoryEvent)
+        select(func.count()).select_from(InventoryEvent).where(*txn_where)
     )
     txn_today = txn_today_r.scalar() or 0
 
-    locs_r = await db.execute(select(func.count()).select_from(Location))
+    loc_where = []
+    if owner_id is not None:
+        loc_where.append(Location.owner_id == owner_id)
+    locs_r = await db.execute(select(func.count()).select_from(Location).where(*loc_where))
     locations = locs_r.scalar() or 0
 
     return {
@@ -363,6 +384,7 @@ async def perform_stock_in(
     quantity: float,
     notes: str | None = None,
     reference: str | None = None,
+    sandbox_owner_id: int | None = None,
 ) -> dict:
     """Add stock to an item at a location (AI-initiated stock-in)."""
     svc = InventoryService(db)
@@ -373,7 +395,7 @@ async def perform_stock_in(
         notes=notes,
         reference=reference or "AI Copilot",
     )
-    event = await svc.stock_in(req, actor_id)
+    event = await svc.stock_in(req, actor_id, sandbox_owner_id=sandbox_owner_id)
     await db.refresh(event, ["item", "to_location"])
     return {
         "success": True,
@@ -394,6 +416,7 @@ async def perform_stock_out(
     quantity: float,
     reason: str | None = None,
     notes: str | None = None,
+    sandbox_owner_id: int | None = None,
 ) -> dict:
     """Remove stock from an item at a location."""
     svc = InventoryService(db)
@@ -405,7 +428,7 @@ async def perform_stock_out(
         notes=notes,
         reference="AI Copilot",
     )
-    event = await svc.stock_out(req, actor_id, actor_roles)
+    event = await svc.stock_out(req, actor_id, actor_roles, sandbox_owner_id=sandbox_owner_id)
     await db.refresh(event, ["item", "from_location"])
     return {
         "success": True,
@@ -424,6 +447,7 @@ async def perform_transfer(
     to_location_id: int,
     quantity: float,
     notes: str | None = None,
+    sandbox_owner_id: int | None = None,
 ) -> dict:
     """Transfer stock between locations."""
     svc = InventoryService(db)
@@ -435,7 +459,7 @@ async def perform_transfer(
         notes=notes,
         reference="AI Copilot",
     )
-    event = await svc.transfer(req, actor_id)
+    event = await svc.transfer(req, actor_id, sandbox_owner_id=sandbox_owner_id)
     await db.refresh(event, ["item", "from_location", "to_location"])
     return {
         "success": True,
@@ -452,13 +476,20 @@ async def perform_transfer(
     }
 
 
-async def list_locations(db: AsyncSession, location_type: str | None = None) -> dict:
+async def list_locations(
+    db: AsyncSession,
+    location_type: str | None = None,
+    owner_id: int | None = None,
+) -> dict:
     """List all lab locations (areas and racks)."""
     out: list[dict[str, Any]] = []
 
     # Areas
     if location_type in (None, "area"):
-        area_res = await db.execute(select(Area).where(Area.is_active == True))  # noqa: E712
+        area_where = [Area.is_active == True]  # noqa: E712
+        if owner_id is not None:
+            area_where.append(Area.owner_id == owner_id)
+        area_res = await db.execute(select(Area).where(*area_where))
         for a in area_res.scalars().all():
             out.append({
                 "id": a.id,
@@ -470,7 +501,10 @@ async def list_locations(db: AsyncSession, location_type: str | None = None) -> 
 
     # Racks / bins (Location)
     if location_type in (None, "rack"):
-        loc_res = await db.execute(select(Location).where(Location.is_active == True))  # noqa: E712
+        loc_where = [Location.is_active == True]  # noqa: E712
+        if owner_id is not None:
+            loc_where.append(Location.owner_id == owner_id)
+        loc_res = await db.execute(select(Location).where(*loc_where))
         for l in loc_res.scalars().all():
             out.append({
                 "id": l.id,
@@ -487,6 +521,7 @@ async def get_transaction_history(
     db: AsyncSession,
     item_id: int | None = None,
     limit: int = 20,
+    owner_id: int | None = None,
 ) -> dict:
     """Get recent transaction history, optionally filtered by item."""
     q = (
@@ -496,6 +531,8 @@ async def get_transaction_history(
     )
     if item_id:
         q = q.where(InventoryEvent.item_id == item_id)
+    if owner_id is not None:
+        q = q.where(InventoryEvent.actor_id == owner_id)
     result = await db.execute(q)
     events = result.scalars().all()
 
@@ -529,10 +566,10 @@ async def create_item(
     supplier: str | None = None,
     category_id: int | None = None,
     notes: str | None = None,
+    sandbox_owner_id: int | None = None,
 ) -> dict:
     """Create a new inventory item."""
     repo = ItemRepository(db)
-    # Check if SKU already exists
     existing = await repo.get_by_sku(sku)
     if existing:
         return {"error": f"Item with SKU '{sku.upper()}' already exists (id={existing.id}, name={existing.name})."}
@@ -547,7 +584,7 @@ async def create_item(
         category_id=category_id,
         notes=notes,
     )
-    item = Item(**data.model_dump())
+    item = Item(**data.model_dump(), owner_id=sandbox_owner_id)
     db.add(item)
     await db.flush()
     await db.refresh(item)
@@ -573,6 +610,7 @@ async def update_item(
     category_id: int | None = None,
     notes: str | None = None,
     is_active: bool | None = None,
+    sandbox_owner_id: int | None = None,
 ) -> dict:
     """Update fields on an existing inventory item."""
     repo = ItemRepository(db)
@@ -589,6 +627,8 @@ async def update_item(
         )
         item = result.scalar_one_or_none()
     if item is None:
+        return {"error": f"Item '{item_id_or_sku}' not found"}
+    if sandbox_owner_id is not None and item.owner_id != sandbox_owner_id:
         return {"error": f"Item '{item_id_or_sku}' not found"}
 
     changes: list[str] = []
@@ -626,6 +666,7 @@ async def delete_item(
     db: AsyncSession,
     item_id_or_sku: str,
     hard_delete: bool = False,
+    sandbox_owner_id: int | None = None,
 ) -> dict:
     """
     Deactivate (soft-delete) or permanently remove an inventory item.
@@ -646,6 +687,8 @@ async def delete_item(
         item = result.scalar_one_or_none()
     if item is None:
         return {"error": f"Item '{item_id_or_sku}' not found"}
+    if sandbox_owner_id is not None and item.owner_id != sandbox_owner_id:
+        return {"error": f"Item '{item_id_or_sku}' not found"}
 
     if hard_delete:
         name, sku = item.name, item.sku
@@ -663,9 +706,12 @@ async def delete_item(
         }
 
 
-async def list_categories(db: AsyncSession) -> dict:
+async def list_categories(db: AsyncSession, owner_id: int | None = None) -> dict:
     """List all available item categories with their IDs, names, and types."""
-    result = await db.execute(select(Category).order_by(Category.name))
+    q = select(Category).order_by(Category.name)
+    if owner_id is not None:
+        q = q.where(Category.owner_id == owner_id)
+    result = await db.execute(q)
     cats = result.scalars().all()
     return {
         "total": len(cats),
@@ -685,12 +731,13 @@ async def create_category(
     description: str | None = None,
     color: str | None = None,
     icon: str | None = None,
+    sandbox_owner_id: int | None = None,
 ) -> dict:
     """Create a new item category. Name must be unique (case-insensitive)."""
     from app.repositories.item_repo import CategoryRepository
     repo = CategoryRepository(db)
     existing = await repo.get_by_name(name)
-    if existing:
+    if existing and (sandbox_owner_id is None or existing.owner_id == sandbox_owner_id):
         return {"error": f"Category '{name}' already exists (id={existing.id})"}
     cat = Category(
         name=name.strip(),
@@ -698,6 +745,7 @@ async def create_category(
         description=description,
         color=color,
         icon=icon,
+        owner_id=sandbox_owner_id,
     )
     db.add(cat)
     await db.flush()
@@ -718,6 +766,7 @@ async def update_category(
     description: str | None = None,
     color: str | None = None,
     icon: str | None = None,
+    sandbox_owner_id: int | None = None,
 ) -> dict:
     """Update fields on an existing category by ID or name."""
     from app.repositories.item_repo import CategoryRepository
@@ -728,6 +777,8 @@ async def update_category(
     if cat is None:
         cat = await repo.get_by_name(category_id_or_name)
     if cat is None:
+        return {"error": f"Category '{category_id_or_name}' not found"}
+    if sandbox_owner_id is not None and cat.owner_id != sandbox_owner_id:
         return {"error": f"Category '{category_id_or_name}' not found"}
 
     changes: list[str] = []
@@ -755,6 +806,7 @@ async def update_category(
 async def delete_category(
     db: AsyncSession,
     category_id_or_name: str,
+    sandbox_owner_id: int | None = None,
 ) -> dict:
     """Permanently delete a category. Items in this category will have their category_id set to NULL."""
     from app.repositories.item_repo import CategoryRepository
@@ -765,6 +817,8 @@ async def delete_category(
     if cat is None:
         cat = await repo.get_by_name(category_id_or_name)
     if cat is None:
+        return {"error": f"Category '{category_id_or_name}' not found"}
+    if sandbox_owner_id is not None and cat.owner_id != sandbox_owner_id:
         return {"error": f"Category '{category_id_or_name}' not found"}
 
     # Count items that will be orphaned so caller can warn the user.
@@ -798,6 +852,7 @@ async def create_location(
     shelf: str | None = None,
     bin_label: str | None = None,
     capacity: int | None = None,
+    sandbox_owner_id: int | None = None,
 ) -> dict:
     """
     Create a new physical location (shelf/bin/rack). Must belong to an existing area —
@@ -828,6 +883,7 @@ async def create_location(
         shelf=shelf,
         bin_label=bin_label,
         capacity=capacity,
+        owner_id=sandbox_owner_id,
     )
     db.add(loc)
     await db.flush()
@@ -863,6 +919,7 @@ async def update_location(
     bin_label: str | None = None,
     capacity: int | None = None,
     is_active: bool | None = None,
+    sandbox_owner_id: int | None = None,
 ) -> dict:
     """Update fields on an existing location by ID or code."""
     from app.repositories.location_repo import LocationRepository
@@ -873,6 +930,8 @@ async def update_location(
     if loc is None:
         loc = await repo.get_by_code(location_id_or_code)
     if loc is None:
+        return {"error": f"Location '{location_id_or_code}' not found"}
+    if sandbox_owner_id is not None and loc.owner_id != sandbox_owner_id:
         return {"error": f"Location '{location_id_or_code}' not found"}
 
     changes: list[str] = []
@@ -903,6 +962,7 @@ async def delete_location(
     db: AsyncSession,
     location_id_or_code: str,
     hard_delete: bool = False,
+    sandbox_owner_id: int | None = None,
 ) -> dict:
     """
     Deactivate (soft, default) or permanently delete a location. Hard-delete is
@@ -916,6 +976,8 @@ async def delete_location(
     if loc is None:
         loc = await repo.get_by_code(location_id_or_code)
     if loc is None:
+        return {"error": f"Location '{location_id_or_code}' not found"}
+    if sandbox_owner_id is not None and loc.owner_id != sandbox_owner_id:
         return {"error": f"Location '{location_id_or_code}' not found"}
 
     if hard_delete:
@@ -1569,6 +1631,7 @@ async def dispatch_tool(
     actor_id: int,
     actor_roles: list[str],
     role_names: list[str],
+    sandbox_owner_id: int | None = None,
 ) -> dict[str, Any]:
     """Route a tool call to its implementation. Raises ValueError on missing tool.
 
@@ -1586,50 +1649,52 @@ async def dispatch_tool(
                 "rate_limited": True,
             }
 
+    oid = sandbox_owner_id  # shorthand for readability
+
     if name == "search_inventory":
-        return await search_inventory(db, **args)
+        return await search_inventory(db, owner_id=oid, **args)
     if name == "get_item_details":
-        return await get_item_details(db, **args)
+        return await get_item_details(db, owner_id=oid, **args)
     if name == "get_location_contents":
-        return await get_location_contents(db, **args)
+        return await get_location_contents(db, owner_id=oid, **args)
     if name == "list_low_stock_items":
-        return await list_low_stock_items(db, **args)
+        return await list_low_stock_items(db, owner_id=oid, **args)
     if name == "list_overdue_items":
-        return await list_overdue_items(db, **args)
+        return await list_overdue_items(db, owner_id=oid, **args)
     if name == "get_dashboard_summary":
-        return await get_dashboard_summary(db)
+        return await get_dashboard_summary(db, owner_id=oid)
     if name == "perform_stock_in":
-        return await perform_stock_in(db, actor_id, **args)
+        return await perform_stock_in(db, actor_id, sandbox_owner_id=oid, **args)
     if name == "perform_stock_out":
-        return await perform_stock_out(db, actor_id, actor_roles, **args)
+        return await perform_stock_out(db, actor_id, actor_roles, sandbox_owner_id=oid, **args)
     if name == "perform_transfer":
-        return await perform_transfer(db, actor_id, **args)
+        return await perform_transfer(db, actor_id, sandbox_owner_id=oid, **args)
     if name == "list_locations":
-        return await list_locations(db, **args)
+        return await list_locations(db, owner_id=oid, **args)
     if name == "get_transaction_history":
-        return await get_transaction_history(db, **args)
+        return await get_transaction_history(db, owner_id=oid, **args)
     if name == "list_categories":
-        return await list_categories(db)
+        return await list_categories(db, owner_id=oid)
     if name == "rag_search_docs":
         return await rag_search_docs(db, **args)
     if name == "create_item":
-        return await create_item(db, **args)
+        return await create_item(db, sandbox_owner_id=oid, **args)
     if name == "update_item":
-        return await update_item(db, **args)
+        return await update_item(db, sandbox_owner_id=oid, **args)
     if name == "delete_item":
-        return await delete_item(db, **args)
+        return await delete_item(db, sandbox_owner_id=oid, **args)
     if name == "create_category":
-        return await create_category(db, **args)
+        return await create_category(db, sandbox_owner_id=oid, **args)
     if name == "update_category":
-        return await update_category(db, **args)
+        return await update_category(db, sandbox_owner_id=oid, **args)
     if name == "delete_category":
-        return await delete_category(db, **args)
+        return await delete_category(db, sandbox_owner_id=oid, **args)
     if name == "create_location":
-        return await create_location(db, **args)
+        return await create_location(db, sandbox_owner_id=oid, **args)
     if name == "update_location":
-        return await update_location(db, **args)
+        return await update_location(db, sandbox_owner_id=oid, **args)
     if name == "delete_location":
-        return await delete_location(db, **args)
+        return await delete_location(db, sandbox_owner_id=oid, **args)
     if name == "ask_user":
         return await ask_user(**args)
     raise ValueError(f"Unknown tool: {name}")

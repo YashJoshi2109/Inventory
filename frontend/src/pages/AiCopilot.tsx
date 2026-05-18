@@ -55,12 +55,15 @@ import {
   RotateCcw,
   Eye,
   ExternalLink,
+  AlertTriangle,
 } from "lucide-react";
 import { clsx } from "clsx";
 import ReactMarkdown from "react-markdown";
 import toast from "react-hot-toast";
 import { useAuthStore } from "@/store/auth";
 import { rateLimitApi } from "@/api/rateLimit";
+import { useSandboxStore } from "@/store/sandbox";
+import { sandboxApi } from "@/api/sandbox";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -588,6 +591,7 @@ function KBPanel({ onClose }: { onClose: () => void }) {
 export function AiCopilot() {
   const qc = useQueryClient();
   const accessToken = useAuthStore((s) => s.accessToken);
+  const sandboxMode = useSandboxStore((s) => s.sandboxMode);
 
   // State
   const [messages, setMessages] = useState<Msg[]>([]);
@@ -906,6 +910,7 @@ export function AiCopilot() {
   const quotaAnchorRef = useRef<HTMLDivElement>(null);
   const [quotaCardOpen, setQuotaCardOpen] = useState(false);
   const [quotaCardPos, setQuotaCardPos] = useState<{ top: number; right: number; width: number } | null>(null);
+  const [sandboxQuotaExhausted, setSandboxQuotaExhausted] = useState(false);
 
   // Derived state that mirrors the ref (for rendering)
   const [activeSessionId, _setActiveSessionId] = useState<number | null>(null);
@@ -953,6 +958,15 @@ export function AiCopilot() {
     enabled: !!accessToken,
     refetchInterval: 60_000,
     staleTime: 60_000,
+    retry: false,
+  });
+
+  const { data: sandboxQuota, refetch: refetchSandboxQuota } = useQuery({
+    queryKey: ["sandbox-copilot-quota"],
+    queryFn: sandboxApi.getCopilotQuota,
+    enabled: !!accessToken && sandboxMode,
+    refetchInterval: 30_000,
+    staleTime: 10_000,
     retry: false,
   });
 
@@ -1138,13 +1152,20 @@ export function AiCopilot() {
               }, 150);
               break;
 
-            case "error":
+            case "error": {
+              // eslint-disable-next-line @typescript-eslint/no-explicit-any
+              const isQuotaErr = (event as any).sandboxQuotaExhausted === true;
+              if (isQuotaErr) {
+                setSandboxQuotaExhausted(true);
+                void refetchSandboxQuota();
+              }
               setMessages(prev => prev.map(m =>
                 m.id === aId ? { ...m, streaming: false, error: event.message } : m
               ));
               setStreaming(false);
-              toast.error(event.message, { duration: 5000, id: "chat-error" });
+              if (!isQuotaErr) toast.error(event.message, { duration: 5000, id: "chat-error" });
               break;
+            }
           }
         },
         abortRef.current.signal,
@@ -1562,6 +1583,32 @@ export function AiCopilot() {
           )}
         </div>
 
+        {/* Sandbox quota banner */}
+        {sandboxMode && sandboxQuota && (
+          <div
+            className="shrink-0 mx-4 mb-1 mt-1 px-3 py-2 rounded-xl flex items-center gap-2 text-[11px]"
+            style={{
+              background: sandboxQuota.remaining === 0
+                ? "rgba(239,68,68,0.08)"
+                : "rgba(34,211,238,0.06)",
+              border: sandboxQuota.remaining === 0
+                ? "1px solid rgba(239,68,68,0.25)"
+                : "1px solid rgba(34,211,238,0.15)",
+            }}
+          >
+            {sandboxQuota.remaining === 0 ? (
+              <AlertTriangle size={12} className="shrink-0 text-red-400" />
+            ) : (
+              <Bot size={12} className="shrink-0" style={{ color: "#22d3ee" }} />
+            )}
+            <span style={{ color: sandboxQuota.remaining === 0 ? "#f87171" : "var(--text-secondary)" }}>
+              {sandboxQuota.remaining === 0
+                ? "Sandbox copilot limit reached. Ask an admin to reset your quota."
+                : `Sandbox mode · ${sandboxQuota.msgs_used}/${sandboxQuota.limit} messages used`}
+            </span>
+          </div>
+        )}
+
         {/* Input bar */}
         <div className="shrink-0 px-4 pb-16 pt-2 lg:pb-4"
           style={{ borderTop: "1px solid var(--border-card)" }}>
@@ -1817,9 +1864,10 @@ export function AiCopilot() {
                     sendMessage(input);
                   }
                 }}
-                disabled={streaming}
+                disabled={streaming || sandboxQuotaExhausted || sandboxQuota?.remaining === 0}
                 placeholder={
                   streaming ? "Thinking…"
+                  : (sandboxQuotaExhausted || sandboxQuota?.remaining === 0) ? "Sandbox copilot limit reached"
                   : isListening ? "Speak now — words appear here in real time…"
                   : "Ask anything about your lab inventory…"
                 }
@@ -1832,14 +1880,14 @@ export function AiCopilot() {
 
               <button
                 onClick={() => { if (isListening) stopListening(); sendMessage(input); }}
-                disabled={(!input.trim() && !attachedImage) || streaming}
+                disabled={(!input.trim() && !attachedImage) || streaming || sandboxQuotaExhausted || sandboxQuota?.remaining === 0}
                 className={clsx(
                   "w-8 h-8 rounded-xl flex items-center justify-center transition-all shrink-0",
-                  (input.trim() || attachedImage) && !streaming
+                  (input.trim() || attachedImage) && !streaming && !sandboxQuotaExhausted && sandboxQuota?.remaining !== 0
                     ? "hover:scale-105 active:scale-95"
                     : "opacity-35 cursor-not-allowed",
                 )}
-                style={(input.trim() || attachedImage) && !streaming
+                style={(input.trim() || attachedImage) && !streaming && !sandboxQuotaExhausted && sandboxQuota?.remaining !== 0
                   ? { background: "linear-gradient(135deg,#0891b2,#22d3ee)", boxShadow: "0 4px 14px rgba(34,211,238,0.35)" }
                   : { background: "var(--bg-card)" }}>
                 <Send size={14} className="text-white" style={{ transform: "translateX(1px)" }} />

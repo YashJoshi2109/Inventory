@@ -314,6 +314,9 @@ async def send_message(
         session.title = content[:80]
         await db.flush()
 
+    # Capture sandbox_owner_id before commit (current_user may become detached)
+    _sandbox_owner_id = current_user.id if is_sandbox_request(request) else None
+
     # Commit user message + title BEFORE streaming (so they're always saved)
     await db.commit()
 
@@ -328,6 +331,7 @@ async def send_message(
             actor_roles=actor_roles,
             image_bytes=image_bytes,
             image_mime=image_mime,
+            sandbox_owner_id=_sandbox_owner_id,
         ):
             yield sse_line.encode()
 

@@ -37,8 +37,6 @@ class CopilotQuotaResponse(BaseModel):
 @router.post("/seed", response_model=SeedStatusResponse)
 async def seed_sandbox(session: DbSession, current_user: CurrentUser) -> SeedStatusResponse:
     """Idempotent: seeds inventory + energy data for the calling user. Safe to call multiple times."""
-    if not settings.SANDBOX_MODE:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not in sandbox mode")
 
     if not current_user.sandbox_seeded:
         await seed_user_sandbox(session, current_user)
@@ -133,8 +131,6 @@ async def copilot_quota(current_user: CurrentUser) -> CopilotQuotaResponse:
 @router.get("/status", response_model=SeedStatusResponse)
 async def sandbox_status(session: DbSession, current_user: CurrentUser) -> SeedStatusResponse:
     """Returns seed state for calling user."""
-    if not settings.SANDBOX_MODE:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not in sandbox mode")
 
     from app.models.item import Item
     from app.models.location import Location
