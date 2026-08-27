@@ -31,7 +31,7 @@ function stubHost(opts: { meta?: HostMeta | null; ledgers?: { items: string; eve
     if (String(url).endsWith("/api/mirror")) {
       const payload = JSON.parse(init?.body as string);
       const count = (csv: string | undefined) =>
-        csv ? Math.max(0, csv.trim().split("\n").length - 1) : 0;
+        csv ? Math.max(0, csv.trim().split(/\r?\n/).length - 1) : 0;
       return {
         ok: true, status: 200,
         json: async () => ({
@@ -80,7 +80,7 @@ describe("HostMirror", () => {
       })],
     });
     const body = JSON.parse(calls.at(-1)!.body!);
-    const header = body.events.split("\n")[0];
+    const header = body.events.split(/\r?\n/)[0];
     expect(header).toBe(EVENT_COLUMNS.join(","));
   });
 

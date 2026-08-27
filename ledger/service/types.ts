@@ -7,6 +7,15 @@
 import type { EventRow, ItemRow } from "../core/schema.ts";
 import type { Conflict, StatusRow } from "../core/status.ts";
 
+/**
+ * Re-exported so the UI has exactly one import surface. A React component that
+ * needs to reach into ledger/core or ledger/store for a type is a component
+ * one step away from reaching in for a function.
+ */
+export type { EventRow, ItemRow } from "../core/schema.ts";
+export type { Conflict, StatusRow, StatusKind, Confidence } from "../core/status.ts";
+export type { StoreMeta } from "../store/types.ts";
+
 export interface LedgerConfig {
   /** Location code -> human label. Printed as shelf barcode labels. */
   locations: Record<string, string>;
@@ -62,6 +71,19 @@ export interface StatusView {
   unknownScans: EventRow[];
   nonContractEventTypes: string[];
   generatedAtMs: number;
+}
+
+/** What the local host reports about itself. Defined here, not in the bridge, so the UI has one import surface and there is no cycle. */
+export interface HostMeta {
+  deviceId: string;
+  port: number;
+  programVersion: string;
+  schemaVersion: number;
+  statusAlgorithmVersion: number;
+  locations: Record<string, string>;
+  dataDir: string;
+  itemsFile: string;
+  eventsFile: string;
 }
 
 export interface MirrorResult {

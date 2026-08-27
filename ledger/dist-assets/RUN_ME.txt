@@ -1,0 +1,83 @@
+RAID LAB INVENTORY LEDGER
+=========================
+
+WHAT TO DO
+----------
+1. Unzip this folder anywhere. Your Desktop is fine.
+2. Double-click  InventoryLedger.exe
+3. Your browser opens. Type your name. Start scanning.
+
+That is the whole installation. There is nothing to install.
+
+No Python. No Node. No npm. No database. No internet. No admin rights.
+
+
+IF WINDOWS WARNS YOU
+--------------------
+The exe is not code-signed, so SmartScreen may say "Windows protected your PC".
+Click "More info", then "Run anyway". If your antivirus blocks it entirely, use
+the fallback folder instead:
+
+    fallback\Start_Inventory.bat
+
+That runs the identical program using the bundled Python in fallback\runtime\.
+
+
+USING IT
+--------
+Scan tab    A USB barcode scanner just types into the box, so leave the box
+            focused and scan. It works the same if you type by hand.
+
+            Scan a shelf label (LOC-SHELF-A) to arm that shelf, then scan an
+            item within 60 seconds to place it there. Or pick checkout/return
+            and scan an item.
+
+Status tab  Where everything is right now. This is computed from the ledgers
+            every time you look, never stored, so fixing the logic later fixes
+            the history too.
+
+Items tab   Register a new item. Description is the only required field.
+
+Log tab     Every scan, in order. Nothing here can be edited or deleted --
+            corrections are new rows, which is what makes two laptops able to
+            merge without conflict.
+
+Health tab  The honest numbers: unknown scans, conflicts, and a count of any
+            network request that left this machine. That count should be zero.
+
+
+YOUR DATA
+---------
+Two CSV files, in the data\ folder next to the exe:
+
+    data\items_<device>.csv    what exists
+    data\log_<device>.csv      what happened
+
+Open them in Excel any time. They are the real record -- the browser keeps a
+copy for speed, but these files are what survives.
+
+Closing the program loses nothing. Reopening picks up exactly where you were,
+and will not duplicate anything.
+
+To move your data to another machine, copy the whole folder.
+
+
+IMPORTANT: ONE DEVICE ID PER MACHINE
+------------------------------------
+config.ini holds a device id generated on first run. If you copy this folder to
+a second laptop and run both, change device_id on the second one first. Two
+machines sharing an id will produce clashing record numbers.
+
+
+WHEN SOMETHING LOOKS WRONG
+--------------------------
+Check the Health tab first. It will tell you if the program is running without
+its host (in which case nothing is being written to CSV), if any scan matched
+no item, or if two devices disagree about a record.
+
+Nothing is ever discarded silently. A scan that matches no item is still
+recorded, and shows up under "Unknown scans".
+
+
+Dr. Erick C. Jones Jr. -- RAID Lab, UTA IMSE
+Ports: Inventory 5001 (RFID 5002, Energy 5003 are separate programs)

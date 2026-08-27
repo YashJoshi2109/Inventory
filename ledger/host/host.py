@@ -296,6 +296,11 @@ def make_handler(host: Host):
                     return self._send_json(200, host.meta())
                 if path == "/api/ledgers":
                     return self._send_json(200, host.ledgers())
+                if path.startswith("/api/"):
+                    # Never let an API path fall through to the SPA fallback: a
+                    # typo would return index.html with a 200 and look like it
+                    # worked. Unknown API routes are a JSON 404.
+                    return self._send_json(404, {"error": "no route: " + path})
                 return self._serve_static(path)
             except Exception as exc:                      # surface, never crash
                 return self._send_json(500, {"error": f"{type(exc).__name__}: {exc}"})

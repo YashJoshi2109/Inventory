@@ -4,7 +4,17 @@
  * Ledger files are read and written by three teams, by Excel, and by
  * Dr. Jones's stdlib-Python baseline. A cloud export must be byte-identical
  * to a local one, so serialization lives here and nowhere else.
+ *
+ * Line terminator is CRLF. RFC 4180 specifies it, Python's csv module emits it
+ * by default, and both the reference implementation and our host therefore
+ * write it. Emitting bare LF here would mean a file written by the host and
+ * re-serialized by this module differed on every single line -- not data loss,
+ * since the parser accepts both, but it would break byte-identity between a
+ * cloud export and a local file and make every sync look like a full rewrite.
  */
+
+/** RFC 4180 line terminator, matching Python's csv module. */
+export const CSV_LINE_TERMINATOR = "\r\n";
 
 /** Parse CSV text into row objects keyed by the header row. */
 export function parseCsv(text: string): Record<string, string>[] {
@@ -61,5 +71,5 @@ export function toCsv(
   for (const row of rows) {
     lines.push(columns.map((c) => encodeField(row[c] ?? "")).join(","));
   }
-  return lines.join("\n") + "\n";
+  return lines.join(CSV_LINE_TERMINATOR) + CSV_LINE_TERMINATOR;
 }

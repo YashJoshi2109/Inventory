@@ -12,19 +12,9 @@
  */
 import { parseCsv, toCsv } from "../core/csv.ts";
 import { EVENT_COLUMNS, ITEM_COLUMNS, type EventRow, type ItemRow } from "../core/schema.ts";
-import type { LedgerMirror, MirrorResult } from "../service/types.ts";
+import type { HostMeta, LedgerMirror, MirrorResult } from "../service/types.ts";
 
-export interface HostMeta {
-  deviceId: string;
-  port: number;
-  programVersion: string;
-  schemaVersion: number;
-  statusAlgorithmVersion: number;
-  locations: Record<string, string>;
-  dataDir: string;
-  itemsFile: string;
-  eventsFile: string;
-}
+export type { HostMeta } from "../service/types.ts";
 
 export interface BridgeOptions {
   /** Same-origin by default. Tests override it. */
