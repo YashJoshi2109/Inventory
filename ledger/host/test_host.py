@@ -143,6 +143,34 @@ class TestConfig(unittest.TestCase):
         self.assertIn("LOC-SHELF-A", dict(cfg.items("locations")))
 
 
+class TestPortSelection(unittest.TestCase):
+    def test_never_falls_back_onto_another_team_s_port(self):
+        """
+        5002 is the RFID program and 5003 is the Energy program. Silently
+        taking one of them would be maddening to diagnose from the other side.
+        """
+        import socket
+        # Occupy 5001 so the search has to move on.
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as blocker:
+            blocker.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            try:
+                blocker.bind(("127.0.0.1", 5001))
+                blocker.listen(1)
+            except OSError:
+                self.skipTest("port 5001 is already in use on this machine")
+            chosen = H.find_free_port(5001, "127.0.0.1")
+        self.assertNotIn(chosen, H.RESERVED_PORTS)
+        self.assertGreater(chosen, 5001)
+
+    def test_uses_the_configured_port_when_it_is_free(self):
+        chosen = H.find_free_port(5011, "127.0.0.1")
+        self.assertEqual(chosen, 5011)
+
+    def test_a_program_may_still_be_configured_onto_its_own_reserved_port(self):
+        """RFID configuring itself to 5002 must work; only fallback skips them."""
+        self.assertEqual(H.find_free_port(5002, "127.0.0.1"), 5002)
+
+
 class TestHttpApi(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()

@@ -340,9 +340,17 @@ def make_handler(host: Host):
     return Handler
 
 
+# Ports the other lab programs own (LAB_SELF_HOSTING_MANUAL.md section 1).
+# Falling back onto one of these would take the RFID or Energy program's place
+# and be maddening to diagnose, so they are skipped even when free.
+RESERVED_PORTS = {5002: "RFID Ledger", 5003: "Energy Ledger"}
+
+
 def find_free_port(preferred: int, bind: str) -> int:
     """Use the configured port when free, otherwise the next one that is."""
     for candidate in range(preferred, preferred + 20):
+        if candidate != preferred and candidate in RESERVED_PORTS:
+            continue                       # belongs to another team's program
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
             s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
             try:
@@ -363,18 +371,21 @@ def main(argv=None):
     server = ThreadingHTTPServer((host.bind, port), make_handler(host))
     url = f"http://localhost:{port}"
 
-    print("RAID Lab Inventory Ledger")
-    print(f"  device id : {host.device_id}")
-    print(f"  data      : {host.data_dir}")
-    print(f"  open      : {url}")
-    print("  press Ctrl+C to stop")
+    # flush=True throughout: stdout is block-buffered when it is not a
+    # terminal, so a user redirecting output to a file -- or a supervisor
+    # killing the process -- would otherwise see nothing at all.
+    print("RAID Lab Inventory Ledger", flush=True)
+    print(f"  device id : {host.device_id}", flush=True)
+    print(f"  data      : {host.data_dir}", flush=True)
+    print(f"  open      : {url}", flush=True)
+    print("  press Ctrl+C to stop", flush=True)
 
     if "--no-browser" not in argv:
         threading.Timer(0.8, lambda: webbrowser.open(url)).start()
     try:
         server.serve_forever()
     except KeyboardInterrupt:
-        print("\nstopped. your ledgers are in", host.data_dir)
+        print("\nstopped. your ledgers are in", host.data_dir, flush=True)
     finally:
         server.server_close()
     return 0

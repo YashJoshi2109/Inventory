@@ -19,15 +19,17 @@
 import { spawn } from "node:child_process";
 import { mkdtempSync, cpSync, readFileSync, writeFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
+import { join, resolve, dirname } from "node:path";
+import { fileURLToPath } from "node:url";
 import { parseCsv } from "../core/csv.ts";
 import { computeStatus } from "../core/status.ts";
 
-const BASELINE = process.argv[2];
-if (!BASELINE) {
-  console.error("usage: node crossvalidate.mjs <path to RAID_Ledger_Baseline>");
-  process.exit(2);
-}
+// Defaults to the vendored copy so this runs on a fresh checkout with no
+// external archive present. Pass a path to test against a different build.
+const VENDORED = resolve(
+  dirname(fileURLToPath(import.meta.url)), "..", "fixtures", "reference-baseline",
+);
+const BASELINE = process.argv[2] || VENDORED;
 
 const PORT = 5199;
 const BASE = `http://127.0.0.1:${PORT}`;

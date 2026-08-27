@@ -67,10 +67,25 @@ export function App() {
 
       <nav>
         {(["scan", "status", "items", "log", "health"] as const).map((t) => (
-          <button key={t} className={tab === t ? "tab active" : "tab"} onClick={() => setTab(t)}>
+          <button
+            key={t}
+            className={tab === t ? "tab active" : "tab"}
+            onClick={() => setTab(t)}
+            // The badge is decorative duplication of what the Health tab lists.
+            // Excluding it from the accessible name keeps that name stable as
+            // "health" rather than "health 2", which a screen reader would read
+            // as a meaningless number anyway.
+            aria-label={t}
+          >
             {t}
             {t === "health" && (conflictCount + unknownCount > 0) && (
-              <span className="badge">{conflictCount + unknownCount}</span>
+              <span
+                className="badge"
+                aria-hidden="true"
+                title={`${conflictCount} conflict(s), ${unknownCount} unknown scan(s)`}
+              >
+                {conflictCount + unknownCount}
+              </span>
             )}
           </button>
         ))}
