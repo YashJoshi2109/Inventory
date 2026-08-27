@@ -1,0 +1,2 @@
+event_id,item_id,action,description,category,gtin,serial_number,epc,user,datetime_utc
+INV01-I-000001,ITM-0042,add,Battery Module,battery-module,00614141123452,SN-6789,,yash,2026-07-05T13:00:00Z

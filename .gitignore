@@ -46,3 +46,8 @@ Thumbs.db
 *.swp
 *.swo
 .env*.local
+
+# ─── Professor reference drop (2026-07 Prof Lab Code.zip) ────────────────────
+# 37MB of external reference material: spec docs, baseline reference impl,
+# bundled Windows Python runtime, meeting packets. Read-only context, not our code.
+Lab Code/

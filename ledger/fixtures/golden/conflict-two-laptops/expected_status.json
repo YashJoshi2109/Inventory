@@ -1,0 +1,24 @@
+{
+  "description": "Acceptance test 11 — near-simultaneous place on INV01 and checkout on INV02, three seconds apart, inside the ten-second ambiguity window. Status becomes conflict and the pair goes to the admin queue. No winner is picked.",
+  "rows": [
+    {
+      "item_id": "ITM-0001",
+      "description": "NMC 21700 Cell",
+      "category": "battery-cell",
+      "gtin": "00614141123452",
+      "serial_number": "SN-4415",
+      "epc": "",
+      "status": "conflict",
+      "status_label": "conflict — awaiting admin review",
+      "location": "",
+      "source": "barcode",
+      "confidence": "conflict",
+      "rfid_confidence": null,
+      "last_event_id": "INV02-000001",
+      "last_seen_utc": "2026-07-05T14:00:03Z",
+      "last_user": "maria"
+    }
+  ],
+  "conflicts": [{ "type": "ambiguity-window", "item_id": "ITM-0001" }],
+  "unknownScanCount": 0
+}

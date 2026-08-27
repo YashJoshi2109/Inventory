@@ -1,0 +1,24 @@
+{
+  "description": "Acceptance test 7 — admin voids a fat-fingered placement. The original row stays in the ledger untouched; the derived status drops back to never-seen. Nothing is deleted.",
+  "rows": [
+    {
+      "item_id": "ITM-0001",
+      "description": "NMC 21700 Cell",
+      "category": "battery-cell",
+      "gtin": "00614141123452",
+      "serial_number": "SN-4415",
+      "epc": "",
+      "status": "unknown",
+      "status_label": "never seen",
+      "location": "",
+      "source": "",
+      "confidence": "unconfirmed",
+      "rfid_confidence": null,
+      "last_event_id": "",
+      "last_seen_utc": "",
+      "last_user": ""
+    }
+  ],
+  "conflicts": [],
+  "unknownScanCount": 0
+}

@@ -1,0 +1,24 @@
+{
+  "description": "Acceptance test 10 — the join. The item is registered with a GTIN and no EPC. An RFID observation carrying SGTIN-96 3074257BF40C0E4000001A85 decodes to GTIN 00614141123452 and resolves to the same ITM-0042, producing one unified history across barcode and RFID.",
+  "rows": [
+    {
+      "item_id": "ITM-0042",
+      "description": "Battery Module",
+      "category": "battery-module",
+      "gtin": "00614141123452",
+      "serial_number": "SN-6789",
+      "epc": "",
+      "status": "in-zone",
+      "status_label": "in Shelf A (Battery Storage)",
+      "location": "LOC-SHELF-A",
+      "source": "rfid",
+      "confidence": "inferred",
+      "rfid_confidence": 0.87,
+      "last_event_id": "RDR01-000001",
+      "last_seen_utc": "2026-07-05T14:30:00Z",
+      "last_user": "impinj-r700-lab01"
+    }
+  ],
+  "conflicts": [],
+  "unknownScanCount": 0
+}

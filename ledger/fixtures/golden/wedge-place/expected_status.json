@@ -1,0 +1,24 @@
+{
+  "description": "Acceptance test 9 — USB wedge scanner: shelf label then item GTIN. Status shows the item on that shelf, attributed to the logged-in user.",
+  "rows": [
+    {
+      "item_id": "ITM-0001",
+      "description": "NMC 21700 Cell",
+      "category": "battery-cell",
+      "gtin": "00614141123452",
+      "serial_number": "SN-4415",
+      "epc": "",
+      "status": "on-shelf",
+      "status_label": "on Shelf A (Battery Storage)",
+      "location": "LOC-SHELF-A",
+      "source": "barcode",
+      "confidence": "confirmed",
+      "rfid_confidence": null,
+      "last_event_id": "INV01-000002",
+      "last_seen_utc": "2026-07-05T14:00:05Z",
+      "last_user": "yash"
+    }
+  ],
+  "conflicts": [],
+  "unknownScanCount": 0
+}
