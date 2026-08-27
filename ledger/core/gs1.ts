@@ -87,7 +87,7 @@ function parseParenthesised(code: string): Gs1Fields | null {
 }
 
 /** FNC1 / GS group separator. Real wedge scanners emit this between variable-length AIs. */
-const GS = "";
+const GS = "\u001d";
 
 /**
  * Parse one FNC1-delimited segment of a bare element string.
