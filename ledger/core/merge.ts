@@ -21,8 +21,15 @@ export interface MergeResult {
   collisions: IdCollision[];
 }
 
-/** Stable fingerprint over every contract column, used for exact-match dedupe. */
-function fingerprint(row: EventRow): string {
+/**
+ * Stable fingerprint over every contract column, used for exact-match dedupe.
+ *
+ * The separator is NUL, which cannot occur in CSV data, so ["a","b"] and
+ * ["a b"] can never fingerprint alike. Exported because every LedgerStore
+ * adapter needs the identical rule -- three copies of it would be three
+ * chances to disagree about what "the same row" means.
+ */
+export function eventFingerprint(row: EventRow): string {
   return EVENT_COLUMNS.map((c) => row[c] ?? "").join("\u0000");
 }
 
@@ -43,7 +50,7 @@ export function mergeEventRows(sources: readonly (readonly EventRow[])[]): Merge
       const id = row.event_id;
       if (!id) continue;                       // an id-less row cannot be merged safely
 
-      const print = fingerprint(row);
+      const print = eventFingerprint(row);
       const existing = byId.get(id);
       if (!existing) {
         byId.set(id, { row, prints: new Set([print]), variants: [row] });
