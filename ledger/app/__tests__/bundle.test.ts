@@ -38,9 +38,25 @@ function bundleText(): string {
 }
 
 describe.skipIf(!built)("built bundle offline audit", () => {
-  it("emits exactly the three files the host serves", () => {
+  it("emits exactly the files the host serves, and no stray asset", () => {
     expect(existsSync(join(DIST, "index.html"))).toBe(true);
-    expect(readdirSync(join(DIST, "assets")).sort()).toEqual(["app.js", "index.css"]);
+    // The three fonts are vendored rather than fetched: the cloud app pulls
+    // Outfit, Syne and JetBrains Mono from fonts.googleapis.com, which this
+    // program may never do. Listing them here means a font that goes missing,
+    // or an extra asset nobody meant to ship, fails the build.
+    expect(readdirSync(join(DIST, "assets")).sort()).toEqual([
+      "app.js", "index.css", "jetbrains-mono.woff2", "outfit.woff2", "syne.woff2",
+    ]);
+  });
+
+  it("serves every font from the bundle, by relative URL", () => {
+    const css = readFileSync(join(DIST, "assets", "index.css"), "utf8");
+    const urls = [...css.matchAll(/url\(([^)]+)\)/g)].map((m) => m[1].replace(/["']/g, ""));
+    expect(urls.length).toBeGreaterThan(0);
+    for (const url of urls) {
+      expect(url.startsWith("./") || url.startsWith("data:")).toBe(true);
+    }
+    expect(urls.some((u) => u.includes("outfit"))).toBe(true);
   });
 
   it("references its assets relatively, so it loads from inside a bundle", () => {

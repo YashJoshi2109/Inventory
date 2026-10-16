@@ -79,6 +79,17 @@ number in the EPC bank rather than an EPC. A GIAI read resolves only to an item 
 that GIAI; the company prefix alone is never enough, or one reader's history would attach to
 everything bought on the same prefix.
 
+**The look is the cloud app's, and the fonts are vendored.** `app/styles.css` carries the
+same "Liquid Glass / Deep Sapphire" tokens as `frontend/src/index.css` — the light gradient
+mesh, the dark navy and grid, the frosted cards, and a light/dark toggle that persists.
+The cloud app pulls Outfit, Syne and JetBrains Mono from `fonts.googleapis.com`; this
+program may never reach the network, so the three variable woff2 files live in
+`app/fonts/` (98 KB, SIL Open Font Licence) and are loaded by relative URL.
+`app/__tests__/bundle.test.ts` lists the exact asset set and fails on a stray file, a
+missing font, or an absolute URL. When the cloud app's palette changes, this file is the
+copy that has to be changed with it — there is no shared stylesheet, because a program that
+imports one would need the network to render.
+
 **Known defects, as of 2026-10-16.** Stated here because the standard prefers a status that
 fails honestly over one that reads as finished:
 

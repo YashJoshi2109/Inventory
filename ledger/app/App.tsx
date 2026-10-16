@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import { applyTheme, readTheme, type Theme } from "./theme.ts";
 import { bootApp, type BootedApp } from "./boot.ts";
 import { NameGate } from "./components/NameGate.tsx";
 import { ScanPanel } from "./components/ScanPanel.tsx";
@@ -15,6 +16,9 @@ export function App() {
   const [bootError, setBootError] = useState<string | null>(null);
   const [user, setUser] = useState("");
   const [tab, setTab] = useState<Tab>("scan");
+  const [theme, setTheme] = useState<Theme>(readTheme);
+
+  useEffect(() => { applyTheme(theme); }, [theme]);
 
   const [status, setStatus] = useState<StatusView | null>(null);
   const [items, setItems] = useState<ItemRow[]>([]);
@@ -69,6 +73,11 @@ export function App() {
         </div>
         <div className="who">
           {user} · <span className="mono">{storeMeta?.deviceId}</span>
+          <button type="button" className="ghost theme-toggle"
+                  aria-label={theme === "dark" ? "switch to light" : "switch to dark"}
+                  onClick={() => setTheme(theme === "dark" ? "light" : "dark")}>
+            {theme === "dark" ? "Light" : "Dark"}
+          </button>
         </div>
       </header>
 

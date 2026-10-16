@@ -1,88 +1,319 @@
+/*
+ * The lab's visual language, ported from the cloud app so the two programs are
+ * recognisably one system: the "Liquid Glass / Deep Sapphire" tokens from
+ * frontend/src/index.css, the same Outfit / Syne / JetBrains Mono typography,
+ * the same frosted cards over a sapphire grid.
+ *
+ * One rule governs every choice here: NOTHING may leave the machine. The cloud
+ * app pulls its fonts from fonts.googleapis.com; this program cannot, so the
+ * three families are vendored as variable woff2 under app/fonts/ (98 KB, SIL
+ * Open Font Licence) and loaded by relative URL. app/__tests__/bundle.test.ts
+ * fails the build if an external URL ever reaches the bundle.
+ */
+
+/* ── Vendored type. Variable fonts: one file covers each family's range. ──── */
+@font-face {
+  font-family: "Outfit";
+  src: url("./fonts/outfit.woff2") format("woff2-variations"), url("./fonts/outfit.woff2") format("woff2");
+  font-weight: 400 700;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Syne";
+  src: url("./fonts/syne.woff2") format("woff2-variations"), url("./fonts/syne.woff2") format("woff2");
+  font-weight: 600 800;
+  font-display: swap;
+}
+@font-face {
+  font-family: "JetBrains Mono";
+  src: url("./fonts/jetbrains-mono.woff2") format("woff2-variations"), url("./fonts/jetbrains-mono.woff2") format("woff2");
+  font-weight: 400 500;
+  font-display: swap;
+}
+
+/* ── Light: Deep Sapphire Mesh, as the cloud app ships it ─────────────────── */
 :root {
-  --bg: #0f1115; --panel: #171a21; --line: #262b35;
-  --fg: #e6e9ef; --muted: #8b93a3;
-  --ok: #4ade80; --warn: #fbbf24; --err: #f87171; --accent: #60a5fa;
+  color-scheme: light;
+
+  --bg-page: #c8d8f0;
+  --bg-card: rgba(255, 255, 255, 0.72);
+  --bg-card-solid: rgba(255, 255, 255, 0.95);
+  --bg-topbar: rgba(248, 251, 255, 0.85);
+  --bg-input: rgba(255, 255, 255, 0.80);
+  --bg-hover: rgba(37, 99, 235, 0.08);
+
+  --text-primary: #050e24;
+  --text-secondary: #1e3360;
+  --text-muted: #536080;
+
+  --border-subtle: rgba(37, 99, 235, 0.12);
+  --border-card: rgba(37, 99, 235, 0.16);
+  --border-glass-top: rgba(255, 255, 255, 0.95);
+
+  --accent: #1d4ed8;
+  --accent-hover: #1e40af;
+  --accent-2: #ea6c00;
+  --accent-success: #047857;
+  --accent-danger: #dc2626;
+  --accent-warning: #b45309;
+
+  --shadow-card:
+    0 1px 0 rgba(255, 255, 255, 0.96) inset,
+    0 -1px 0 rgba(160, 190, 255, 0.20) inset,
+    0 2px 6px rgba(10, 20, 80, 0.06),
+    0 8px 24px rgba(29, 78, 216, 0.12);
+  --shadow-elevation:
+    0 1px 0 rgba(255, 255, 255, 0.95) inset,
+    0 4px 16px rgba(10, 20, 80, 0.12),
+    0 20px 60px rgba(29, 78, 216, 0.18);
+
+  --grid-line: rgba(29, 78, 216, 0.055);
+  --radius-card: 1rem;
+  --radius-control: 0.65rem;
+}
+
+/* ── Dark: the same tokens, the cloud app's dark values ───────────────────── */
+:root[data-theme="dark"] {
   color-scheme: dark;
+
+  --bg-page: #07091a;
+  --bg-card: rgba(12, 17, 40, 0.88);
+  --bg-card-solid: #0d1228;
+  --bg-topbar: rgba(7, 9, 26, 0.94);
+  --bg-input: rgba(255, 255, 255, 0.04);
+  --bg-hover: rgba(59, 130, 246, 0.08);
+
+  --text-primary: #edf2f8;
+  --text-secondary: #8899bb;
+  --text-muted: #5c7a9e;
+
+  --border-subtle: rgba(255, 255, 255, 0.055);
+  --border-card: rgba(255, 255, 255, 0.08);
+  --border-glass-top: rgba(255, 255, 255, 0.06);
+
+  --accent: #3b82f6;
+  --accent-hover: #60a5fa;
+  --accent-2: #f97316;
+  --accent-success: #10b981;
+  --accent-danger: #ef4444;
+  --accent-warning: #f59e0b;
+
+  --shadow-card: 0 8px 40px rgba(0, 0, 0, 0.55), 0 1px 0 rgba(255, 255, 255, 0.035);
+  --shadow-elevation: 0 16px 60px rgba(0, 0, 0, 0.70);
+
+  --grid-line: rgba(59, 130, 246, 0.025);
 }
+
 * { box-sizing: border-box; }
+
 body {
-  margin: 0; background: var(--bg); color: var(--fg);
-  font: 15px/1.5 ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  margin: 0;
+  color: var(--text-primary);
+  font: 400 15px/1.55 "Outfit", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  background-attachment: fixed;
+  -webkit-font-smoothing: antialiased;
 }
-.mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: .9em; }
-.muted { color: var(--muted); }
-.small { font-size: .85em; }
-.ok { color: var(--ok); }
-.warn { color: var(--warn); }
-.error { color: var(--err); }
 
-.gate { max-width: 30rem; margin: 12vh auto; padding: 2rem; text-align: center; }
-.gate form { display: flex; gap: .5rem; margin-top: 1.5rem; }
-
-input, button {
-  font: inherit; padding: .6rem .8rem; border-radius: .4rem;
-  border: 1px solid var(--line); background: var(--panel); color: var(--fg);
+/* Light: the cloud app's deep sapphire gradient mesh, with the 44px grid under
+   it. Five radial washes, not a flat fill -- this is what makes the frosted
+   cards read as glass rather than as white boxes. */
+:root:not([data-theme="dark"]) body {
+  background-color: #b8ccec;
+  background-image:
+    radial-gradient(ellipse at 8% 10%, rgba(59, 130, 246, 0.50) 0%, transparent 48%),
+    radial-gradient(ellipse at 92% 85%, rgba(109, 40, 217, 0.38) 0%, transparent 50%),
+    radial-gradient(ellipse at 65% 5%, rgba(16, 185, 129, 0.22) 0%, transparent 42%),
+    radial-gradient(ellipse at 20% 92%, rgba(234, 108, 0, 0.18) 0%, transparent 40%),
+    radial-gradient(ellipse at 50% 50%, rgba(29, 78, 216, 0.12) 0%, transparent 70%),
+    linear-gradient(145deg, #c2d6f4 0%, #cdd8f5 40%, #d4d0f5 100%),
+    linear-gradient(var(--grid-line) 1px, transparent 1px),
+    linear-gradient(90deg, var(--grid-line) 1px, transparent 1px);
+  background-size:
+    100% 100%, 100% 100%, 100% 100%, 100% 100%, 100% 100%, 100% 100%,
+    44px 44px, 44px 44px;
 }
-input { flex: 1; min-width: 0; }
-input:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
-button { cursor: pointer; }
-button:hover:not(:disabled) { border-color: var(--accent); }
-button:disabled { opacity: .45; cursor: not-allowed; }
-button.ghost { background: transparent; }
+
+/* Dark: deep navy and the grid, as the cloud app keeps it. */
+:root[data-theme="dark"] body {
+  background-color: var(--bg-page);
+  background-image:
+    linear-gradient(var(--grid-line) 1px, transparent 1px),
+    linear-gradient(90deg, var(--grid-line) 1px, transparent 1px);
+  background-size: 44px 44px;
+}
+
+h1, h2, h3, .display {
+  font-family: "Syne", "Outfit", ui-sans-serif, system-ui, sans-serif;
+  font-weight: 700;
+  letter-spacing: -0.015em;
+  color: var(--text-primary);
+}
+
+.mono, .mono * { font-family: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.88em; }
+.muted { color: var(--text-muted); }
+.small { font-size: 0.85em; }
+.ok { color: var(--accent-success); }
+.warn { color: var(--accent-warning); }
+.error { color: var(--accent-danger); }
+
+/* ── Name gate: the cloud app's sign-in card ──────────────────────────────── */
+.gate {
+  max-width: 27rem;
+  margin: 10vh auto;
+  padding: 2.25rem 2rem;
+  text-align: center;
+  background: var(--bg-card);
+  backdrop-filter: blur(20px) saturate(140%);
+  -webkit-backdrop-filter: blur(20px) saturate(140%);
+  border: 1px solid var(--border-card);
+  border-top-color: var(--border-glass-top);
+  border-radius: var(--radius-card);
+  box-shadow: var(--shadow-elevation);
+}
+.gate h1 { margin: 0 0 0.4rem; font-size: 1.6rem; }
+.gate form { display: flex; gap: 0.5rem; margin-top: 1.5rem; }
+
+input, button, select {
+  font: inherit;
+  padding: 0.62rem 0.85rem;
+  border-radius: var(--radius-control);
+  border: 1px solid var(--border-card);
+  background: var(--bg-input);
+  color: var(--text-primary);
+  transition: border-color 120ms ease, background-color 120ms ease;
+}
+input, select { flex: 1; min-width: 0; }
+input:focus-visible, button:focus-visible, select:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+button { cursor: pointer; font-weight: 600; }
+button:hover:not(:disabled) { border-color: var(--accent); background: var(--bg-hover); }
+button:disabled { opacity: 0.45; cursor: not-allowed; }
+button.ghost { background: transparent; font-weight: 500; }
+button[type="submit"] {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+button[type="submit"]:hover:not(:disabled) { background: var(--accent-hover); border-color: var(--accent-hover); }
+
+/* ── Shell ────────────────────────────────────────────────────────────────── */
+.app { min-height: 100vh; }
 
 header {
   display: flex; justify-content: space-between; align-items: center;
-  padding: .8rem 1rem; border-bottom: 1px solid var(--line);
+  gap: 1rem;
+  padding: 0.85rem 1.25rem;
+  background: var(--bg-topbar);
+  backdrop-filter: blur(18px) saturate(140%);
+  -webkit-backdrop-filter: blur(18px) saturate(140%);
+  border-bottom: 1px solid var(--border-subtle);
+  position: sticky; top: 0; z-index: 10;
 }
-nav { display: flex; gap: .25rem; padding: .6rem 1rem; border-bottom: 1px solid var(--line); }
-.tab { background: transparent; border-color: transparent; text-transform: capitalize; }
-.tab.active { background: var(--panel); border-color: var(--line); color: var(--accent); }
-.badge {
-  margin-left: .4rem; padding: 0 .4rem; border-radius: 1rem;
-  background: var(--warn); color: #000; font-size: .75em; font-weight: 700;
-}
-main { padding: 1rem; }
-.panel { max-width: 72rem; }
+header strong { font-family: "Syne", sans-serif; font-weight: 700; font-size: 1.05rem; }
 
-.scanbar { display: flex; gap: .5rem; }
-.modes { display: flex; gap: .25rem; margin: .6rem 0; }
-.mode { text-transform: capitalize; background: transparent; }
-.mode.active { background: var(--accent); color: #08121f; border-color: var(--accent); }
-.armed { color: var(--ok); }
-.outcome { margin-top: 1rem; padding: .8rem; border: 1px solid var(--line); border-radius: .5rem; }
-.confirm { margin-top: .6rem; padding-top: .6rem; border-top: 1px dashed var(--line); }
-.confirm-actions { display: flex; gap: .4rem; flex-wrap: wrap; margin: .5rem 0; }
-.itemform { display: grid; grid-template-columns: repeat(auto-fit, minmax(11rem, 1fr)); gap: .5rem; }
+nav { display: flex; gap: 0.3rem; padding: 0.75rem 1.25rem 0; }
+.tab {
+  background: transparent; border-color: transparent;
+  text-transform: capitalize; color: var(--text-secondary);
+  font-weight: 500;
+}
+.tab.active {
+  background: var(--bg-card-solid);
+  border-color: var(--border-card);
+  border-bottom-color: transparent;
+  color: var(--accent);
+  font-weight: 600;
+  box-shadow: var(--shadow-card);
+}
+.badge {
+  margin-left: 0.4rem; padding: 0 0.45rem; border-radius: 1rem;
+  background: var(--accent-warning); color: #fff; font-size: 0.75em; font-weight: 700;
+}
+
+main { padding: 1.25rem; }
+
+/* Every panel is a frosted card, as the cloud app's content blocks are. */
+.panel {
+  max-width: 76rem;
+  padding: 1.25rem;
+  background: var(--bg-card);
+  backdrop-filter: blur(20px) saturate(140%);
+  -webkit-backdrop-filter: blur(20px) saturate(140%);
+  border: 1px solid var(--border-card);
+  border-top-color: var(--border-glass-top);
+  border-radius: var(--radius-card);
+  box-shadow: var(--shadow-card);
+}
+
+.scanbar { display: flex; gap: 0.5rem; }
+.scanbar input { font-family: "JetBrains Mono", ui-monospace, monospace; }
+.modes { display: flex; gap: 0.3rem; margin: 0.7rem 0; }
+.mode { text-transform: capitalize; background: transparent; font-weight: 500; }
+.mode.active { background: var(--accent); color: #fff; border-color: var(--accent); }
+.armed { color: var(--accent-success); font-weight: 600; }
+.outcome {
+  margin-top: 1rem; padding: 0.85rem 1rem;
+  background: var(--bg-card-solid);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-control);
+}
+.confirm { margin-top: 0.6rem; padding-top: 0.6rem; border-top: 1px dashed var(--border-card); }
+.confirm-actions { display: flex; gap: 0.4rem; flex-wrap: wrap; margin: 0.5rem 0; align-items: center; }
+.itemform { display: grid; grid-template-columns: repeat(auto-fit, minmax(11rem, 1fr)); gap: 0.5rem; }
 
 table { width: 100%; border-collapse: collapse; margin-top: 1rem; }
-th, td { text-align: left; padding: .45rem .6rem; border-bottom: 1px solid var(--line); }
-th { color: var(--muted); font-weight: 600; font-size: .85em; text-transform: uppercase; letter-spacing: .03em; }
-tr.row-conflict { background: rgba(248, 113, 113, .1); }
+th, td { text-align: left; padding: 0.5rem 0.65rem; border-bottom: 1px solid var(--border-subtle); }
+th {
+  color: var(--text-muted); font-weight: 600; font-size: 0.8em;
+  letter-spacing: 0.04em; text-transform: uppercase;
+}
+tbody tr:hover { background: var(--bg-hover); }
+tr.row-conflict { background: rgba(220, 38, 38, 0.10); }
 
-.chip { padding: .1rem .45rem; border-radius: 1rem; font-size: .8em; border: 1px solid var(--line); }
-.chip-confirmed { color: var(--ok); border-color: var(--ok); }
+.chip {
+  padding: 0.12rem 0.5rem; border-radius: 1rem; font-size: 0.78em;
+  border: 1px solid var(--border-card); font-weight: 600;
+}
+.chip-confirmed { color: var(--accent-success); border-color: var(--accent-success); }
 .chip-inferred { color: var(--accent); border-color: var(--accent); }
-.chip-unconfirmed { color: var(--muted); }
-.chip-disputed, .chip-conflict { color: var(--err); border-color: var(--err); }
+.chip-unconfirmed { color: var(--text-muted); }
+.chip-disputed, .chip-conflict { color: var(--accent-danger); border-color: var(--accent-danger); }
 
-.kv { display: grid; grid-template-columns: 12rem 1fr; gap: .3rem .8rem; margin: .5rem 0 1.2rem; }
-.kv dt { color: var(--muted); }
+.kv { display: grid; grid-template-columns: 12rem 1fr; gap: 0.35rem 0.9rem; margin: 0.5rem 0 1.2rem; }
+.kv dt { color: var(--text-muted); }
 .kv dd { margin: 0; }
-h3 { margin: 1.4rem 0 .4rem; font-size: 1rem; }
+h3 { margin: 1.5rem 0 0.5rem; font-size: 1.02rem; }
 
-/* Demo mode. Deliberately loud and undismissable: a demo that looks like the
-   real program is how fake numbers get believed (manual section 1). */
+.who { display: flex; align-items: center; gap: 0.6rem; color: var(--text-secondary); font-size: 0.92rem; }
+.theme-toggle { padding: 0.3rem 0.7rem; font-size: 0.85rem; }
+
+/* Demo mode. Loud and undismissable on purpose: a demo that looks like the
+   real program is how fake numbers get believed (manual §1). */
 .demo-banner {
   margin: 0;
-  padding: 0.6rem 1rem;
-  background: var(--warn, #b45309);
+  padding: 0.6rem 1.25rem;
+  background: var(--accent-warning);
   color: #fff;
   font-weight: 600;
   letter-spacing: 0.02em;
 }
-.demo-banner code { background: rgba(0, 0, 0, 0.18); padding: 0 0.25rem; border-radius: 3px; }
+.demo-banner code { background: rgba(0, 0, 0, 0.22); padding: 0 0.3rem; border-radius: 4px; }
 
 /* Catalog import */
-.import { display: grid; gap: 0.5rem; margin-bottom: 1rem; }
+.import { display: grid; gap: 0.5rem; margin-bottom: 1.25rem; justify-items: start; }
 .import .report { font-size: 0.9rem; }
-.import .report ul { margin: 0.25rem 0 0 1rem; }
+.import .report ul { margin: 0.25rem 0 0.6rem 1rem; }
+
+@media (max-width: 640px) {
+  header { flex-wrap: wrap; }
+  nav { overflow-x: auto; }
+  main { padding: 0.75rem; }
+  .panel { padding: 0.9rem; }
+  .kv { grid-template-columns: 1fr; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * { transition: none !important; animation: none !important; }
+}

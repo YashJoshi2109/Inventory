@@ -74,6 +74,12 @@ describe("UI layering", () => {
   });
 
   it("components import only React, the service surface, and netGuard diagnostics", () => {
+    /**
+     * `theme.ts` is presentation state that belongs to the UI and to nothing
+     * else: it sets an attribute on <html> and remembers a string. Allowing it
+     * by name keeps this rule about what it is for -- domain, persistence and
+     * CSV logic staying out of React -- rather than banning app-local files.
+     */
     const allowed = (spec: string) =>
       spec === "react" ||
       spec.startsWith("react/") ||
@@ -83,7 +89,8 @@ describe("UI layering", () => {
         spec.includes("bridge/netGuard") ||
         spec.endsWith(".tsx") ||
         spec.endsWith(".css") ||
-        spec.endsWith("boot.ts")
+        spec.endsWith("boot.ts") ||
+        spec.endsWith("theme.ts")
       );
     const offenders: string[] = [];
     for (const f of files) {

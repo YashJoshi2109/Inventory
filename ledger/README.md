@@ -100,6 +100,13 @@ scripts/    crossvalidate, package, verify-disk-roundtrip.
 The layering rule — React may not import `core`, the store, or the bridge — is enforced by
 `app/__tests__/layering.test.ts`, not by convention.
 
+## How it looks
+
+The same visual system as the lab's cloud app: the sapphire gradient mesh, frosted cards,
+Outfit and Syne, and a light/dark toggle. The fonts are vendored under `app/fonts/` rather
+than fetched, because the program must render with no network — a test fails the build if an
+absolute URL or an unexpected asset reaches the bundle.
+
 ## Scanning: places, shelves and commands
 
 The codes are printed on labels that are already on the shelves, and on the laminated
