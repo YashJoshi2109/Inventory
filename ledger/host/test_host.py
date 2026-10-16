@@ -142,7 +142,7 @@ class TestConfig(unittest.TestCase):
 
     def test_preserves_location_code_casing(self):
         cfg = H.load_config(self.root / "config.ini")
-        self.assertIn("LOC-SHELF-A", dict(cfg.items("locations")))
+        self.assertIn("LOC-BACK-A1", dict(cfg.items("locations")))
 
 
 class TestPortSelection(unittest.TestCase):
@@ -268,7 +268,7 @@ class TestHttpApi(unittest.TestCase):
         self.assertTrue(meta["deviceId"].startswith("INV"))
         self.assertEqual(meta["schemaVersion"], 1)
         self.assertEqual(meta["programVersion"], H.PROGRAM_VERSION)
-        self.assertIn("LOC-SHELF-A", meta["locations"])
+        self.assertIn("LOC-BACK-A1", meta["locations"])
 
     def test_ledgers_start_as_headers_only(self):
         led = self.get("/api/ledgers")

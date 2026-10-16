@@ -39,7 +39,7 @@ describe("DexieLedgerStore durability", () => {
     await first.appendItem({ item_id: "ITM-0001", action: "add", description: "Cell", user: "yash" });
     await first.appendEvent({
       event_type: "gtin", value: "00614141123452", user: "yash",
-      location_context: "LOC-SHELF-A", command_context: "place",
+      location_context: "LOC-BACK-A1", command_context: "place",
     });
     await first.close();
 
@@ -48,7 +48,7 @@ describe("DexieLedgerStore durability", () => {
     expect(await second.getItems()).toHaveLength(1);
     const events = await second.getEvents();
     expect(events).toHaveLength(1);
-    expect(events[0].location_context).toBe("LOC-SHELF-A");
+    expect(events[0].location_context).toBe("LOC-BACK-A1");
     await second.close();
   });
 

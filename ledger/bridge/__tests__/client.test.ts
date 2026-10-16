@@ -10,7 +10,7 @@ const META: HostMeta = {
   programVersion: "inventory-ledger/1.0.0+schema.1+status.1",
   schemaVersion: 1,
   statusAlgorithmVersion: 1,
-  locations: { "LOC-SHELF-A": "Shelf A (Battery Storage)" },
+  locations: { "LOC-BACK-A1": "Back shelves A-1" },
   dataDir: "/tmp/data",
   itemsFile: "items_INVA1B2C3D4E5.csv",
   eventsFile: "log_INVA1B2C3D4E5.csv",
@@ -108,12 +108,12 @@ describe("HostMirror", () => {
 
   it("parses ledgers read back from disk", async () => {
     const events = [EVENT_COLUMNS.join(","),
-      "INV01-000001,INV01,1,yash,2026-07-05T14:00:00Z,gtin,00614141123452,LOC-SHELF-A,place,,,,,,,,"].join("\n") + "\n";
+      "INV01-000001,INV01,1,yash,2026-07-05T14:00:00Z,gtin,00614141123452,LOC-BACK-A1,place,,,,,,,,"].join("\n") + "\n";
     const { fetchImpl } = stubHost({ ledgers: { items: "", events } });
     const mirror = new HostMirror(META, { fetchImpl });
     const back = await mirror.readAll();
     expect(back.events).toHaveLength(1);
-    expect(back.events[0].location_context).toBe("LOC-SHELF-A");
+    expect(back.events[0].location_context).toBe("LOC-BACK-A1");
   });
 
   it("throws on a failed read so bootstrap can report it", async () => {

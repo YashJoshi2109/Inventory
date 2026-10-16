@@ -20,6 +20,9 @@ export function ScanPanel({
   const [last, setLast] = useState<ScanOutcome | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [armed, setArmed] = useState<{ label: string; msRemaining: number } | null>(null);
+  const [standing, setStanding] = useState<
+    { command: string; locationLabel: string; secondsRemaining: number | null } | null>(null);
+  const [confirmTo, setConfirmTo] = useState("");
   const inputRef = useRef<HTMLInputElement>(null);
 
   // Keep the wedge target focused. A scanner that types into nothing is a
@@ -35,6 +38,10 @@ export function ScanPanel({
     const t = setInterval(() => {
       const a = service.getArmed();
       setArmed(a ? { label: a.label, msRemaining: a.msRemaining } : null);
+      const m = service.getMode();
+      setStanding(m ? {
+        command: m.command, locationLabel: m.locationLabel, secondsRemaining: m.secondsRemaining,
+      } : null);
     }, 250);
     return () => clearInterval(t);
   }, [service]);
@@ -88,14 +95,22 @@ export function ScanPanel({
         ))}
       </div>
 
-      {armed ? (
+      {standing ? (
+        <p className="armed">
+          <strong>{standing.command}</strong>
+          {standing.locationLabel ? <> at <strong>{standing.locationLabel}</strong></> : null}
+          {" "}— every item you scan now, until you scan CMD-DONE
+          {standing.secondsRemaining !== null ? <> ({standing.secondsRemaining}s idle left)</> : null}
+        </p>
+      ) : armed ? (
         <p className="armed">
           Armed: <strong>{armed.label}</strong> — next item scan is placed here
           ({Math.ceil(armed.msRemaining / 1000)}s)
         </p>
       ) : (
         <p className="muted">
-          No shelf armed. Scan a shelf label first to place items.
+          Nothing armed. Scan a place or shelf label to put items there, or a
+          CMD- code from the station sheet.
         </p>
       )}
 
@@ -103,6 +118,18 @@ export function ScanPanel({
 
       {last?.result === "armed" && (
         <p className="ok">Armed {last.locationLabel}.</p>
+      )}
+
+      {last?.result === "mode" && (
+        <p className="ok">
+          {last.command === "done"
+            ? "Done. Nothing is armed."
+            : <>Now {last.command}{last.locationLabel ? ` at ${last.locationLabel}` : ""} — scan the items.</>}
+        </p>
+      )}
+
+      {last?.result === "needs-location" && (
+        <p className="warn" role="alert">{last.message}</p>
       )}
 
       {last?.result === "logged" && (
@@ -118,12 +145,19 @@ export function ScanPanel({
             <div className="confirm">
               <p>{last.confirmationPrompt}</p>
               <div className="confirm-actions">
-                {Object.entries(service.config.locations).map(([code, label]) => (
-                  <button key={code} type="button"
-                          onClick={() => confirmPlace(last.event.event_id, code)}>
-                    {label}
-                  </button>
-                ))}
+                <select aria-label="place it at"
+                        value={confirmTo}
+                        onChange={(e) => setConfirmTo(e.target.value)}>
+                  <option value="">pick a place…</option>
+                  {Object.entries(service.config.locations).map(([code, label]) => (
+                    <option key={code} value={code}>{label}</option>
+                  ))}
+                </select>
+                <button type="button"
+                        disabled={!confirmTo}
+                        onClick={() => { confirmPlace(last.event.event_id, confirmTo); setConfirmTo(""); }}>
+                  Confirm
+                </button>
                 <button type="button" className="ghost" onClick={() => setLast(null)}>
                   Ignore
                 </button>

@@ -5,7 +5,9 @@
  * ledger/core, Dexie, or the bridge client directly -- a test enforces that.
  */
 import type { EventRow, ItemRow } from "../core/schema.ts";
+import type { CommandVerb } from "../core/locations.ts";
 import type { Conflict, StatusRow } from "../core/status.ts";
+import { COMMAND_IDLE_SECONDS, LAB_LOCATIONS } from "../core/locations.ts";
 
 /**
  * Re-exported so the UI has exactly one import surface. A React component that
@@ -15,6 +17,7 @@ import type { Conflict, StatusRow } from "../core/status.ts";
 export type { EventRow, ItemRow } from "../core/schema.ts";
 export type { Conflict, StatusRow, StatusKind, Confidence } from "../core/status.ts";
 export type { StoreMeta } from "../store/types.ts";
+export type { CommandVerb } from "../core/locations.ts";
 
 export interface LedgerConfig {
   /** Location code -> human label. Printed as shelf barcode labels. */
@@ -23,23 +26,26 @@ export interface LedgerConfig {
   armSeconds: number;
   /** Opposing cross-device events inside this window become a conflict. */
   ambiguitySeconds: number;
+  /**
+   * Check-out and return end after this much idle time, per the station sheet.
+   * Optional so a config written before commands existed still loads.
+   */
+  commandIdleSeconds?: number;
 }
 
 export const DEFAULT_CONFIG: LedgerConfig = {
-  locations: {
-    "LOC-SHELF-A": "Shelf A (Battery Storage)",
-    "LOC-SHELF-B": "Shelf B (Workbench)",
-    "LOC-SHELF-C": "Shelf C (Storage East)",
-    "LOC-SHELF-D": "Shelf D (Entrance/Testing)",
-  },
+  locations: { ...LAB_LOCATIONS },
   armSeconds: 60,
   ambiguitySeconds: 10,
+  commandIdleSeconds: COMMAND_IDLE_SECONDS,
 };
 
-export type ScanKind = "location" | "gtin" | "epc" | "unrecognised";
+export type ScanKind = "location" | "command" | "gtin" | "epc" | "unrecognised";
 
 export interface Classification {
   kind: ScanKind;
+  /** Set when the scan was one of the station sheet's CMD- codes. */
+  command?: CommandVerb;
   /** Canonical form: GTIN-14, upper-case EPC, upper-case location code, or the raw value. */
   value: string;
   /** Set when the scan was a GS1 element string carrying more than a GTIN. */
@@ -49,6 +55,10 @@ export interface Classification {
 
 export type ScanOutcome =
   | { result: "armed"; location: string; locationLabel: string; expiresAtMs: number }
+  /** A CMD- code took effect: the next item scans carry this command. */
+  | { result: "mode"; command: CommandVerb; location: string; locationLabel: string; expiresAtMs: number | null }
+  /** CMD-CYCLE-COUNT without a place. The sheet says scan the place first. */
+  | { result: "needs-location"; command: CommandVerb; message: string }
   | {
       result: "logged";
       event: EventRow;

@@ -1,2 +1,2 @@
 event_id,device_id,seq,user,datetime_utc,event_type,value,location_context,command_context,reader_id,antenna_id,avg_rssi_dbm,read_count,window_start_utc,window_end_utc,confidence,notes
-RDR01-000001,RDR01,1,,2026-07-05T14:30:00Z,observation,3074257BF40C0E4000001A85,LOC-SHELF-A,,impinj-r700-lab01,3,-54.2,212,2026-07-05T14:29:57Z,2026-07-05T14:30:00Z,0.87,
+RDR01-000001,RDR01,1,,2026-07-05T14:30:00Z,observation,3074257BF40C0E4000001A85,LOC-BACK-A1,,impinj-r700-lab01,3,-54.2,212,2026-07-05T14:29:57Z,2026-07-05T14:30:00Z,0.87,

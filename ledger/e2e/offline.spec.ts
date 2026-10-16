@@ -68,13 +68,13 @@ test("the whole inventory workflow runs with every external request blocked", as
 
   // Arm a shelf, then scan the item into it.
   await tab(page, "scan");
-  await scan(page, "LOC-SHELF-A");
+  await scan(page, "LOC-BACK-A1");
   await expect(page.getByText(/Armed:/)).toBeVisible();
   await scan(page, "00614141123452");
 
   // Derived status reflects it.
   await tab(page, "status");
-  await expect(page.getByRole("cell", { name: "on Shelf A (Battery Storage)" })).toBeVisible();
+  await expect(page.getByRole("cell", { name: "on Back shelves A-1" })).toBeVisible();
   await expect(page.getByRole("cell", { name: "NMC 21700 Cell" })).toBeVisible();
 
   // Nothing left the machine.
@@ -125,7 +125,7 @@ test("closing and reopening the program keeps the data and does not duplicate it
   await login(page, "yash");
 
   await tab(page, "status");
-  await expect(page.getByRole("cell", { name: "on Shelf A (Battery Storage)" })).toBeVisible();
+  await expect(page.getByRole("cell", { name: "on Back shelves A-1" })).toBeVisible();
 
   // Relaunch must not re-append what is already there.
   const rowsAfter = dataFile().trim().split(/\r?\n/).length;
@@ -149,7 +149,7 @@ test("a second relaunch still adds nothing", async ({ page }) => {
   await page.goto(host.url);
   await login(page, "yash");
   await tab(page, "status");
-  await expect(page.getByRole("cell", { name: "on Shelf A (Battery Storage)" })).toBeVisible();
+  await expect(page.getByRole("cell", { name: "on Back shelves A-1" })).toBeVisible();
   expect(dataFile()).toBe(before);
   expect(external).toEqual([]);
 });

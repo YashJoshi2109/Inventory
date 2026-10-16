@@ -43,10 +43,10 @@ test("seeds a working ledger", async ({ page }) => {
   await expect(page.getByText("ITM-0001")).toBeVisible();
 
   await tab(page, "scan");
-  await scan(page, "LOC-SHELF-A");
+  await scan(page, "LOC-BACK-A1");
   await scan(page, "00614141123452");
   await tab(page, "status");
-  await expect(page.getByRole("cell", { name: "on Shelf A (Battery Storage)" })).toBeVisible();
+  await expect(page.getByRole("cell", { name: "on Back shelves A-1" })).toBeVisible();
 });
 
 test("survives a truncated final row, as an interrupted write would leave", async ({ page }) => {
@@ -59,7 +59,7 @@ test("survives a truncated final row, as an interrupted write would leave", asyn
   await login(page);
   await tab(page, "status");
   // The good data is still there. A partial row did not take the program down.
-  await expect(page.getByRole("cell", { name: "on Shelf A (Battery Storage)" })).toBeVisible();
+  await expect(page.getByRole("cell", { name: "on Back shelves A-1" })).toBeVisible();
 });
 
 test("survives a CSV whose rows have too few columns", async ({ page }) => {
@@ -71,7 +71,7 @@ test("survives a CSV whose rows have too few columns", async ({ page }) => {
   await page.goto(host.url);
   await login(page);
   await tab(page, "status");
-  await expect(page.getByRole("cell", { name: "on Shelf A (Battery Storage)" })).toBeVisible();
+  await expect(page.getByRole("cell", { name: "on Back shelves A-1" })).toBeVisible();
 });
 
 test("a duplicated import adds nothing", async ({ page }) => {
@@ -97,7 +97,7 @@ test("a duplicated import adds nothing", async ({ page }) => {
   await page.goto(host.url);
   await login(page);
   await tab(page, "status");
-  await expect(page.getByRole("cell", { name: "on Shelf A (Battery Storage)" })).toBeVisible();
+  await expect(page.getByRole("cell", { name: "on Back shelves A-1" })).toBeVisible();
 });
 
 test("an item scan still logs when the item master file is unreadable", async ({ page }) => {
@@ -124,7 +124,7 @@ test("no event is ever lost: every scan reaches the event log on disk", async ({
 
   await page.goto(host.url);
   await login(page);
-  const codes = ["LOC-SHELF-A", "00614141123452", "UNKNOWN-1", "UNKNOWN-2", "LOC-SHELF-B"];
+  const codes = ["LOC-BACK-A1", "00614141123452", "UNKNOWN-1", "UNKNOWN-2", "LOC-BACK-B2"];
   for (const c of codes) await scan(page, c);
   await expect(page.getByText(/Armed:/)).toBeVisible();
 

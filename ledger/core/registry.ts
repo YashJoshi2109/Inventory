@@ -3,12 +3,13 @@
  * that resolves any scanned value back to its item.
  *
  * The index is what makes the twin work: a barcode scan carrying a GTIN and an
- * RFID observation carrying an SGTIN-96 EPC both land on the same item_id.
+ * RFID observation carrying an SGTIN-96 or GIAI-96 EPC all land on the same
+ * item_id.
  */
 import type { ItemRow } from "./schema.ts";
 import { normalizeItemRow, parseEventId } from "./normalize.ts";
 import { normalizeGtin } from "./gs1.ts";
-import { decodeSgtin96, looksLikeEpc } from "./epc.ts";
+import { decodeEpc, decodeSgtin96, looksLikeEpc } from "./epc.ts";
 
 /** One item_id minted independently on more than one device. */
 export interface ItemIdCollision {
@@ -124,6 +125,13 @@ export function buildRegistry(items: readonly ItemRow[]): Registry {
     // first; several items sharing a GTIN are never collapsed onto whichever
     // claimed it first.
     if (looksLikeEpc(v)) {
+      // GIAI-96: the asset itself. The GIAI is one value, so either the item
+      // master records it -- as the EPC, the serial or the item id -- or we do
+      // not know this asset. Falling back to the company prefix would attach a
+      // reader's history to whatever else the lab bought on that prefix.
+      const epc = decodeEpc(v);
+      if (epc?.scheme === "giai96") return index.get(epc.giai) ?? null;
+
       const decoded = decodeSgtin96(v);
       if (decoded) {
         const exact = bySerial.get(`${decoded.gtin}|${serialDigits(decoded.serial)}`);

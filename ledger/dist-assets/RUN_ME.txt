@@ -28,7 +28,8 @@ USING IT
 Scan tab    A USB barcode scanner just types into the box, so leave the box
             focused and scan. It works the same if you type by hand.
 
-            Scan a shelf label (LOC-SHELF-A) to arm that shelf, then scan an
+            Scan a place or shelf label (LOC-RFID-DESK, LOC-BACK-A1) to arm it,
+            then scan an
             item within 60 seconds to place it there. Or pick checkout/return
             and scan an item.
 

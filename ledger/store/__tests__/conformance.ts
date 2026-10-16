@@ -69,11 +69,11 @@ export function runLedgerStoreConformance(name: string, ctx: ConformanceContext)
     it("normalizes on write: identifiers upper-cased, vocabularies lower-cased", async () => {
       const e = await store.appendEvent({
         event_type: "GTIN", value: " 3074257bf40c0e4000001a85 ",
-        location_context: "loc-shelf-a", command_context: "Place", user: "Yash Joshi",
+        location_context: "loc-back-a1", command_context: "Place", user: "Yash Joshi",
       });
       expect(e.event_type).toBe("gtin");
       expect(e.value).toBe("3074257BF40C0E4000001A85");
-      expect(e.location_context).toBe("LOC-SHELF-A");
+      expect(e.location_context).toBe("LOC-BACK-A1");
       expect(e.command_context).toBe("place");
       expect(e.user).toBe("Yash Joshi");
     });
@@ -136,12 +136,12 @@ export function runLedgerStoreConformance(name: string, ctx: ConformanceContext)
         event_id: "INV02-000001", device_id: "INV02", seq: "1", user: "maria",
         datetime_utc: "2026-07-05T13:00:01Z", event_type: "gtin", value: "00614141123452",
       };
-      await store.importRows({ events: [blankEventRow({ ...base, location_context: "LOC-SHELF-A" })] });
-      const out = await store.importRows({ events: [blankEventRow({ ...base, location_context: "LOC-SHELF-D" })] });
+      await store.importRows({ events: [blankEventRow({ ...base, location_context: "LOC-BACK-A1" })] });
+      const out = await store.importRows({ events: [blankEventRow({ ...base, location_context: "LOC-BACK-D4" })] });
       expect(out.collisions).toEqual(["INV02-000001"]);
       expect(out.eventsAdded).toBe(0);
       const kept = (await store.getEvents())[0];
-      expect(kept.location_context).toBe("LOC-SHELF-A");
+      expect(kept.location_context).toBe("LOC-BACK-A1");
     });
 
     it("ignores rows with a blank event_id rather than storing them", async () => {

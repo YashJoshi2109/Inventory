@@ -1,5 +1,6 @@
 /**
- * SGTIN-96 decoding (Companion Book section 3.3.1).
+ * EPC decoding: SGTIN-96 (Companion Book section 3.3.1) and GIAI-96
+ * (Chapter 3 Addendum, 2026-09-15).
  *
  * An RFID tag carries an EPC; a barcode carries a GTIN. Decoding SGTIN-96 into
  * GTIN + serial is what lets an observation row and a gtin row resolve to the
@@ -18,8 +19,9 @@ export interface Sgtin96 {
   partition: number;
 }
 
-/** SGTIN-96 header byte. */
+/** Header bytes. Same 24-hex width, so only the header tells the schemes apart. */
 const SGTIN96_HEADER = 0x30;
+const GIAI96_HEADER = 0x34;
 
 /**
  * Partition table: index is the partition value, giving the bit and digit
@@ -91,4 +93,96 @@ export function decodeSgtin96(hex: string): Sgtin96 | null {
     filter,
     partition,
   };
+}
+
+
+/**
+ * GIAI-96: one specific physical asset, permanently (AI 8004).
+ *
+ * The lab's default tag encoding. A GTIN says what kind of thing something is;
+ * a GIAI says which individual one it is, and a reader cannot tell you which
+ * scheme it read unless the header says so.
+ */
+export interface Giai96 {
+  /** Company prefix followed by the asset reference: the GIAI itself. */
+  giai: string;
+  companyPrefix: string;
+  assetReference: string;
+  filter: number;
+  partition: number;
+}
+
+/**
+ * GIAI-96 partition table: company prefix bits and digits, and the bits left
+ * for the asset reference. 8 + 3 + 3 + cpBits + arBits is always 96.
+ */
+const GIAI_PARTITIONS: ReadonlyArray<{ cpBits: number; cpDigits: number; arBits: number }> = [
+  { cpBits: 40, cpDigits: 12, arBits: 42 },
+  { cpBits: 37, cpDigits: 11, arBits: 45 },
+  { cpBits: 34, cpDigits: 10, arBits: 48 },
+  { cpBits: 30, cpDigits: 9,  arBits: 52 },
+  { cpBits: 27, cpDigits: 8,  arBits: 55 },
+  { cpBits: 24, cpDigits: 7,  arBits: 58 },
+  { cpBits: 20, cpDigits: 6,  arBits: 62 },
+];
+
+/** Decode a 96-bit GIAI EPC. Returns null when the EPC is not a GIAI-96. */
+export function decodeGiai96(hex: string): Giai96 | null {
+  const h = (hex ?? "").trim().toUpperCase();
+  if (!looksLikeEpc(h)) return null;
+
+  const bits = hexToBits(h);
+  if (Number(bitsToNumber(bits.slice(0, 8))) !== GIAI96_HEADER) return null;
+
+  const filter = Number(bitsToNumber(bits.slice(8, 11)));
+  const partition = Number(bitsToNumber(bits.slice(11, 14)));
+  const p = GIAI_PARTITIONS[partition];
+  if (!p) return null;
+
+  const arStart = 14 + p.cpBits;
+  if (arStart + p.arBits !== 96) return null;
+
+  const cp = bitsToNumber(bits.slice(14, arStart));
+  const ar = bitsToNumber(bits.slice(arStart, 96));
+
+  const companyPrefix = cp.toString().padStart(p.cpDigits, "0");
+  if (companyPrefix.length !== p.cpDigits) return null;
+
+  // GIAI-96 carries a numeric asset reference, so a leading zero cannot be
+  // represented and is not invented here.
+  const assetReference = ar.toString();
+
+  return { giai: companyPrefix + assetReference, companyPrefix, assetReference, filter, partition };
+}
+
+/** Either scheme, naming which one was found. */
+export type DecodedEpc =
+  | ({ scheme: "sgtin96" } & Sgtin96)
+  | ({ scheme: "giai96" } & Giai96);
+
+/**
+ * Decode an EPC of either scheme the lab uses. Null for anything else --
+ * including a bare internal serial sitting in the EPC bank, which is a number
+ * in that bank and not an EPC at all.
+ */
+export function decodeEpc(hex: string): DecodedEpc | null {
+  const sgtin = decodeSgtin96(hex);
+  if (sgtin) return { scheme: "sgtin96", ...sgtin };
+  const giai = decodeGiai96(hex);
+  if (giai) return { scheme: "giai96", ...giai };
+  return null;
+}
+
+/**
+ * Identifiers reserved for demonstration and diagnostics: they sort to the top
+ * or bottom of a reader dump and are visually obvious among hundreds of reads.
+ *
+ * The addendum's rule is two-directional -- a real asset is never issued one,
+ * and any that reaches the item master is recorded `category = demo` and left
+ * out of inventory counts. An unlabelled one inside a count is undisclosed
+ * demo data, which manual section 1 prohibits.
+ */
+export function isReservedDemoIdentifier(value: string): boolean {
+  const v = (value ?? "").trim().toUpperCase();
+  return v.startsWith("AAA") || v.startsWith("ZZZ");
 }

@@ -26,6 +26,7 @@ import {
 import { basename, dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { ITEM_COLUMNS, EVENT_COLUMNS } from "../core/schema.ts";
+import { LAB_LOCATIONS } from "../core/locations.ts";
 import { toCsv } from "../core/csv.ts";
 
 const LEDGER = resolve(dirname(fileURLToPath(import.meta.url)), "..");
@@ -80,11 +81,10 @@ port = 5001
 bind = 127.0.0.1
 
 [locations]
-; Print these as barcode labels and stick them on the shelves.
-LOC-SHELF-A = Shelf A (Battery Storage)
-LOC-SHELF-B = Shelf B (Workbench)
-LOC-SHELF-C = Shelf C (Storage East)
-LOC-SHELF-D = Shelf D (Entrance/Testing)
+; The places and shelves that have barcodes on them in Woolf Hall 411. Printed
+; from 5S Lab Inventory/Place labels and Back shelf labels; core/locations.ts is
+; where this list lives, so the exe and these labels cannot drift apart.
+${Object.entries(LAB_LOCATIONS).map(([code, label]) => `${code} = ${label}`).join("\n")}
 `, "utf8");
 
 // -- embedded-runtime fallback ----------------------------------------------

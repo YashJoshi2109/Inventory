@@ -60,10 +60,10 @@ const status = computeStatus({
   config: {
     ambiguitySeconds: 10,
     locations: {
-      "LOC-SHELF-A": "Shelf A (Battery Storage)",
-      "LOC-SHELF-B": "Shelf B (Workbench)",
-      "LOC-SHELF-C": "Shelf C (Storage East)",
-      "LOC-SHELF-D": "Shelf D (Entrance/Testing)",
+      "LOC-BACK-A1": "Back shelves A-1",
+      "LOC-BACK-B2": "Back shelves B-2",
+      "LOC-BACK-C3": "Back shelves C-3",
+      "LOC-BACK-D4": "Back shelves D-4",
     },
   },
 });

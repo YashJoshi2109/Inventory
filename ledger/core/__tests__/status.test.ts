@@ -8,8 +8,8 @@ const item = (p: Record<string, string>) => normalizeItemRow(p);
 const CONFIG: StatusConfig = {
   ambiguitySeconds: 10,
   locations: {
-    "LOC-SHELF-A": "Shelf A (Battery Storage)",
-    "LOC-SHELF-D": "Shelf D (Entrance/Testing)",
+    "LOC-BACK-A1": "Back shelves A-1",
+    "LOC-BACK-D4": "Back shelves D-4",
   },
 };
 
@@ -27,18 +27,18 @@ describe("computeStatus", () => {
       events: [
         ev({ event_id: "INV01-000001", device_id: "INV01", seq: "1", user: "yash",
              datetime_utc: "2026-07-05T14:00:00Z", event_type: "location",
-             value: "LOC-SHELF-A" }),
+             value: "LOC-BACK-A1" }),
         ev({ event_id: "INV01-000002", device_id: "INV01", seq: "2", user: "yash",
              datetime_utc: "2026-07-05T14:00:05Z", event_type: "gtin",
-             value: "00614141123452", location_context: "LOC-SHELF-A",
+             value: "00614141123452", location_context: "LOC-BACK-A1",
              command_context: "place" }),
       ],
       config: CONFIG,
     });
     const row = r.rows.find((x) => x.item_id === "ITM-0001")!;
     expect(row.status).toBe("on-shelf");
-    expect(row.status_label).toBe("on Shelf A (Battery Storage)");
-    expect(row.location).toBe("LOC-SHELF-A");
+    expect(row.status_label).toBe("on Back shelves A-1");
+    expect(row.location).toBe("LOC-BACK-A1");
     expect(row.last_user).toBe("yash");
     expect(row.confidence).toBe("confirmed");
     expect(row.source).toBe("barcode");
@@ -97,7 +97,7 @@ describe("computeStatus", () => {
       events: [
         ev({ event_id: "INV01-000002", device_id: "INV01", seq: "2", user: "yash",
              datetime_utc: "2026-07-05T14:00:05Z", event_type: "gtin",
-             value: "00614141123452", location_context: "LOC-SHELF-A",
+             value: "00614141123452", location_context: "LOC-BACK-A1",
              command_context: "place" }),
         ev({ event_id: "INV01-000003", device_id: "INV01", seq: "3", user: "admin",
              datetime_utc: "2026-07-06T09:00:00Z", event_type: "correction",
@@ -115,16 +115,16 @@ describe("computeStatus", () => {
       events: [
         ev({ event_id: "INV01-000002", device_id: "INV01", seq: "2", user: "yash",
              datetime_utc: "2026-07-05T14:00:05Z", event_type: "gtin",
-             value: "00614141123452", location_context: "LOC-SHELF-D",
+             value: "00614141123452", location_context: "LOC-BACK-D4",
              command_context: "place" }),
         ev({ event_id: "INV01-000003", device_id: "INV01", seq: "3", user: "admin",
              datetime_utc: "2026-07-06T09:00:00Z", event_type: "correction",
              value: "INV01-000002", command_context: "amend",
-             location_context: "LOC-SHELF-A", notes: "wrong shelf scanned" }),
+             location_context: "LOC-BACK-A1", notes: "wrong shelf scanned" }),
       ],
       config: CONFIG,
     });
-    expect(r.rows[0].location).toBe("LOC-SHELF-A");
+    expect(r.rows[0].location).toBe("LOC-BACK-A1");
     expect(r.stats.amended).toBe(1);
   });
 
@@ -149,7 +149,7 @@ describe("computeStatus", () => {
       events: [
         ev({ event_id: "INV01-000001", device_id: "INV01", seq: "1", user: "yash",
              datetime_utc: "2026-07-05T14:00:00Z", event_type: "gtin",
-             value: "00614141123452", location_context: "LOC-SHELF-A",
+             value: "00614141123452", location_context: "LOC-BACK-A1",
              command_context: "place" }),
         ev({ event_id: "INV02-000001", device_id: "INV02", seq: "1", user: "maria",
              datetime_utc: "2026-07-05T14:00:03Z", event_type: "gtin",
@@ -168,7 +168,7 @@ describe("computeStatus", () => {
       events: [
         ev({ event_id: "INV01-000001", device_id: "INV01", seq: "1", user: "yash",
              datetime_utc: "2026-07-05T14:00:00Z", event_type: "gtin",
-             value: "00614141123452", location_context: "LOC-SHELF-A",
+             value: "00614141123452", location_context: "LOC-BACK-A1",
              command_context: "place" }),
         ev({ event_id: "INV01-000002", device_id: "INV01", seq: "2", user: "yash",
              datetime_utc: "2026-07-05T14:00:03Z", event_type: "gtin",
@@ -186,7 +186,7 @@ describe("computeStatus", () => {
       events: [
         ev({ event_id: "INV01-000001", device_id: "INV01", seq: "1", user: "yash",
              datetime_utc: "2026-07-05T14:00:00Z", event_type: "gtin",
-             value: "00614141123452", location_context: "LOC-SHELF-A",
+             value: "00614141123452", location_context: "LOC-BACK-A1",
              command_context: "place" }),
         ev({ event_id: "INV02-000001", device_id: "INV02", seq: "1", user: "maria",
              datetime_utc: "2026-07-05T14:05:00Z", event_type: "gtin",
@@ -204,7 +204,7 @@ describe("computeStatus", () => {
       events: [
         ev({ event_id: "INV01-000001", device_id: "INV01", seq: "1", user: "yash",
              datetime_utc: "2026-07-05T14:00:00Z", event_type: "gtin",
-             value: "00614141123452", location_context: "LOC-SHELF-A",
+             value: "00614141123452", location_context: "LOC-BACK-A1",
              command_context: "place" }),
         ev({ event_id: "RDR01-000001", device_id: "RDR01", seq: "1",
              datetime_utc: "2026-07-05T14:30:00Z", event_type: "observation",
@@ -227,7 +227,7 @@ describe("computeStatus", () => {
              value: "00614141123452" }),
         ev({ event_id: "INV01-000002", device_id: "INV01", seq: "2", user: "yash",
              datetime_utc: "2026-07-05T14:00:04Z", event_type: "confirmation",
-             value: "INV01-000001", location_context: "LOC-SHELF-A",
+             value: "INV01-000001", location_context: "LOC-BACK-A1",
              command_context: "place" }),
       ],
       config: CONFIG,
@@ -256,7 +256,7 @@ describe("computeStatus", () => {
       items: [CELL],
       events: [ev({ event_id: "INV01-000001", device_id: "INV01", seq: "1", user: "yash",
                     datetime_utc: "2026-07-05T14:00:00Z", event_type: "serial",
-                    value: "SN-4415", location_context: "LOC-SHELF-A",
+                    value: "SN-4415", location_context: "LOC-BACK-A1",
                     command_context: "place" })],
       config: CONFIG,
     });
@@ -279,15 +279,15 @@ describe("computeStatus", () => {
     const events = [
       ev({ event_id: "INV01-000001", device_id: "INV01", seq: "1", user: "yash",
            datetime_utc: "2026-07-05T14:00:00Z", event_type: "location",
-           value: "LOC-SHELF-A" }),
+           value: "LOC-BACK-A1" }),
       ev({ event_id: "INV01-000002", device_id: "INV01", seq: "2", user: "yash",
            datetime_utc: "2026-07-05T14:00:05Z", event_type: "gtin",
-           value: "00614141123452", location_context: "LOC-SHELF-A",
+           value: "00614141123452", location_context: "LOC-BACK-A1",
            command_context: "place" }),
       ev({ event_id: "INV01-000003", device_id: "INV01", seq: "3", user: "admin",
            datetime_utc: "2026-07-06T09:00:00Z", event_type: "correction",
            value: "INV01-000002", command_context: "amend",
-           location_context: "LOC-SHELF-D" }),
+           location_context: "LOC-BACK-D4" }),
     ];
     const forward = computeStatus({ items: [CELL], events, config: CONFIG });
     const reversed = computeStatus({ items: [CELL], events: [...events].reverse(), config: CONFIG });
@@ -313,16 +313,16 @@ describe("quarantine and collisions", () => {
       events: [
         ev({ event_id: "INV01-000001", device_id: "INV01", seq: "1", user: "yash",
              datetime_utc: "2026-07-05T14:00:05Z", event_type: "gtin",
-             value: "00614141123452", location_context: "LOC-SHELF-A", command_context: "place" }),
+             value: "00614141123452", location_context: "LOC-BACK-A1", command_context: "place" }),
         // A hand-edited row: "zzz" sorts after every real timestamp.
         ev({ event_id: "INV01-000002", device_id: "INV01", seq: "2", user: "yash",
              datetime_utc: "zzz", event_type: "gtin",
-             value: "00614141123452", location_context: "LOC-SHELF-D", command_context: "place" }),
+             value: "00614141123452", location_context: "LOC-BACK-D4", command_context: "place" }),
       ],
       config: CONFIG,
     });
     const row = r.rows[0];
-    expect(row.location).toBe("LOC-SHELF-A");
+    expect(row.location).toBe("LOC-BACK-A1");
     expect(row.last_event_id).toBe("INV01-000001");
     expect(r.malformed.map((x) => x.event_id)).toEqual(["INV01-000002"]);
     expect(r.unknownScans).toEqual([]);

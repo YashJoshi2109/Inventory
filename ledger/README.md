@@ -100,6 +100,23 @@ scripts/    crossvalidate, package, verify-disk-roundtrip.
 The layering rule — React may not import `core`, the store, or the bridge — is enforced by
 `app/__tests__/layering.test.ts`, not by convention.
 
+## Scanning: places, shelves and commands
+
+The codes are printed on labels that are already on the shelves, and on the laminated
+station command sheet. `core/locations.ts` is where they live.
+
+| Scan | What happens |
+|---|---|
+| a place or shelf label (`LOC-RFID-DESK`, `LOC-BACK-C4`) | arms it; the next item scans are placed there |
+| `CMD-CHECKOUT` | every item scanned after it is checked out, until `CMD-DONE` or five idle minutes |
+| `CMD-RETURN` | the same, for returns |
+| `CMD-CYCLE-COUNT` | after a place scan, counts that place; refuses, loudly, without one |
+| `CMD-DONE` | ends whatever was armed |
+
+A count's rows are logged, but nothing is yet marked **missing** when it finishes: the status
+vocabulary in manual §2 has no such value, and inventing one would break the contract. See
+`CLAUDE.md`.
+
 ## The data
 
 Two files per device, written flat in `data/` next to the program. The `items/` and

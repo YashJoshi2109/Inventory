@@ -7,7 +7,7 @@ const ev = (p: Record<string, string>) => normalizeEventRow(p);
 const base = {
   event_id: "INV01-000001", device_id: "INV01", seq: "1", user: "yash",
   datetime_utc: "2026-07-05T14:00:00Z", event_type: "gtin",
-  value: "00614141123452", location_context: "LOC-SHELF-A", command_context: "place",
+  value: "00614141123452", location_context: "LOC-BACK-A1", command_context: "place",
 };
 
 describe("mergeEventRows", () => {
@@ -29,7 +29,7 @@ describe("mergeEventRows", () => {
   it("treats rows differing only in whitespace or case as identical", () => {
     const r = mergeEventRows([
       [ev(base)],
-      [ev({ ...base, value: " 00614141123452 ", location_context: "loc-shelf-a" })],
+      [ev({ ...base, value: " 00614141123452 ", location_context: "loc-back-a1" })],
     ]);
     expect(r.rows).toHaveLength(1);
     expect(r.duplicatesSkipped).toBe(1);
@@ -38,7 +38,7 @@ describe("mergeEventRows", () => {
   it("queues an id collision when the same event_id carries a different payload", () => {
     const r = mergeEventRows([
       [ev(base)],
-      [ev({ ...base, location_context: "LOC-SHELF-D" })],
+      [ev({ ...base, location_context: "LOC-BACK-D4" })],
     ]);
     expect(r.collisions).toHaveLength(1);
     expect(r.collisions[0].event_id).toBe("INV01-000001");

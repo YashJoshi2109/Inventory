@@ -48,6 +48,23 @@ folder, not to a local install. One device id per machine, minted on first run i
 implementation, kept so `npm run crossvalidate` runs on a fresh checkout. It is archived,
 not maintained: a bug there is recorded, not fixed.
 
+**The vocabulary is physical.** `core/locations.ts` holds the 15 place codes and the 42
+back-shelf codes that are printed on labels in Woolf Hall 411, and the four `CMD-` codes on
+the laminated station command sheet (5S Lab Inventory, 2026-10-13). `host.py` keeps a second
+copy because it cannot import TypeScript, and `core/__tests__/locations.test.ts` compares the
+two. A code that disagrees with a printed label is wrong, so change the file, never the
+label. `scripts/crossvalidate.mjs` deliberately keeps the older `LOC-SHELF-*` codes: it
+drives Jones's July baseline through its own config, and his vocabulary is the input to that
+comparison.
+
+**EPC decoding covers both lab schemes.** GIAI-96 (header `0x34`) is the lab's default tag
+encoding per the Chapter 3 Addendum of 2026-09-15; SGTIN-96 (`0x30`) stays for trade items.
+`decodeEpc` names the scheme it found and returns null for anything else — including the
+manual's own example tag `A02A061028A202123A020102`, whose header is `0xA0`, which is a
+number in the EPC bank rather than an EPC. A GIAI read resolves only to an item that records
+that GIAI; the company prefix alone is never enough, or one reader's history would attach to
+everything bought on the same prefix.
+
 **Known defects, as of 2026-10-16.** Stated here because the standard prefers a status that
 fails honestly over one that reads as finished:
 
@@ -64,6 +81,18 @@ fails honestly over one that reads as finished:
 - The RFID program writes zone names (`Zone A (Battery Storage)`); we expect `LOC-*` codes,
   and `core/normalize.ts` upper-cases them for display. The vocabulary is not yet agreed.
 - Acceptance test 8 has been satisfied by a probe-tested pattern scan, not by `gitleaks`.
+- **A cycle count does not yet mark anything missing.** The station sheet says "CMD-DONE
+  marks whatever wasn't found as missing", and the count session is logged correctly, but no
+  status is derived from it. The contract blocks the obvious implementation: the status
+  vocabulary in manual §2 is `on-shelf-X | checked-out-by-N | in-zone-Y | conflict |
+  unknown`, with no "missing", so inventing one would break the cross-team contract. Open
+  question for Jones.
+- **`category = demo` is not applied anywhere.** `isReservedDemoIdentifier` recognises the
+  reserved `AAA`/`ZZZ` identifiers, but the rule that such a tag is labelled demo and left
+  out of inventory counts belongs to the catalog importer, which lives in
+  `sear-labs/raid-ledger-baseline` and which this repo has no access to.
+- **No catalog import.** `SEAR Lab Item Catalog.xlsx` is the lab's data-entry front door and
+  `import_catalog.py` in the baseline repo turns its rows into items. Nothing here reads it.
 
 **Verification.** `npm test`, `npm run typecheck`, `python3 -m unittest discover -s host`,
 `npm run crossvalidate`, `npm run build`, `npm test -- bundle`, `npm run test:e2e`. CI runs

@@ -20,6 +20,7 @@ import {
   DEFAULT_CONFIG, type BootstrapReport, type Classification, type LedgerConfig,
   type LedgerMirror, type ScanOutcome, type StatusView,
 } from "./types.ts";
+import { COMMAND_IDLE_SECONDS, commandFor, type CommandVerb } from "../core/locations.ts";
 
 /**
  * Marker written into `notes` when a scanned code matches no known identifier
@@ -44,10 +45,21 @@ export interface LedgerServiceOptions {
 }
 
 interface Armed {
-  kind: "location" | "command";
-  /** Location code, or the command verb. */
+  kind: "location";
   value: string;
   expiresAtMs: number;
+}
+
+/**
+ * A station command in force. `location` is set only for a count, which the
+ * sheet requires to start from a place. `expiresAtMs` is null for a count:
+ * only check-out and return time out, and a half-counted shelf must not
+ * silently stop counting.
+ */
+interface Mode {
+  command: CommandVerb;
+  location: string;
+  expiresAtMs: number | null;
 }
 
 export class LedgerService {
@@ -59,6 +71,7 @@ export class LedgerService {
   /** Ephemeral session state. Deliberately not persisted. */
   private user = "";
   private armed: Armed | null = null;
+  private mode: Mode | null = null;
   /** addItem calls queue behind this so two never read the same max id. */
   private itemAllocation: Promise<void> = Promise.resolve();
 
@@ -74,6 +87,32 @@ export class LedgerService {
   /** Name login, no password (manual section 4). Accountability, not security. */
   setUser(name: string): void { this.user = name.trim(); }
   getUser(): string { return this.user; }
+
+  /**
+   * The command in force, or null. Reading it is what expires it, exactly as
+   * getArmed() does: there is no timer, so nothing fires while the lab's
+   * laptop is asleep.
+   */
+  getMode(): { command: CommandVerb; location: string; locationLabel: string; secondsRemaining: number | null } | null {
+    if (!this.mode) return null;
+    if (this.mode.expiresAtMs !== null && this.mode.expiresAtMs <= this.nowMs()) {
+      this.mode = null;
+      return null;
+    }
+    return {
+      command: this.mode.command,
+      location: this.mode.location,
+      locationLabel: this.mode.location ? this.labelFor(this.mode.location) : "",
+      secondsRemaining: this.mode.expiresAtMs === null
+        ? null
+        : Math.round((this.mode.expiresAtMs - this.nowMs()) / 1000),
+    };
+  }
+
+  /** Check-out and return end after this much idle time (station sheet). */
+  private idleMs(): number {
+    return (this.config.commandIdleSeconds ?? COMMAND_IDLE_SECONDS) * 1000;
+  }
 
   getArmed(): { location: string; label: string; msRemaining: number } | null {
     if (!this.armed || this.armed.kind !== "location") return null;
@@ -101,6 +140,9 @@ export class LedgerService {
   classify(raw: string): Classification {
     const code = (raw ?? "").trim();
     const upper = code.toUpperCase();
+
+    const command = commandFor(upper);
+    if (command) return { kind: "command", value: upper, command };
 
     if (Object.prototype.hasOwnProperty.call(this.config.locations, upper)) {
       return { kind: "location", value: upper };
@@ -141,7 +183,15 @@ export class LedgerService {
     const classification = this.classify(code);
     const mode = opts.mode ?? "auto";
 
+    if (classification.kind === "command" && classification.command) {
+      return this.runCommand(classification.command, classification.value);
+    }
+
     if (classification.kind === "location" && mode === "auto") {
+      // A place scan supersedes a standing command, the same way an explicit
+      // command supersedes arming: the last thing scanned is what the person
+      // in front of the scanner meant.
+      this.mode = null;
       const expiresAtMs = this.nowMs() + this.config.armSeconds * 1000;
       this.armed = { kind: "location", value: classification.value, expiresAtMs };
       const event = await this.appendAndMirror({
@@ -164,8 +214,19 @@ export class LedgerService {
       command = mode;
       this.armed = null;                 // an explicit command supersedes arming
     } else {
-      const armed = this.getArmed();
-      if (armed) { location = armed.location; command = "place"; }
+      const standing = this.getMode();
+      if (standing) {
+        // A scanned CMD- code governs until CMD-DONE. A count carries the place
+        // it started from; check-out and return carry none.
+        command = standing.command === "cycle-count" ? "count" : standing.command;
+        location = standing.location;
+        if (this.mode && this.mode.expiresAtMs !== null) {
+          this.mode.expiresAtMs = this.nowMs() + this.idleMs();   // idle, not elapsed
+        }
+      } else {
+        const armed = this.getArmed();
+        if (armed) { location = armed.location; command = "place"; }
+      }
     }
 
     const notes = classification.kind === "unrecognised" ? UNRECOGNISED_MARKER : "";
@@ -191,6 +252,74 @@ export class LedgerService {
       needsConfirmation,
       confirmationPrompt: needsConfirmation ? this.promptFor(classification, item, command) : null,
     };
+  }
+
+  /**
+   * A CMD- code from the station sheet. The row is appended whatever happens,
+   * because a swallowed scan is a scan the person believes was recorded.
+   */
+  private async runCommand(command: CommandVerb, code: string): Promise<ScanOutcome> {
+    if (command === "done") {
+      const ending = this.mode;
+      this.mode = null;
+      this.armed = null;
+      await this.appendAndMirror({
+        event_type: "command",
+        value: code,
+        user: this.user,
+        location_context: ending?.location ?? "",
+        command_context: "done",
+      });
+      return {
+        result: "mode",
+        command,
+        location: ending?.location ?? "",
+        locationLabel: ending?.location ? this.labelFor(ending.location) : "",
+        expiresAtMs: null,
+      };
+    }
+
+    if (command === "cycle-count") {
+      // "To count a place: scan its location label, then this." Without a place
+      // there is nothing to count against, and guessing one would invent a
+      // shelf's contents.
+      const armed = this.getArmed();
+      await this.appendAndMirror({
+        event_type: "command",
+        value: code,
+        user: this.user,
+        location_context: armed?.location ?? "",
+        command_context: "cycle-count",
+      });
+      if (!armed) {
+        return {
+          result: "needs-location",
+          command,
+          message: "Scan the place you are counting first, then CMD-CYCLE-COUNT.",
+        };
+      }
+      this.mode = { command, location: armed.location, expiresAtMs: null };
+      this.armed = null;
+      return {
+        result: "mode",
+        command,
+        location: armed.location,
+        locationLabel: this.labelFor(armed.location),
+        expiresAtMs: null,
+      };
+    }
+
+    // check-out and return
+    const expiresAtMs = this.nowMs() + this.idleMs();
+    this.mode = { command, location: "", expiresAtMs };
+    this.armed = null;
+    await this.appendAndMirror({
+      event_type: "command",
+      value: code,
+      user: this.user,
+      command_context: command,
+    });
+    return { result: "mode", command, location: "", locationLabel: "", expiresAtMs };
   }
 
   private promptFor(c: Classification, item: ItemRow | null, command: string): string {

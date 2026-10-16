@@ -30,9 +30,9 @@ describe("event ids", () => {
 
 describe("normalization", () => {
   it("trims whitespace and uppercases identifier fields", () => {
-    const r = ev({ value: " 3074257bf40c0e4000001a85 ", location_context: " loc-shelf-a " });
+    const r = ev({ value: " 3074257bf40c0e4000001a85 ", location_context: " loc-back-a1 " });
     expect(r.value).toBe("3074257BF40C0E4000001A85");
-    expect(r.location_context).toBe("LOC-SHELF-A");
+    expect(r.location_context).toBe("LOC-BACK-A1");
   });
 
   it("lowercases the event_type and command_context vocabularies", () => {

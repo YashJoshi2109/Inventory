@@ -24,7 +24,7 @@ import { STATUS_ALGORITHM_VERSION } from "./versions.ts";
 export interface StatusConfig {
   /** Opposing cross-device events within this many seconds become a conflict. */
   ambiguitySeconds: number;
-  /** Location code to human label, e.g. LOC-SHELF-A -> "Shelf A (Battery Storage)". */
+  /** Location code to human label, e.g. LOC-BACK-A1 -> "Back shelves A-1". */
   locations: Record<string, string>;
 }
 

@@ -65,7 +65,7 @@ describe("GS1 Application Identifiers", () => {
 
   it("returns null for unstructured text, never a guess", () => {
     expect(parseGs1("Nissan Battery SN001")).toBeNull();
-    expect(parseGs1("LOC-SHELF-D")).toBeNull();
+    expect(parseGs1("LOC-BACK-D4")).toBeNull();
   });
 
   it("returns null when the embedded GTIN fails its check digit", () => {

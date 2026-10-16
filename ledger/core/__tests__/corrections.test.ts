@@ -7,7 +7,7 @@ const ev = (p: Record<string, string>) => normalizeEventRow(p);
 const target = ev({
   event_id: "ZBR01-004411", device_id: "ZBR01", seq: "4411", user: "maria",
   datetime_utc: "2026-07-05T14:25:11Z", event_type: "gtin",
-  value: "00614141123452", location_context: "LOC-SHELF-D", command_context: "place",
+  value: "00614141123452", location_context: "LOC-BACK-D4", command_context: "place",
 });
 
 describe("corrections", () => {
@@ -26,9 +26,9 @@ describe("corrections", () => {
       ev({ event_id: "ADMIN-000010", device_id: "INV01", seq: "10", user: "admin",
            datetime_utc: "2026-07-06T09:20:00Z", event_type: "correction",
            value: "ZBR01-004411", command_context: "amend",
-           location_context: "LOC-SHELF-A", notes: "was scanned at the wrong shelf" }),
+           location_context: "LOC-BACK-A1", notes: "was scanned at the wrong shelf" }),
     ]);
-    expect(c.apply(target).location_context).toBe("LOC-SHELF-A");
+    expect(c.apply(target).location_context).toBe("LOC-BACK-A1");
     expect(c.apply(target).command_context).toBe("place");
   });
 
@@ -64,13 +64,13 @@ describe("corrections", () => {
   it("applies the latest amendment when a row is amended twice", () => {
     const c = buildCorrections([
       ev({ event_id: "ADMIN-000014", event_type: "correction", value: "ZBR01-004411",
-           command_context: "amend", location_context: "LOC-SHELF-B",
+           command_context: "amend", location_context: "LOC-BACK-B2",
            datetime_utc: "2026-07-06T09:40:00Z" }),
       ev({ event_id: "ADMIN-000015", event_type: "correction", value: "ZBR01-004411",
-           command_context: "amend", location_context: "LOC-SHELF-C",
+           command_context: "amend", location_context: "LOC-BACK-C3",
            datetime_utc: "2026-07-06T09:45:00Z" }),
     ]);
-    expect(c.apply(target).location_context).toBe("LOC-SHELF-C");
+    expect(c.apply(target).location_context).toBe("LOC-BACK-C3");
   });
 
   it("warns on a correction with no target", () => {

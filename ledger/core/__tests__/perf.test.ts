@@ -6,7 +6,7 @@ import { gtinCheckDigit } from "../gs1.ts";
 
 const CONFIG: StatusConfig = {
   ambiguitySeconds: 10,
-  locations: { "LOC-SHELF-A": "Shelf A", "LOC-SHELF-B": "Shelf B" },
+  locations: { "LOC-BACK-A1": "Shelf A", "LOC-BACK-B2": "Shelf B" },
 };
 
 /** Build a valid GTIN-14 from a numeric seed so the registry actually resolves. */
@@ -43,7 +43,7 @@ function synth(itemCount: number, eventCount: number) {
       datetime_utc: t,
       event_type: "gtin",
       value: gtinFor(item + 1),
-      location_context: i % 2 === 0 ? "LOC-SHELF-A" : "LOC-SHELF-B",
+      location_context: i % 2 === 0 ? "LOC-BACK-A1" : "LOC-BACK-B2",
       command_context: "place",
     }));
   }

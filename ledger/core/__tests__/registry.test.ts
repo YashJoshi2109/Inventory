@@ -121,3 +121,50 @@ describe("item ids created independently on two devices", () => {
     expect(reg.collisions).toEqual([]);
   });
 });
+
+/**
+ * GIAI-96 is the lab's default tag encoding (Chapter 3 Addendum, 2026-09-15),
+ * and "every GIAI must resolve to a GTIN" — so a GIAI read has to land on the
+ * same item a barcode scan of its GTIN lands on.
+ *
+ * 34147A25480000000000002A is company prefix 2001234, asset reference 42.
+ */
+describe("GIAI-96 reads", () => {
+  const GIAI = "34147A25480000000000002A";
+
+  it("resolves a tag whose EPC is stored on the item", () => {
+    const reg = buildRegistry([
+      item({ item_id: "ITM-0007", action: "add", description: "Impinj R700 reader",
+             gtin: "00012345678905", epc: GIAI, datetime_utc: "2026-10-01T10:00:00Z" }),
+    ]);
+    expect(reg.resolve(GIAI)?.item_id).toBe("ITM-0007");
+    expect(reg.resolve(GIAI.toLowerCase())?.item_id).toBe("ITM-0007");
+  });
+
+  it("resolves by the GIAI when the item records it rather than the raw EPC", () => {
+    const reg = buildRegistry([
+      item({ item_id: "ITM-0008", action: "add", description: "Impinj R700 reader",
+             gtin: "00012345678905", serial_number: "200123442",
+             datetime_utc: "2026-10-01T10:00:00Z" }),
+    ]);
+    expect(reg.resolve(GIAI)?.item_id).toBe("ITM-0008");
+  });
+
+  it("does not guess between two assets of the same product", () => {
+    const reg = buildRegistry([
+      item({ item_id: "ITM-0009", action: "add", gtin: "00012345678905",
+             serial_number: "200123499", datetime_utc: "2026-10-01T10:00:00Z" }),
+      item({ item_id: "ITM-0010", action: "add", gtin: "00012345678905",
+             serial_number: "200123498", datetime_utc: "2026-10-01T10:00:00Z" }),
+    ]);
+    expect(reg.resolve(GIAI)).toBeNull();
+  });
+
+  it("keeps a GIAI read off an item that merely shares the company prefix", () => {
+    const reg = buildRegistry([
+      item({ item_id: "ITM-0011", action: "add", serial_number: "2001234",
+             datetime_utc: "2026-10-01T10:00:00Z" }),
+    ]);
+    expect(reg.resolve(GIAI)).toBeNull();
+  });
+});
