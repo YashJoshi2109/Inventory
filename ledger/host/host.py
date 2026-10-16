@@ -25,6 +25,7 @@ import io
 import json
 import mimetypes
 import os
+import shutil
 import socket
 import sys
 import threading
@@ -65,6 +66,10 @@ DEFAULT_LOCATIONS = {
 }
 
 _write_lock = threading.Lock()
+
+# Response bodies go out in pieces this size. 64 KB is the standard library's
+# own default in shutil.copyfileobj.
+SEND_CHUNK_BYTES = 64 * 1024
 
 
 # -- paths -------------------------------------------------------------------
@@ -286,15 +291,20 @@ def make_handler(host: Host):
             self.wfile.write(body)
 
         def _send_file(self, path: Path):
-            data = path.read_bytes()
             ctype, _ = mimetypes.guess_type(str(path))
             self.send_response(200)
             self.send_header("Content-Type", ctype or "application/octet-stream")
-            self.send_header("Content-Length", str(len(data)))
+            self.send_header("Content-Length", str(path.stat().st_size))
             # The whole point is offline operation: never let a stale cache win.
             self.send_header("Cache-Control", "no-cache")
             self.end_headers()
-            self.wfile.write(data)
+            # Stream in chunks, never one big write. Winsock fails a single
+            # large send() with WSAENOBUFS under load: the 278 KB bundle came
+            # back as ERR_NO_BUFFER_SPACE on Windows CI, the page loaded with
+            # no JavaScript, and three e2e tests failed downstream of it. This
+            # is what the standard library's own file handler does.
+            with open(path, "rb") as f:
+                shutil.copyfileobj(f, self.wfile, SEND_CHUNK_BYTES)
 
         def do_GET(self):
             path = urlparse(self.path).path

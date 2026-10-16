@@ -4,7 +4,9 @@ Host tests. Standard library unittest -- no pip, matching the deployment story.
 Run:  python3 -m unittest discover -s ledger/host -v
 """
 import csv
+import inspect
 import json
+import os
 import tempfile
 import threading
 import unittest
@@ -187,6 +189,51 @@ class TestBundledAssets(unittest.TestCase):
             here = Path(d) / "host"
             here.mkdir()
             self.assertEqual(H.bundled_dir(here), (Path(d) / "dist").resolve())
+
+
+class TestStaticFileStreaming(unittest.TestCase):
+    """
+    A response body goes out in chunks, never in one send().
+
+    Windows fails a single large send() with WSAENOBUFS under load. The 278 KB
+    bundle reached the browser as ERR_NO_BUFFER_SPACE on Windows CI, the page
+    rendered with no JavaScript, and three e2e tests failed downstream of that
+    one request. A POSIX machine tolerates the big write, so what is asserted
+    here is that a file larger than one chunk still arrives byte for byte.
+    """
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self.tmp.name)
+        static = self.root / "static"
+        static.mkdir()
+        # Several chunks, and deliberately not a multiple of the chunk size.
+        self.payload = os.urandom(H.SEND_CHUNK_BYTES * 4 + 517)
+        (static / "app.js").write_bytes(self.payload)
+        self.host = H.Host(self.root)
+        self.host.static_dir = static
+        self.server = ThreadingHTTPServer(("127.0.0.1", 0), H.make_handler(self.host))
+        self.port = self.server.server_address[1]
+        threading.Thread(target=self.server.serve_forever, daemon=True).start()
+
+    def tearDown(self):
+        self.server.shutdown()
+        self.server.server_close()
+        self.tmp.cleanup()
+
+    def test_a_file_larger_than_one_chunk_arrives_byte_for_byte(self):
+        with urllib.request.urlopen(f"http://127.0.0.1:{self.port}/app.js") as r:
+            body = r.read()
+            self.assertEqual(int(r.headers["Content-Length"]), len(self.payload))
+        self.assertEqual(body, self.payload)
+
+    def test_chunk_size_is_the_standard_library_default(self):
+        self.assertEqual(H.SEND_CHUNK_BYTES, 64 * 1024)
+
+    def test_the_body_is_not_written_in_a_single_call(self):
+        source = inspect.getsource(H.make_handler)
+        self.assertIn("copyfileobj", source)
+        self.assertNotIn("self.wfile.write(data)", source)
 
 
 class TestHttpApi(unittest.TestCase):
