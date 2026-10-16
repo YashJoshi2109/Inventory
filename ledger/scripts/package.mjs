@@ -159,5 +159,15 @@ if (stageOnly) {
 
 mkdirSync(dirname(resolve(outPath)), { recursive: true });
 rmSync(outPath, { force: true });
-execFileSync("zip", ["-r", "-q", resolve(outPath), "."], { cwd: stage });
+// `zip` does not exist on a Windows runner, and this zip is BUILT on Windows
+// because PyInstaller cannot cross-compile: spawnSync zip ENOENT failed the
+// job after the exe and the e2e suite had both passed. Use each platform's
+// own archiver. pwsh is PowerShell 7, whose Compress-Archive writes forward
+// slashes; Windows PowerShell 5.1 wrote backslash entry names.
+if (process.platform === "win32") {
+  execFileSync("pwsh", ["-NoProfile", "-Command",
+    `Compress-Archive -Path '${resolve(stage)}\\*' -DestinationPath '${resolve(outPath)}' -Force`]);
+} else {
+  execFileSync("zip", ["-r", "-q", resolve(outPath), "."], { cwd: stage });
+}
 console.log(`\nwrote ${outPath} (${statSync(outPath).size.toLocaleString()} bytes)`);
