@@ -69,3 +69,20 @@ tr.row-conflict { background: rgba(248, 113, 113, .1); }
 .kv dt { color: var(--muted); }
 .kv dd { margin: 0; }
 h3 { margin: 1.4rem 0 .4rem; font-size: 1rem; }
+
+/* Demo mode. Deliberately loud and undismissable: a demo that looks like the
+   real program is how fake numbers get believed (manual section 1). */
+.demo-banner {
+  margin: 0;
+  padding: 0.6rem 1rem;
+  background: var(--warn, #b45309);
+  color: #fff;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+.demo-banner code { background: rgba(0, 0, 0, 0.18); padding: 0 0.25rem; border-radius: 3px; }
+
+/* Catalog import */
+.import { display: grid; gap: 0.5rem; margin-bottom: 1rem; }
+.import .report { font-size: 0.9rem; }
+.import .report ul { margin: 0.25rem 0 0 1rem; }

@@ -48,6 +48,20 @@ folder, not to a local install. One device id per machine, minted on first run i
 implementation, kept so `npm run crossvalidate` runs on a fresh checkout. It is archived,
 not maintained: a bug there is recorded, not fixed.
 
+**The catalog sheet is the way items arrive.** `core/catalog.ts` reads the Catalog tab of
+`SEAR Lab Item Catalog.xlsx` exported as CSV: the printed `T-` label becomes the item's
+serial, `Location` maps to a printed place code, and `Back shelves` plus a `Details` shelf
+(`A-1`) becomes `LOC-BACK-A1`. It is idempotent by label, so the sheet is re-imported as it
+fills up. An unmappable location is reported rather than guessed, and the row is imported
+with no location so its status stays honestly unknown. See
+`docs/specs/2026-10-16-offline-first-run-design.md`.
+
+**Location codes are matched case-insensitively.** Python's `configparser` lowercases
+option keys unless told otherwise, so a `config.ini` rewritten by any ordinary script comes
+back as `loc-hvac-bench`. `host.py` preserves case itself, but the program must not depend
+on that: found by running it, when every place scan silently became an unrecognised
+identifier and items stopped being placed.
+
 **The vocabulary is physical.** `core/locations.ts` holds the 15 place codes and the 42
 back-shelf codes that are printed on labels in Woolf Hall 411, and the four `CMD-` codes on
 the laminated station command sheet (5S Lab Inventory, 2026-10-13). `host.py` keeps a second
@@ -89,10 +103,15 @@ fails honestly over one that reads as finished:
   question for Jones.
 - **`category = demo` is not applied anywhere.** `isReservedDemoIdentifier` recognises the
   reserved `AAA`/`ZZZ` identifiers, but the rule that such a tag is labelled demo and left
-  out of inventory counts belongs to the catalog importer, which lives in
-  `sear-labs/raid-ledger-baseline` and which this repo has no access to.
-- **No catalog import.** `SEAR Lab Item Catalog.xlsx` is the lab's data-entry front door and
-  `import_catalog.py` in the baseline repo turns its rows into items. Nothing here reads it.
+  out of inventory counts is not enforced on import yet.
+- **Demo mode isolates the files, not the browser.** `--demo` writes to `data-demo/`, which
+  is the promise Jones asked for and is covered by a host test. The browser's IndexedDB is
+  keyed by origin, so a demo run on the port a real run used shows that run's rows in the
+  UI. Observed on 2026-10-16. The fix is a separate database name in demo mode.
+- **An imported row reads as `confirmed`.** The status algorithm treats a paired
+  location-and-item event as confirmed, and that is what an import writes. The sheet is a
+  human assertion rather than a scan, and `notes = catalog-import` is what discloses it.
+  Whether that should instead be `inferred` is a question for Jones.
 
 **Verification.** `npm test`, `npm run typecheck`, `python3 -m unittest discover -s host`,
 `npm run crossvalidate`, `npm run build`, `npm test -- bundle`, `npm run test:e2e`. CI runs

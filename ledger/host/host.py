@@ -189,6 +189,10 @@ def load_config(path: Path) -> configparser.ConfigParser:
         if not cp.get("app", key, fallback="").strip():
             cp.set("app", key, value)
             changed = True
+    if not cp.has_option("app", "admin_pin_sha256"):
+        # Deliberately empty. A shipped default PIN is a PIN nobody changes.
+        cp.set("app", "admin_pin_sha256", "")
+        changed = True
     if not cp.has_section("locations"):
         cp.add_section("locations")
         for code, label in DEFAULT_LOCATIONS.items():
@@ -288,14 +292,19 @@ def append_rows(path: Path, columns, csv_text: str) -> dict:
 # -- HTTP --------------------------------------------------------------------
 
 class Host:
-    def __init__(self, root: Path):
+    def __init__(self, root: Path, demo: bool = False):
         self.root = root
+        self.demo = demo
         self.config_path = root / "config.ini"
         self.config = load_config(self.config_path)
         self.device_id = self.config.get("app", "device_id")
         self.port = self.config.getint("app", "port", fallback=5001)
         self.bind = self.config.get("app", "bind", fallback="127.0.0.1")
-        self.data_dir = root / "data"
+        # Demo mode is a different folder, not a flag every write path has to
+        # remember. Jones asked twice for a demo that cannot overwrite the real
+        # ledgers, and a separate directory is the only version of that promise
+        # which cannot be broken by a missed branch.
+        self.data_dir = root / ("data-demo" if demo else "data")
         self.items_path = self.data_dir / f"items_{self.device_id}.csv"
         self.events_path = self.data_dir / f"log_{self.device_id}.csv"
         ensure_ledger(self.items_path, ITEM_COLUMNS)
@@ -312,6 +321,11 @@ class Host:
             "statusAlgorithmVersion": STATUS_ALGORITHM_VERSION,
             "locations": locations,
             "dataDir": str(self.data_dir),
+            "demoMode": self.demo,
+            # Published so the browser can check an entered PIN locally. The
+            # manual is explicit that this guards against accidents, not against
+            # someone with file access -- they can read config.ini anyway.
+            "adminPinSha256": self.config.get("app", "admin_pin_sha256", fallback=""),
             "itemsFile": self.items_path.name,
             "eventsFile": self.events_path.name,
             "offline": True,
@@ -461,10 +475,16 @@ class LedgerHTTPServer(ThreadingHTTPServer):
     allow_reuse_address = not _WINDOWS_SOCKETS
 
 
+def wants_demo(argv) -> bool:
+    """`--demo` keeps everything in data-demo/ beside the program."""
+    return "--demo" in argv
+
+
 def main(argv=None):
     argv = list(sys.argv[1:] if argv is None else argv)
     root = base_dir()
-    host = Host(root)
+    demo = wants_demo(argv)
+    host = Host(root, demo=demo)
     port = find_free_port(host.port, host.bind)
     host.port = port
 
@@ -475,6 +495,8 @@ def main(argv=None):
     # terminal, so a user redirecting output to a file -- or a supervisor
     # killing the process -- would otherwise see nothing at all.
     print("RAID Lab Inventory Ledger", flush=True)
+    if demo:
+        print("  DEMO MODE : writing to data-demo/ -- the real ledgers are untouched", flush=True)
     print(f"  device id : {host.device_id}", flush=True)
     print(f"  data      : {host.data_dir}", flush=True)
     print(f"  open      : {url}", flush=True)

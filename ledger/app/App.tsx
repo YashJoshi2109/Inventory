@@ -55,6 +55,13 @@ export function App() {
 
   return (
     <div className="app">
+      {booted.hostMeta?.demoMode && (
+        <p className="demo-banner" role="status">
+          DEMO MODE — everything you do here is written to <code>data-demo/</code>.
+          The real ledgers are untouched. Close and reopen without{" "}
+          <code>--demo</code> for the real thing.
+        </p>
+      )}
       <header>
         <div>
           <strong>RAID Lab Inventory Ledger</strong>

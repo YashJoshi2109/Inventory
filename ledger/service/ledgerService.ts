@@ -21,6 +21,7 @@ import {
   type LedgerMirror, type ScanOutcome, type StatusView,
 } from "./types.ts";
 import { COMMAND_IDLE_SECONDS, commandFor, type CommandVerb } from "../core/locations.ts";
+import { parseCatalog } from "../core/catalog.ts";
 
 /**
  * Marker written into `notes` when a scanned code matches no known identifier
@@ -30,6 +31,35 @@ import { COMMAND_IDLE_SECONDS, commandFor, type CommandVerb } from "../core/loca
  * changing this constant and `eventTypeForScan` below, and nothing else.
  */
 export const UNRECOGNISED_MARKER = "unrecognised-identifier";
+
+/**
+ * Written into `notes` on every row the catalog import appends, so a reader can
+ * tell a scan that happened at the bench from a row that arrived from the
+ * sheet. The timestamp is the import's own: no past event is invented.
+ */
+export const CATALOG_IMPORT_MARKER = "catalog-import";
+
+/**
+ * SHA-256 as lower-case hex, matching what `hashlib.sha256(pin).hexdigest()`
+ * writes into config.ini. Web Crypto is available in the browser and in Node.
+ */
+async function sha256Hex(text: string): Promise<string> {
+  const bytes = new TextEncoder().encode(text);
+  const hash = await crypto.subtle.digest("SHA-256", bytes);
+  return [...new Uint8Array(hash)].map((b) => b.toString(16).padStart(2, "0")).join("");
+}
+
+/** What an import did, or would do when `dryRun` is set. */
+export interface CatalogImportReport {
+  newItems: number;
+  alreadyPresent: number;
+  /** Imported rows whose location the sheet did not give, or we could not map. */
+  withoutLocation: number;
+  unmappedLocations: string[];
+  skippedEmpty: number;
+  skippedExample: number;
+  dryRun: boolean;
+}
 
 function eventTypeForScan(kind: Classification["kind"]): string {
   if (kind === "epc") return "epc";
@@ -72,12 +102,23 @@ export class LedgerService {
   private user = "";
   private armed: Armed | null = null;
   private mode: Mode | null = null;
+  private adminUnlocked = false;
+  /**
+   * Upper-cased location code -> the key as config.ini spelled it. Python's
+   * configparser lowercases option keys unless told otherwise, so a config
+   * rewritten by any ordinary script arrives as `loc-hvac-bench` and a
+   * case-sensitive lookup would silently stop recognising every place label.
+   */
+  private readonly locationIndex: Map<string, string>;
   /** addItem calls queue behind this so two never read the same max id. */
   private itemAllocation: Promise<void> = Promise.resolve();
 
   constructor(opts: LedgerServiceOptions) {
     this.store = opts.store;
     this.config = opts.config ?? DEFAULT_CONFIG;
+    this.locationIndex = new Map(
+      Object.keys(this.config.locations).map((code) => [code.trim().toUpperCase(), code]),
+    );
     this.mirror = opts.mirror ?? null;
     this.nowMs = opts.now ?? (() => Date.now());
   }
@@ -125,8 +166,15 @@ export class LedgerService {
     };
   }
 
-  private labelFor(code: string): string {
-    return this.config.locations[code] ?? this.config.locations[code.toUpperCase()] ?? code;
+  /** The printed name for a location code, whatever case either is in. */
+  labelFor(code: string): string {
+    const key = this.locationIndex.get((code ?? "").trim().toUpperCase());
+    return (key !== undefined ? this.config.locations[key] : undefined) ?? code;
+  }
+
+  /** True when the scanned value is one of the configured places. */
+  private knownLocation(upper: string): boolean {
+    return this.locationIndex.has(upper);
   }
 
   meta(): Promise<StoreMeta> { return this.store.meta(); }
@@ -144,9 +192,7 @@ export class LedgerService {
     const command = commandFor(upper);
     if (command) return { kind: "command", value: upper, command };
 
-    if (Object.prototype.hasOwnProperty.call(this.config.locations, upper)) {
-      return { kind: "location", value: upper };
-    }
+    if (this.knownLocation(upper)) return { kind: "location", value: upper };
 
     const gs1 = parseGs1(code);
     if (gs1?.gtin) {
@@ -357,6 +403,10 @@ export class LedgerService {
   async addItem(input: {
     description: string; category?: string; gtin?: string;
     serial_number?: string; epc?: string;
+    /** Overrides the logged-in name. The catalog import passes the name the
+     *  student wrote in the sheet, so an imported row stays attributable to
+     *  whoever actually catalogued the thing. */
+    user?: string;
   }): Promise<ItemRow> {
     const run = this.itemAllocation.then(() => this.allocateItem(input));
     this.itemAllocation = run.then(() => undefined, () => undefined);
@@ -365,7 +415,7 @@ export class LedgerService {
 
   private async allocateItem(input: {
     description: string; category?: string; gtin?: string;
-    serial_number?: string; epc?: string;
+    serial_number?: string; epc?: string; user?: string;
   }): Promise<ItemRow> {
     if (!this.user) throw new Error("pick your name before adding an item");
     const description = input.description.trim();
@@ -394,14 +444,105 @@ export class LedgerService {
       gtin: normalizedGtin,
       serial_number: (input.serial_number ?? "").trim(),
       epc: (input.epc ?? "").trim().toUpperCase(),
-      user: this.user,
+      user: (input.user ?? "").trim() || this.user,
     });
     await this.mirrorRows({ items: [row] });
     return row;
   }
 
-  /** Admin-gated in the UI; the ledger records it as an append-only revision. */
+  // -- admin gate ----------------------------------------------------------
+
+  /**
+   * Manual §4: the PIN gates revise, retire, void and amend. The manual is
+   * equally clear about what it is worth -- "a PIN protects against accidents,
+   * not attackers with file access" -- which is why the hash sits in
+   * config.ini and is compared here rather than defended.
+   */
+  async unlockAdmin(pin: string): Promise<boolean> {
+    const expected = (this.config.adminPinSha256 ?? "").trim().toLowerCase();
+    if (!expected) {
+      throw new Error("no admin PIN is set in config.ini; corrections are blocked until one is");
+    }
+    this.adminUnlocked = (await sha256Hex(pin)) === expected;
+    return this.adminUnlocked;
+  }
+
+  lockAdmin(): void { this.adminUnlocked = false; }
+  isAdminUnlocked(): boolean { return this.adminUnlocked; }
+
+  private requireAdmin(): void {
+    if (!(this.config.adminPinSha256 ?? "").trim()) {
+      throw new Error("no admin PIN is set in config.ini; corrections are blocked until one is");
+    }
+    if (!this.adminUnlocked) throw new Error("admin PIN required");
+  }
+
+  // -- catalog import ------------------------------------------------------
+
+  /**
+   * Import the lab's catalog sheet: SEAR Lab Item Catalog.xlsx, Catalog tab,
+   * exported as CSV. See docs/specs/2026-10-16-offline-first-run-design.md.
+   *
+   * Idempotent by printed label, because the sheet is imported again every
+   * time it grows. Nothing is edited and nothing is deleted: a row whose label
+   * is already in the master is left exactly as it is, even if the sheet now
+   * says something different -- correcting an item is a revise, which is
+   * admin-gated, and not something a re-import may do silently.
+   */
+  async importCatalog(csv: string, opts: { dryRun?: boolean } = {}): Promise<CatalogImportReport> {
+    const parsed = parseCatalog(csv);
+
+    const existing = await this.store.getItems();
+    const seen = new Set<string>();
+    for (const row of existing) {
+      const serial = (row.serial_number ?? "").trim().toUpperCase();
+      if (serial) seen.add(serial);
+    }
+
+    const incoming = parsed.rows.filter((r) => !seen.has(r.label.toUpperCase()));
+    const report: CatalogImportReport = {
+      newItems: incoming.length,
+      alreadyPresent: parsed.rows.length - incoming.length,
+      withoutLocation: incoming.filter((r) => !r.location).length,
+      unmappedLocations: parsed.unmappedLocations,
+      skippedEmpty: parsed.skipped.empty,
+      skippedExample: parsed.skipped.example,
+      dryRun: opts.dryRun === true,
+    };
+    if (opts.dryRun) return report;
+
+    for (const row of incoming) {
+      const item = await this.addItem({
+        description: row.description,
+        category: row.category,
+        serial_number: row.serial_number,
+        user: row.user,
+      });
+
+      // An item with no location gets no placing event: its status stays
+      // unknown, which is true, rather than being put on a plausible shelf.
+      if (!row.location) continue;
+
+      const event = await this.store.appendEvent({
+        event_type: "gtin",
+        value: row.label,
+        // The sheet's own name column, so the row stays attributable to whoever
+        // catalogued it. Falls back to whoever is running the import.
+        user: row.user || this.user,
+        location_context: row.location,
+        command_context: "place",
+        notes: CATALOG_IMPORT_MARKER,
+      });
+      await this.mirrorRows({ events: [event] });
+      void item;
+    }
+
+    return report;
+  }
+
+  /** Admin-gated (manual §4); the ledger records it as an append-only revision. */
   async reviseItem(itemId: string, action: ItemAction, patch: Partial<ItemRow>): Promise<ItemRow> {
+    this.requireAdmin();
     const items = await this.store.getItems();
     const current = buildRegistry(items).byItemId.get(itemId);
     if (!current) throw new Error(`unknown item ${itemId}`);

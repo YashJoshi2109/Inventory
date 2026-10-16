@@ -4,6 +4,7 @@ Host tests. Standard library unittest -- no pip, matching the deployment story.
 Run:  python3 -m unittest discover -s ledger/host -v
 """
 import csv
+import hashlib
 import inspect
 import json
 import os
@@ -347,3 +348,70 @@ class TestPortProbe(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
+
+
+class TestDemoMode(unittest.TestCase):
+    """
+    Jones asked for this twice: "Make sure it has a demo mode that does not
+    overwrite the master database." So demo mode is a different folder, not a
+    flag the code is trusted to respect on every write path.
+    """
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self.tmp.name)
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def test_demo_writes_to_its_own_folder(self):
+        demo = H.Host(self.root, demo=True)
+        self.assertEqual(demo.data_dir, self.root / "data-demo")
+
+    def test_real_ledgers_are_not_created_or_touched_by_a_demo_run(self):
+        real = H.Host(self.root)
+        H.append_rows(real.events_path, H.EVENT_COLUMNS,
+                      "event_id,device_id,seq,user\nINV01-1,INV01,1,yash\n")
+        before = real.events_path.read_bytes()
+
+        demo = H.Host(self.root, demo=True)
+        H.append_rows(demo.events_path, H.EVENT_COLUMNS,
+                      "event_id,device_id,seq,user\nINV01-2,INV01,2,jones\n")
+
+        self.assertEqual(real.events_path.read_bytes(), before)
+        self.assertNotEqual(demo.events_path, real.events_path)
+
+    def test_meta_says_so_loudly(self):
+        self.assertTrue(H.Host(self.root, demo=True).meta()["demoMode"])
+        self.assertFalse(H.Host(self.root).meta()["demoMode"])
+
+    def test_the_flag_is_read_from_argv(self):
+        self.assertTrue(H.wants_demo(["--demo", "--no-browser"]))
+        self.assertFalse(H.wants_demo(["--no-browser"]))
+
+
+class TestAdminPin(unittest.TestCase):
+    """
+    Manual section 4: a PIN gates corrections, and it "protects against
+    accidents, not attackers with file access" -- which is the right trade for
+    this lab. The hash lives in config.ini; the browser compares against it.
+    """
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self.tmp.name)
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def test_first_run_configures_no_pin_rather_than_a_default_one(self):
+        host = H.Host(self.root)
+        self.assertEqual(host.meta()["adminPinSha256"], "")
+
+    def test_meta_publishes_the_hash_when_one_is_set(self):
+        host = H.Host(self.root)               # writes a first config
+        digest = hashlib.sha256(b"2468").hexdigest()
+        host.config.set("app", "admin_pin_sha256", digest)
+        with open(host.config_path, "w", encoding="utf-8") as f:
+            host.config.write(f)
+        self.assertEqual(H.Host(self.root).meta()["adminPinSha256"], digest)

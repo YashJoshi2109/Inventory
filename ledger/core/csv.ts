@@ -16,8 +16,14 @@
 /** RFC 4180 line terminator, matching Python's csv module. */
 export const CSV_LINE_TERMINATOR = "\r\n";
 
-/** Parse CSV text into row objects keyed by the header row. */
-export function parseCsv(text: string): Record<string, string>[] {
+/**
+ * Split CSV text into raw records.
+ *
+ * Exported because a sheet exported from Excel can carry instruction rows
+ * above its header, and finding that header means looking at records rather
+ * than at lines: a quoted field may contain a newline.
+ */
+export function parseCsvRecords(text: string): string[][] {
   if (!text) return [];
   // Strip Notepad's UTF-8 BOM.
   const src = text.charCodeAt(0) === 0xfeff ? text.slice(1) : text;
@@ -46,6 +52,12 @@ export function parseCsv(text: string): Record<string, string>[] {
   }
   if (field !== "" || record.length > 0) { record.push(field); records.push(record); }
 
+  return records;
+}
+
+/** Parse CSV text into row objects keyed by the header row. */
+export function parseCsv(text: string): Record<string, string>[] {
+  const records = parseCsvRecords(text);
   if (records.length < 2) return [];
   const header = records[0];
   return records.slice(1)

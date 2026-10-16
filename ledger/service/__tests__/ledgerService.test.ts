@@ -194,8 +194,17 @@ describe("item master", () => {
   });
 
   it("records a retire as an append-only revision, never a deletion", async () => {
-    const { service } = build();
+    // Retiring is admin-gated (manual §4), so the PIN is part of the setup.
+    const store = new MemoryLedgerStore({ deviceId: "INV01" });
+    const pin = [...new Uint8Array(await crypto.subtle.digest(
+      "SHA-256", new TextEncoder().encode("2468")))]
+      .map((b) => b.toString(16).padStart(2, "0")).join("");
+    const service = new LedgerService({
+      store, config: { ...DEFAULT_CONFIG, adminPinSha256: pin },
+    });
+    service.setUser("yash");
     const a = await service.addItem({ description: "One" });
+    expect(await service.unlockAdmin("2468")).toBe(true);
     await service.reviseItem(a.item_id, "retire", {});
     expect(await service.getItems()).toHaveLength(2);
     const status = await service.getStatus();
@@ -432,5 +441,217 @@ describe("station commands", () => {
     expect(service.getMode()).toMatchObject({ command: "checkout", location: "" });
     advance(60);
     expect(service.getMode()?.secondsRemaining).toBe(240);
+  });
+});
+
+/**
+ * Importing the lab's catalog sheet (docs/specs/2026-10-16-offline-first-run-design.md).
+ *
+ * The sheet is the lab's own data-entry front door: students fill rows, and
+ * the station imports it. It is re-run as the sheet fills up, so importing
+ * twice must add nothing the second time.
+ */
+describe("catalog import", () => {
+  const SHEET = [
+    "Label number,Description,Category,Location,Details,Your name",
+    'EXAMPLE,"Fluke 117 multimeter, yellow case",Test and measurement,Back shelves,Shelf A-4,Jones',
+    "T-0001,Green hard equipment case,Supplies,Back shelves,A-1,Div Nayan Singh",
+    "T-0011,Dell monitor 1,,Back shelves,A-2,Div Nayan Singh",
+    "T-0141,Clear Container of Wires and Clamps,Electronic parts,HVAC bench,Top Shelf,Jones",
+    "T-0200,Mystery crate,,Somewhere else,,Jones",
+    "T-0300,,,,,",
+  ].join("\n");
+
+  it("reports what it would do without writing anything", async () => {
+    const { service, store } = build();
+    const report = await service.importCatalog(SHEET, { dryRun: true });
+    expect(report).toMatchObject({ newItems: 4, alreadyPresent: 0, withoutLocation: 1 });
+    expect(report.unmappedLocations).toEqual(["Somewhere else"]);
+    expect(await store.getItems()).toHaveLength(0);
+    expect(await store.getEvents()).toHaveLength(0);
+  });
+
+  it("appends an item and a placing event per row", async () => {
+    const { service, store } = build();
+    const report = await service.importCatalog(SHEET);
+    expect(report.newItems).toBe(4);
+
+    const items = await store.getItems();
+    expect(items).toHaveLength(4);
+    expect(items[0]).toMatchObject({
+      action: "add",
+      description: "Green hard equipment case",
+      category: "Supplies",
+      serial_number: "T-0001",
+      user: "Div Nayan Singh",
+    });
+    // The sheet attributes T-0141 to Jones, and the item row says so too.
+    expect(items.find((r) => r.serial_number === "T-0141")?.user).toBe("Jones");
+
+    // One placing event per row that has a location; the crate has none.
+    const events = await store.getEvents();
+    expect(events).toHaveLength(3);
+    expect(events[0]).toMatchObject({
+      event_type: "gtin",
+      value: "T-0001",
+      location_context: "LOC-BACK-A1",
+      command_context: "place",
+      user: "Div Nayan Singh",
+      notes: "catalog-import",
+    });
+  });
+
+  it("attributes a row with no name to the person running the import", async () => {
+    const { service, store } = build();
+    await service.importCatalog([
+      "Label number,Description,Category,Location,Details,Your name",
+      "T-0500,Unattributed thing,,HVAC bench,,",
+    ].join("\n"));
+    expect((await store.getEvents())[0].user).toBe("yash");
+  });
+
+  it("adds nothing on a second run: the sheet is re-imported as it fills up", async () => {
+    const { service, store } = build();
+    await service.importCatalog(SHEET);
+    const report = await service.importCatalog(SHEET);
+    expect(report).toMatchObject({ newItems: 0, alreadyPresent: 4 });
+    expect(await store.getItems()).toHaveLength(4);
+    expect(await store.getEvents()).toHaveLength(3);
+  });
+
+  it("imports only the rows that are new when the sheet has grown", async () => {
+    const { service, store } = build();
+    await service.importCatalog(SHEET);
+    const grown = SHEET + "\nT-0142,Blue tote,Supplies,Window bench,,Div Nayan Singh";
+    const report = await service.importCatalog(grown);
+    expect(report).toMatchObject({ newItems: 1, alreadyPresent: 4 });
+    expect(await store.getItems()).toHaveLength(5);
+  });
+
+  it("makes an imported item findable by scanning its printed label", async () => {
+    const { service } = build();
+    await service.importCatalog(SHEET);
+    const outcome = await service.scan("T-0011");
+    expect(outcome.result === "logged" && outcome.item?.description).toBe("Dell monitor 1");
+  });
+
+  it("shows an imported item on its shelf in the status view", async () => {
+    const { service } = build();
+    await service.importCatalog(SHEET);
+    const { rows } = await service.getStatus();
+    const row = rows.find((r) => r.description === "Dell monitor 1");
+    expect(row?.status).toBe("on-shelf");
+    expect(row?.location).toBe("LOC-BACK-A2");
+    expect(row?.status_label).toContain("Back shelves A-2");
+  });
+
+  it("refuses a file that is not the catalog sheet", async () => {
+    const { service } = build();
+    await expect(service.importCatalog("foo,bar\n1,2")).rejects.toThrow(/Label number/);
+  });
+});
+
+/**
+ * Manual §4: a PIN gates revise, retire, void and amend, and it "protects
+ * against accidents, not attackers with file access". So this is a lock on the
+ * actions, checked in the service — not a disabled button in the UI.
+ */
+describe("admin PIN", () => {
+  const PIN = "2468";
+  /** sha256("2468"), computed by the same Web Crypto the service uses. */
+  async function digest(pin: string) {
+    const bytes = new TextEncoder().encode(pin);
+    const hash = await crypto.subtle.digest("SHA-256", bytes);
+    return [...new Uint8Array(hash)].map((b) => b.toString(16).padStart(2, "0")).join("");
+  }
+
+  async function withPin() {
+    const store = new MemoryLedgerStore({ deviceId: "INV01" });
+    const service = new LedgerService({
+      store,
+      config: { ...DEFAULT_CONFIG, adminPinSha256: await digest(PIN) },
+    });
+    service.setUser("yash");
+    const item = await service.addItem({ description: "Dell monitor 1" });
+    return { service, store, item };
+  }
+
+  it("refuses a revision while locked", async () => {
+    const { service, item } = await withPin();
+    expect(service.isAdminUnlocked()).toBe(false);
+    await expect(service.reviseItem(item.item_id, "retire", {}))
+      .rejects.toThrow(/admin PIN/i);
+  });
+
+  it("stays locked after a wrong PIN", async () => {
+    const { service } = await withPin();
+    expect(await service.unlockAdmin("0000")).toBe(false);
+    expect(service.isAdminUnlocked()).toBe(false);
+  });
+
+  it("allows the revision once unlocked, and records it as an append", async () => {
+    const { service, store, item } = await withPin();
+    expect(await service.unlockAdmin(PIN)).toBe(true);
+    await service.reviseItem(item.item_id, "retire", {});
+    const rows = await store.getItems();
+    expect(rows).toHaveLength(2);
+    expect(rows.at(-1)).toMatchObject({ item_id: item.item_id, action: "retire" });
+  });
+
+  it("locks again on request, so a bench laptop does not stay open", async () => {
+    const { service } = await withPin();
+    await service.unlockAdmin(PIN);
+    service.lockAdmin();
+    expect(service.isAdminUnlocked()).toBe(false);
+  });
+
+  it("says no PIN is configured rather than quietly allowing the action", async () => {
+    const store = new MemoryLedgerStore({ deviceId: "INV01" });
+    const service = new LedgerService({ store, config: DEFAULT_CONFIG });
+    service.setUser("yash");
+    const item = await service.addItem({ description: "Dell monitor 1" });
+    await expect(service.unlockAdmin(PIN)).rejects.toThrow(/no admin PIN/i);
+    await expect(service.reviseItem(item.item_id, "retire", {}))
+      .rejects.toThrow(/no admin PIN/i);
+  });
+});
+
+/**
+ * config.ini is a text file other tools touch. Python's configparser lowercases
+ * option keys unless asked not to, so a config rewritten by any ordinary script
+ * comes back as `loc-hvac-bench`. Found by running the program: every place
+ * scan became "unrecognised" and items stopped being placed, with nothing
+ * saying why. Identifiers are case-insensitive everywhere else; locations are
+ * now too.
+ */
+describe("location codes are matched case-insensitively", () => {
+  function withLowercaseConfig() {
+    const store = new MemoryLedgerStore({ deviceId: "INV01" });
+    const service = new LedgerService({
+      store,
+      config: { ...DEFAULT_CONFIG, locations: { "loc-hvac-bench": "HVAC bench" } },
+    });
+    service.setUser("yash");
+    return { service, store };
+  }
+
+  it("classifies a lowercase configured code as a location", () => {
+    const { service } = withLowercaseConfig();
+    expect(service.classify("LOC-HVAC-BENCH").kind).toBe("location");
+    expect(service.classify("loc-hvac-bench").kind).toBe("location");
+  });
+
+  it("arms it, rather than logging it as an unrecognised scan", async () => {
+    const { service, store } = withLowercaseConfig();
+    const outcome = await service.scan("LOC-HVAC-BENCH");
+    expect(outcome.result).toBe("armed");
+    expect((await store.getEvents()).at(-1)).toMatchObject({
+      event_type: "location", notes: "",
+    });
+  });
+
+  it("still finds the printed label for it", () => {
+    const { service } = withLowercaseConfig();
+    expect(service.labelFor("LOC-HVAC-BENCH")).toBe("HVAC bench");
   });
 });

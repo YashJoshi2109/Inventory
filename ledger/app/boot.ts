@@ -49,6 +49,7 @@ export async function bootApp(): Promise<BootedApp> {
 
   const config: LedgerConfig = {
     ...DEFAULT_CONFIG,
+    adminPinSha256: hostMeta?.adminPinSha256 ?? "",
     locations: hostMeta?.locations && Object.keys(hostMeta.locations).length
       ? hostMeta.locations
       : DEFAULT_CONFIG.locations,

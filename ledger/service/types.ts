@@ -31,6 +31,11 @@ export interface LedgerConfig {
    * Optional so a config written before commands existed still loads.
    */
   commandIdleSeconds?: number;
+  /**
+   * SHA-256 of the admin PIN from config.ini. Empty or absent means no PIN is
+   * configured, which blocks the gated actions and says so.
+   */
+  adminPinSha256?: string;
 }
 
 export const DEFAULT_CONFIG: LedgerConfig = {
@@ -96,6 +101,10 @@ export interface HostMeta {
   dataDir: string;
   itemsFile: string;
   eventsFile: string;
+  /** True when started with --demo: a separate data-demo/ folder. */
+  demoMode?: boolean;
+  /** SHA-256 of the admin PIN from config.ini, or "" when none is set. */
+  adminPinSha256?: string;
 }
 
 export interface MirrorResult {
