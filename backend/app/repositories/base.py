@@ -1,3 +1,14 @@
+"""Generic async CRUD base for all repositories.
+
+``BaseRepository`` provides the common data-access contract (get / list / create /
+update / delete / count) parameterised over a SQLAlchemy model, so concrete
+repositories only add query methods specific to their entity.
+
+Transaction convention: methods here ``flush`` (to assign primary keys and surface
+integrity errors) but never ``commit``. The caller — typically a service or the
+request-scoped session dependency — owns the commit boundary, which lets a single
+request compose multiple repository writes into one atomic transaction.
+"""
 from typing import Any, Generic, TypeVar
 
 from sqlalchemy import select, func
@@ -9,6 +20,8 @@ ModelT = TypeVar("ModelT", bound=Base)
 
 
 class BaseRepository(Generic[ModelT]):
+    """Async CRUD operations shared by every entity repository (see module docstring)."""
+
     def __init__(self, model: type[ModelT], session: AsyncSession) -> None:
         self.model = model
         self.session = session

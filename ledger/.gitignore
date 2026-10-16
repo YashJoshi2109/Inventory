@@ -1,0 +1,30 @@
+build/
+dist/
+node_modules/
+__pycache__/
+*.py[cod]
+test-results/
+playwright-report/
+
+# Runtime output. Run from source, host.py writes config.ini (device id, later the
+# admin PIN hash) and data/*.csv (real ledger rows carrying user names) next to itself.
+host/data/
+host/config.ini
+data/
+config.ini
+# The vendored baseline's config.ini is a test fixture (documented default PIN only).
+!fixtures/**/config.ini
+
+# Credentials - patterns from sear-labs/code-standard gitignore-starter.
+# Verify with `git check-ignore -v <file>`; do not assume a pattern matched.
+.env
+.env.*
+!.env.example
+*.lic
+*.pem
+*.key
+*_key*
+*_secret*
+*credentials*
+*token*
+service-account*.json

@@ -1,3 +1,12 @@
+/**
+ * Dashboard.tsx — main landing screen after login.
+ *
+ * Aggregates KPIs (total items, low-stock, recent movement) and the recent
+ * activity feed from `dashboardApi` and `transactionsApi` via React Query, and
+ * embeds the animated EcoEnergy widget. KPI figures use a framer-motion
+ * `animate()` count-up; cards stagger in on view. Data is read-only here —
+ * mutations happen on the Inventory/Scan screens and invalidate these queries.
+ */
 import { useQuery } from "@tanstack/react-query";
 import { type ComponentType, useEffect, useMemo, useRef, useState } from "react";
 import { motion, animate } from "framer-motion";

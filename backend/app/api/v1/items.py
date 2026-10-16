@@ -1,3 +1,6 @@
+"""Items API: CRUD for inventory items and categories, plus search, barcode lookup, and
+per-item stock levels. Writes emit domain events and are owner-scoped via
+``sandbox_owner_id``; mutations are gated by ``require_roles``."""
 import base64
 from decimal import Decimal
 from typing import Annotated

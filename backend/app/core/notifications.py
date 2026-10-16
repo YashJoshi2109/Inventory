@@ -1,3 +1,21 @@
+"""Transactional email + low-stock alerting for the SEAR Lab Inventory system.
+
+This module owns every outbound notification and the domain-event handlers that
+trigger them. Two responsibilities live here:
+
+1. Email delivery with a provider fallback chain. ``_deliver(...)`` tries the
+   configured providers in order — Resend (HTTP API) → Brevo (HTTP API) → SMTP —
+   and returns on the first success so a single down provider never blocks mail.
+   Higher-level helpers (``send_otp_email``, ``send_login_email``,
+   ``send_welcome_email``, ``send_qr_code_email``, ``send_role_request_to_managers``)
+   build the HTML body and delegate to ``_deliver``.
+
+2. Low-stock monitoring. Handlers subscribed to the domain ``event_bus`` watch
+   inventory events, evaluate reorder thresholds, and emit alert emails so stock
+   dropping below its minimum notifies managers without polling.
+
+Email HTML is inlined (no template engine) to keep the deploy dependency-free.
+"""
 from __future__ import annotations
 
 import asyncio

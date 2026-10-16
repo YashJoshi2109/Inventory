@@ -35,6 +35,7 @@ _DS_QUERY_URL = "/api/ds/query"
 
 
 def _flux_last(field: str, source_id: str, source_type: str) -> str:
+    """Build a Flux query for the single latest value of one field (last 1h window)."""
     return f"""
 from(bucket: "{settings.INFLUXDB_BUCKET}")
   |> range(start: -1h)
@@ -47,6 +48,7 @@ from(bucket: "{settings.INFLUXDB_BUCKET}")
 
 
 def _flux_history(field: str, source_id: str, source_type: str) -> str:
+    """Build a Flux query for a 3h series of one field, mean-aggregated per 30s window."""
     return f"""
 from(bucket: "{settings.INFLUXDB_BUCKET}")
   |> range(start: -3h)
@@ -76,6 +78,11 @@ def _build_query_payload(queries: list[tuple[str, str]]) -> dict:
 
 
 def _extract_scalar(frames: list[dict], ref_id: str) -> float | None:
+    """Pull the last value from the matching frame's ``data.values`` (values[1] column).
+
+    Grafana frames carry ``schema.refId`` and parallel ``data.values`` arrays (col 0 =
+    timestamps, col 1 = readings). Returns None when the frame is absent/empty.
+    """
     for frame in frames:
         schema = frame.get("schema", {})
         if schema.get("refId") != ref_id:
@@ -89,6 +96,11 @@ def _extract_scalar(frames: list[dict], ref_id: str) -> float | None:
 
 
 def _extract_series(frames: list[dict], ref_id: str) -> tuple[list[str], list[float]]:
+    """Unpack the matching frame into parallel (epoch-ms labels, rounded values) lists.
+
+    Reads ``data.values`` col 0 (timestamps) and col 1 (readings) from the frame whose
+    ``schema.refId`` matches, skipping null pairs. Returns ([], []) if no frame matches.
+    """
     for frame in frames:
         schema = frame.get("schema", {})
         if schema.get("refId") != ref_id:

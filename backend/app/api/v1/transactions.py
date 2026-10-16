@@ -1,3 +1,6 @@
+"""Transactions API: read-only, paginated views of inventory event history and active
+alerts, filterable by item/location/kind/date. Scoped to the caller's data via
+``sandbox_owner_id``."""
 from datetime import datetime
 
 from fastapi import APIRouter, Query, Request

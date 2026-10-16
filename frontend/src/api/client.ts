@@ -1,3 +1,18 @@
+/**
+ * Shared axios instance used by every API module.
+ *
+ * Responsibilities:
+ * - Base-URL resolution: defaults to same-origin `/api/v1` (Vercel rewrites this
+ *   to Render to avoid CORS + the SPA catch-all), overridable via VITE_API_URL.
+ * - Request interceptor: attaches the JWT bearer token and, when sandbox mode is
+ *   on, the `X-Sandbox-Mode: true` header that re-scopes server data per user.
+ * - Response interceptor: single-flight 401 refresh — parallel 401s share ONE
+ *   `/auth/refresh` call (see `refreshInFlight`) and the request is retried once;
+ *   the session is only cleared when the server actually rejects the refresh
+ *   token (401), not on network/502/timeout (common on cold Render).
+ * - Offline write-queue: failed POST/PATCH/DELETE with no response (offline) are
+ *   enqueued to `offlineQueue` for later replay (drained by useOffline).
+ */
 import axios, { type AxiosInstance, type AxiosRequestConfig } from "axios";
 import { useAuthStore } from "@/store/auth";
 import { useSandboxStore } from "@/store/sandbox";

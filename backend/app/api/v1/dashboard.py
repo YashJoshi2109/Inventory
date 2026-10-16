@@ -1,3 +1,6 @@
+"""Dashboard API: aggregate stats, low-stock/alert summaries, and recent activity for
+the portal home. Owner-scoped via ``sandbox_owner_id``/``owner_filter`` and also surfaces
+the email-service status shown in the UI."""
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 

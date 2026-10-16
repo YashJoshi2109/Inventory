@@ -1,3 +1,18 @@
+"""Central application settings, loaded from environment variables.
+
+``Settings`` (pydantic-settings) is the single source of truth for runtime
+configuration — database URL, JWT secret, AI provider keys, SMTP/Brevo/Resend
+credentials, CORS origins, and feature flags. Access it via the cached
+``settings`` singleton (``from app.core.config import settings``); ``lru_cache``
+ensures the environment is parsed exactly once per process.
+
+Env-var precedence: a real environment variable overrides any value in ``.env``,
+which overrides the field default. List-like settings (e.g. CORS origins, Gemini
+fallback models) are parsed by ``_coerce_env_to_str_list`` which accepts three
+shapes interchangeably — a JSON array (``["a","b"]``), a comma-separated string
+(``a,b``), or a single bare value — so operators can set them whichever way is
+convenient in their host's config UI.
+"""
 from functools import lru_cache
 from pathlib import Path
 from typing import Literal

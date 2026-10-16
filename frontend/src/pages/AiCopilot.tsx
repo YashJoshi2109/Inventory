@@ -910,6 +910,16 @@ export function AiCopilot() {
   const quotaAnchorRef = useRef<HTMLDivElement>(null);
   const [quotaCardOpen, setQuotaCardOpen] = useState(false);
   const [quotaCardPos, setQuotaCardPos] = useState<{ top: number; right: number; width: number } | null>(null);
+  // ── Quota systems (two independent limits — do not conflate) ────────────────
+  // 1. chatRateLimit (below): IP-based copilot rate limit from GET /ai/rate-limit.
+  //    Shared across everyone on the same IP, per rolling window; shown in the
+  //    quota portal card.
+  // 2. sandboxQuota (below): per-USER sandbox message quota from
+  //    GET /sandbox/copilot-quota, only fetched while sandboxMode is on; shown as
+  //    the sandbox banner.
+  // sandboxQuotaExhausted mirrors (2) but is set imperatively from the SSE error
+  // event (429 SANDBOX_QUOTA) when a send exhausts the quota mid-stream, so the
+  // input can disable immediately before the query refetches.
   const [sandboxQuotaExhausted, setSandboxQuotaExhausted] = useState(false);
 
   // Derived state that mirrors the ref (for rendering)

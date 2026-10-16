@@ -1,3 +1,17 @@
+/**
+ * Scan.tsx — QR/barcode stock-movement workflow.
+ *
+ * Two modes share this screen:
+ *  - Worker quick-scan: pick an action (stock-in / stock-out / transfer), then
+ *    scan an item barcode to apply that movement directly.
+ *  - Self-service: scan → resolve item → review current stock levels → submit.
+ *
+ * Flow per scan: barcode → resolve to item (owner/sandbox-scoped API) → load
+ * stock levels → confirm quantity/location → post transaction. Unrecognised
+ * codes fall through to an "add item" path. Writes queue through the offline
+ * layer when the network is down (see src/offline), and haptic feedback marks
+ * success/error on mobile. Heavy panels are lazy-loaded via Suspense.
+ */
 import { useCallback, useEffect, useRef, useState, useMemo, type ComponentType, Suspense, lazy } from "react";
 import { useLocation } from "react-router-dom";
 import { clsx } from "clsx";

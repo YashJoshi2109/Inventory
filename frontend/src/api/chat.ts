@@ -1,3 +1,16 @@
+/**
+ * Chat / AI copilot API — SSE streaming core.
+ *
+ * Most CRUD calls (sessions, messages, documents) go through the shared axios
+ * `apiClient`. The one exception is `streamMessage`, which uses raw `fetch` +
+ * a `ReadableStream` reader instead of axios: it needs Server-Sent Events
+ * (token-by-token streaming) AND multipart image upload in the same request,
+ * neither of which axios handles cleanly here. Because it bypasses apiClient it
+ * also re-implements auth (Bearer from the auth store) and error handling
+ * inline: it auto-retries transient 502/503/504 (Render cold start / overload)
+ * up to twice, and surfaces 429 `SANDBOX_QUOTA` (per-user sandbox quota) as an
+ * error event carrying `sandboxQuotaExhausted`.
+ */
 import { apiClient } from "./client";
 import { useAuthStore } from "@/store/auth";
 

@@ -1,3 +1,17 @@
+/**
+ * useScanner — QR/barcode decode engine (camera-based).
+ *
+ * Wraps ZXing's BrowserMultiFormatReader with:
+ * - Multi-format hints (QR, CODE_128, EAN-13/8, UPC-A/E) so only expected
+ *   symbologies are attempted.
+ * - Back/rear camera preference (matches label /back|rear|environment/) when
+ *   `preferBackCamera` is set, falling back to the first available device.
+ * - Cooldown de-dupe: the same decoded value is ignored for `cooldownMs`
+ *   (default 1500ms) so one physical scan does not fire repeatedly.
+ * - Exception suppression: NotFoundException is normal (no code in frame) and
+ *   ChecksumException/FormatException are treated as transient and ignored;
+ *   only other errors surface via `onError`.
+ */
 import { useCallback, useEffect, useRef, useState } from "react";
 import { BrowserMultiFormatReader, type IScannerControls } from "@zxing/browser";
 import { DecodeHintType, BarcodeFormat } from "@zxing/library";

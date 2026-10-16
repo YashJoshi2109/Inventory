@@ -1,0 +1,2 @@
+event_id,device_id,seq,user,datetime_utc,event_type,value,location_context,command_context,reader_id,antenna_id,avg_rssi_dbm,read_count,window_start_utc,window_end_utc,confidence,notes
+INV02-000001,INV02,1,maria,2026-07-05T14:00:03Z,gtin,00614141123452,,checkout,,,,,,,,
