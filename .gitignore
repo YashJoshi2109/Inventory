@@ -51,6 +51,11 @@ Thumbs.db
 *.swo
 .env*.local
 
+# ─── CI build artefacts downloaded for testing ───────────────────────────────
+# `gh run download` drops the Windows package here; it is 20 MB of binary that
+# the Windows job rebuilds on every push.
+InventoryLedger-windows*.zip
+
 # ─── Other teams' submissions ─────────────────────────────────────────────────
 # Final_Submission_HVAC_Dashboard.zip carries that team's .env files. Never commit it.
 Final_Submission_*.zip
