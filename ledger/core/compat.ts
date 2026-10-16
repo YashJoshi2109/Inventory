@@ -5,7 +5,7 @@
  * read safely, so we block. Algorithm drift is not: status is derived, so
  * recomputing locally fixes it, and we only warn.
  *
- * Dr. Jones's baseline writes a bare "1.0-baseline" version string. That must
+ * Jones's baseline writes a bare "1.0-baseline" version string. That must
  * warn, never block — refusing to merge the reference implementation's ledgers
  * would be a bug, not a safety feature.
  */

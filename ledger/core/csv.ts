@@ -2,7 +2,7 @@
  * RFC 4180 CSV codec.
  *
  * Ledger files are read and written by three teams, by Excel, and by
- * Dr. Jones's stdlib-Python baseline. A cloud export must be byte-identical
+ * Jones's stdlib-Python baseline. A cloud export must be byte-identical
  * to a local one, so serialization lives here and nowhere else.
  *
  * Line terminator is CRLF. RFC 4180 specifies it, Python's csv module emits it

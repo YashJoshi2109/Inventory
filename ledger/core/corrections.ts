@@ -4,7 +4,7 @@
  * Corrections are append-only rows, never file edits: "The admin overwrites
  * the derived status, not the ledger."
  *
- * INTERPRETATION, flagged for Dr. Jones's confirmation (spec section 3.4):
+ * INTERPRETATION, flagged for Jones's confirmation (spec section 3.4):
  * the contract puts void|amend in command_context, which leaves nowhere
  * obvious for an amend's replacement context. We read the replacement location
  * from location_context and any further overrides from semicolon-separated

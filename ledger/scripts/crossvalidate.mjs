@@ -1,5 +1,5 @@
 /**
- * Cross-validate our TypeScript status algorithm against Dr. Jones's
+ * Cross-validate our TypeScript status algorithm against Jones's
  * stdlib-Python baseline (Lab Code/RAID_Ledger_Baseline).
  *
  * Drives the baseline through its own HTTP API, pulls the ledger CSVs it wrote

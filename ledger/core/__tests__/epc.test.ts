@@ -28,7 +28,7 @@ describe("SGTIN-96 decode", () => {
   });
 
   it("returns null for a non-SGTIN header rather than inventing a GTIN", () => {
-    // Dr. Jones's manual sample EPC starts 0xA0, which is not SGTIN-96 (0x30).
+    // Jones's manual sample EPC starts 0xA0, which is not SGTIN-96 (0x30).
     expect(decodeSgtin96("A02A061028A202123A020102")).toBeNull();
   });
 

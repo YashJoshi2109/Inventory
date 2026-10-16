@@ -9,7 +9,7 @@
 
 ## 1. What happened
 
-Dr. Jones had the Inventory and RFID codebases reviewed and run. The verdict on this
+Jones had the Inventory and RFID codebases reviewed and run. The verdict on this
 repo was that the engineering quality is high but the architecture is wrong for the
 requirement: we built a cloud-centered web app (Supabase + Vercel + Cloud Run + EMQX +
 Gemini + Brevo/Resend + GCS) when what was asked for is a local-first program that can
@@ -47,7 +47,7 @@ labeled demo in the data and in the UI.
 
 ## 3. Canonical schemas — the API contract between teams
 
-Changing these requires Dr. Jones's sign-off. Full text in
+Changing these requires Jones's sign-off. Full text in
 `Lab Code/LAB_SELF_HOSTING_MANUAL.md` §2.
 
 ### Item Master — `items/items_<device_id>.csv`
@@ -166,7 +166,7 @@ Tunnel. No feature may exist in the cloud layer that the local exe lacks for cor
 
 ## 6. Reference implementation
 
-`Lab Code/RAID_Ledger_Baseline/` is a working baseline written by Dr. Jones — three
+`Lab Code/RAID_Ledger_Baseline/` is a working baseline written by Jones — three
 stdlib-only programs (~300–500 lines each) plus a bundled embeddable Python 3.12 runtime.
 Verified running on 2026-08-27: arm shelf → add item → scan GTIN → status shows
 "on Shelf A (Battery Storage)" attributed to the user.
@@ -209,18 +209,20 @@ Inventory-team additions:
 
 ## 8. Cross-team notes
 
-- **RFID team:** their live Impinj integration was fiction (`octane-sdk-python` does not
-  exist on PyPI) and a fresh install showed 87 assets / 38,219 reads of undisclosed seed
-  data. They are ordered onto `sllurp` and a two-tier raw→observation pipeline with the
+- **RFID team:** ordered onto `sllurp` and a two-tier raw-to-observation pipeline, with the
   Companion Book §8.2.3 confidence score `C = w1·RC + w2·(RSSI_avg + 90)`, w1=0.1, w2=1.5,
-  plus hysteresis (zone change must hold N=3 windows with a 15% margin).
-- **Energy team:** shipped a `.env` with live credentials (lab Google/EcoNet password, LG
-  ThinQ token, Enphase secret) — **the EcoNet password is the shared lab password and is
-  exposed in the RFID packet too.** They are moving to long-format energy rows with
-  mandatory quality flags and the Enphase Envoy local LAN API.
+  plus hysteresis (a zone change must hold N=3 windows with a 15% margin). What reaches us
+  is `observation` rows in their event log.
+- **Energy team:** moving to long-format energy rows with mandatory `quality` flags
+  (`measured | estimated | simulated`) and the Enphase Envoy local LAN API. What reaches us
+  is `logs/energy_<device_id>.csv`.
 - **Middleware:** MQTT lives on the optional lab-server layer only. The ledgers are the
   system of record; MQTT payloads mirror ledger rows (the energy schema maps 1:1 to
   `lab/energy/{source_type}/{source_id}/{metric}`).
+
+> This section records only the parts of the other teams' instructions that our program
+> depends on. The review findings behind them — and anything concerning credentials — stay
+> out of a shared repository and go to Jones directly.
 
 ## 9. Reference index (`Lab Code/`)
 
@@ -232,6 +234,6 @@ Inventory-team additions:
 | `RAID_Ledger_Baseline/` | Working reference implementation + embedded Python runtime. |
 | `RAID_Lab_Digital_Twin_Strategy.docx` | The 7-team platform vision, layer ownership, MQTT topic schemas. |
 | `RAID_Lab_Companion_Book_Combined (2).docx` | Textbook. §3.2 GS1/AIs, §3.3 SGTIN/SSCC/aggregation, §8.2 RSSI + read-count physics and the confidence score, Ch. 7 EPCIS event logic, Ch. 12 metrology. |
-| `Claude Chat.docx` | The full review transcript that produced the directive — Dr. Jones's own words on what he wants. |
+| `Claude Chat.docx` | The full review transcript that produced the directive — Jones's own words on what he wants. |
 | `SEAR_Inventory_Meeting_Prep_2026-07-02 2/` | Our own July meeting packet (snapshot of this repo). |
 | `SEARLab_RFID_Meeting_Packet_2026-07-01 (1)-.../` | The RFID team's packet that was audited. |

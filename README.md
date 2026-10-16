@@ -26,10 +26,10 @@ Since July 2026 this repository has two halves, and the one under active develop
 
 Background reading, in order:
 
-1. [`docs/PROF_DIRECTIVE_2026-07.md`](docs/PROF_DIRECTIVE_2026-07.md) — the directive and the acceptance tests
-2. [`docs/superpowers/specs/2026-08-27-dual-mode-ledger-design.md`](docs/superpowers/specs/2026-08-27-dual-mode-ledger-design.md) — the design and the four approval gates
+1. [`ledger/docs/PROF_DIRECTIVE_2026-07.md`](ledger/docs/PROF_DIRECTIVE_2026-07.md) — the directive and the acceptance tests
+2. [`ledger/docs/specs/2026-08-27-dual-mode-ledger-design.md`](ledger/docs/specs/2026-08-27-dual-mode-ledger-design.md) — the design and the four approval gates
 3. [`ledger/ACCEPTANCE.md`](ledger/ACCEPTANCE.md) — every acceptance test, and what is proven versus unverified
-4. [`ledger/CROSSVALIDATION.md`](ledger/CROSSVALIDATION.md) — agreement with Dr. Jones's reference implementation
+4. [`ledger/CROSSVALIDATION.md`](ledger/CROSSVALIDATION.md) — agreement with Jones's reference implementation
 5. [`docs/QUESTIONS_FOR_DR_JONES_2026-08.md`](docs/QUESTIONS_FOR_DR_JONES_2026-08.md) — four open contract questions
 
 Nothing in the cloud app has been removed or broken by this work: `ledger/` is a new,

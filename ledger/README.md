@@ -2,16 +2,21 @@
 
 `InventoryLedger.exe` — the local-first inventory program for the RAID / SEAR Lab.
 
+**Status:** working — Gates 1 and 2 of 4 complete. Runs offline and writes the contract
+CSVs; the Windows `.exe` and the cable test have not been witnessed on hardware, and it
+does not yet read the RFID or Energy programs' ledgers (Gate 3-4). See
+[`ACCEPTANCE.md`](ACCEPTANCE.md) for the test-by-test position.
+
 A lab technician receives one folder, double-clicks one file, and gets a browser page that
 records inventory scans. No Python, no Node, no npm, no database, no internet, no admin
 rights. The record of truth is two CSV files that open in Excel.
 
-This directory is self-contained: its own dependencies, tests, and CI workflow. It does not
-import from, or depend on, the cloud application in the rest of this repository.
+This repository is self-contained: its own dependencies, tests, and CI workflow. It does
+not import from, or depend on, the lab's cloud web application.
 
 - **What a lab technician reads:** [`dist-assets/RUN_ME.txt`](dist-assets/RUN_ME.txt)
-- **What the professor asked for:** [`../docs/PROF_DIRECTIVE_2026-07.md`](../docs/PROF_DIRECTIVE_2026-07.md)
-- **The design and its four approval gates:** [`../docs/superpowers/specs/2026-08-27-dual-mode-ledger-design.md`](../docs/superpowers/specs/2026-08-27-dual-mode-ledger-design.md)
+- **What the professor asked for:** [`docs/PROF_DIRECTIVE_2026-07.md`](docs/PROF_DIRECTIVE_2026-07.md)
+- **The design and its four approval gates:** [`docs/specs/2026-08-27-dual-mode-ledger-design.md`](docs/specs/2026-08-27-dual-mode-ledger-design.md)
 - **What is proven and what is not:** [`ACCEPTANCE.md`](ACCEPTANCE.md)
 - **Agreement with the reference implementation:** [`CROSSVALIDATION.md`](CROSSVALIDATION.md)
 
@@ -33,9 +38,8 @@ Requires Node 22+ and Python 3.12+. Python needs no packages at all — the host
 standard library only, on purpose.
 
 ```bash
-cd ledger
 npm ci
-npm run build            # builds the PWA into ledger/dist
+npm run build            # builds the PWA into dist/
 python3 host/host.py     # serves it at http://localhost:5001 and opens a browser
 ```
 
@@ -45,7 +49,7 @@ to the host (or next to the `.exe` in a packaged build).
 ## Building the distributable
 
 PyInstaller cannot cross-compile, so a Windows `.exe` must be built on Windows. That is
-what the `windows-exe` job in [`../.github/workflows/ledger.yml`](../.github/workflows/ledger.yml)
+what the `windows-exe` job in [`.github/workflows/ledger.yml`](.github/workflows/ledger.yml)
 exists for; it also smoke-tests the executable and uploads the zip as a build artifact.
 
 ```bash
@@ -61,7 +65,7 @@ npm run package          # assembles the shippable folder; fails if dev clutter 
 | `npm test` | 198 unit and integration tests across core, store, service, bridge, and app |
 | `npm run typecheck` | TypeScript is clean |
 | `python3 -m unittest discover -s host` | 26 host tests (run from `ledger/`, or `cd host && python3 -m unittest test_host`) |
-| `npm run crossvalidate` | our status algorithm still agrees with Dr. Jones's baseline, field by field |
+| `npm run crossvalidate` | our status algorithm still agrees with Jones's baseline, field by field |
 | `npm run test:e2e` | 11 end-to-end tests against the real host, with every external request aborted |
 | `npm test -- bundle` | the built bundle reaches no external URL |
 | `npm run verify:disk <data-dir>` | CSV written by the host round-trips byte-identically through `core` |
@@ -86,7 +90,7 @@ bridge/     Browser-side client for the host, plus netGuard, which counts extern
 host/       The Python bootstrap, static host, and CSV bridge that becomes the .exe.
             Computes no status, parses no GS1, arbitrates no merges.
 e2e/        Playwright tests against the packaged program, network cut.
-fixtures/   Golden status fixtures, and Dr. Jones's baseline vendored so
+fixtures/   Golden status fixtures, and Jones's baseline vendored so
             cross-validation runs on a fresh checkout.
 scripts/    crossvalidate, package, verify-disk-roundtrip.
 ```
@@ -96,20 +100,21 @@ The layering rule — React may not import `core`, the store, or the bridge — 
 
 ## The data
 
-Two files per device, in `data/`:
+Two files per device, written flat in `data/` next to the program. The `items/` and
+`logs/` subfolders in manual §3 are the *sync folder's* shape, not the local one:
 
 ```
-items/items_<device_id>.csv
+items_<device_id>.csv
   event_id,item_id,action,description,category,gtin,serial_number,epc,user,datetime_utc
 
-logs/log_<device_id>.csv
+log_<device_id>.csv
   event_id,device_id,seq,user,datetime_utc,event_type,value,location_context,
   command_context,reader_id,antenna_id,avg_rssi_dbm,read_count,window_start_utc,
   window_end_utc,confidence,notes
 ```
 
 These column sets are the cross-team contract with the RFID and Energy programs. Changing
-them requires Dr. Jones's sign-off. `event_id = device_id + "-" + seq`, which is what makes
+them requires Jones's sign-off. `event_id = device_id + "-" + seq`, which is what makes
 rows globally unique and dedupe-safe. Global order is `(datetime_utc, device_id, seq)`.
 
 **One device id per machine.** It is generated on first run into `config.ini`. Copying a

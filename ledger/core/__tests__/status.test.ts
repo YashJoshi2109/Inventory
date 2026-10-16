@@ -237,7 +237,7 @@ describe("computeStatus", () => {
   });
 
   it("does not silently drop rows carrying a non-contract event type", () => {
-    // Dr. Jones's baseline writes event_type=serial, which is outside the
+    // Jones's baseline writes event_type=serial, which is outside the
     // manual's enum. A swallowed row is an item that quietly stops being
     // tracked, so it must surface either as status or as an unknown scan.
     const r = computeStatus({

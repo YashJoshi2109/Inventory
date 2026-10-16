@@ -3,7 +3,7 @@
  * contract (LAB_SELF_HOSTING_MANUAL.md section 2). Order matters: CSV files
  * written by any team must have these headers in this order.
  *
- * Changing anything in this file requires Dr. Jones's sign-off.
+ * Changing anything in this file requires Jones's sign-off.
  */
 
 export const ITEM_COLUMNS = [

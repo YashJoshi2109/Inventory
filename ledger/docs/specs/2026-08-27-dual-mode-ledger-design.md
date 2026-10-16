@@ -9,7 +9,7 @@
 
 ## 1. Problem
 
-Dr. Jones's July 2026 directive requires the Inventory system to become a local-first
+Jones's July 2026 directive requires the Inventory system to become a local-first
 program built on append-only CSV ledgers with a derived status view — emailable as a zip,
 runnable offline on any laptop. The existing system is a cloud web app whose offline queue
 protects only the browser; the server lives on five clouds.
@@ -92,7 +92,7 @@ is mounted.
 ## 3. Ledger schemas
 
 The CSV column sets are the **cross-team API contract** (manual §2). Changing them requires
-Dr. Jones's sign-off. This design adds **no columns to any ledger file.** Where we need
+Jones's sign-off. This design adds **no columns to any ledger file.** Where we need
 information the contract does not carry, it goes in sidecar metadata, never in a ledger row.
 
 ### 3.1 Item Master — `items/items_<device_id>.csv`
@@ -139,7 +139,7 @@ Our interpretation, which adds no columns:
   e.g. `set_command=checkout;set_value=00012345678905`. Recognised keys: `set_command`,
   `set_value`, `set_location`. Unrecognised keys are ignored and surfaced as a warning.
 
-**This is flagged for Dr. Jones's confirmation.** It is the one place we interpret rather
+**This is flagged for Jones's confirmation.** It is the one place we interpret rather
 than implement the contract. If he specifies otherwise, only the amend parser changes.
 
 ### 3.5 Versioning
@@ -342,7 +342,7 @@ fabricated numbers. When a source is unreachable the UI says so explicitly.
 
 - **Golden fixtures** — hand-built ledger CSVs with known-correct expected status output,
   covering each event type, each conflict class, corrections, and the RFID/barcode join.
-- **Cross-validation against Dr. Jones's baseline** — run `Lab Code/RAID_Ledger_Baseline/`,
+- **Cross-validation against Jones's baseline** — run `Lab Code/RAID_Ledger_Baseline/`,
   drive it through its own API, take the ledgers it produces, feed them to our TypeScript
   algorithm, and assert our status matches its status. Independent confirmation that we
   implement the same contract.
@@ -363,7 +363,7 @@ No gate begins before the previous one is approved.
 | **3** | Cloud dashboard and ledger-table integration | Migrations, `/api/v1/ledger/*`, mode toggle live, existing app unaffected |
 | **4** | Import/export, merge preview, conflict resolution | Merge preview UI, conflict queue, admin PIN workflow, reconciled checkpoints |
 
-## 14. Open questions for Dr. Jones
+## 14. Open questions for Jones
 
 1. **Amend semantics** (§3.4) — confirm where an `amend`'s replacement context belongs, or
    approve our `notes`-key interpretation.

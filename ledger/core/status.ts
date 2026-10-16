@@ -126,7 +126,7 @@ const CONTROL_TYPES = new Set(["location", "command", "correction", "confirmatio
  * Does this row carry an item identifier?
  *
  * The contract's seven event types are exhaustive (manual section 2.2), but
- * real ledgers contain types outside it — Dr. Jones's own baseline writes
+ * real ledgers contain types outside it — Jones's own baseline writes
  * event_type=serial for any code that is neither a location, a valid GTIN, nor
  * a 24-hex EPC. We never EMIT such a type, but we must not silently drop rows
  * that carry one: a swallowed row is an item that quietly stops being tracked.

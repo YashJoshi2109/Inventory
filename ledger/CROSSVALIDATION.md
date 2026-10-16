@@ -3,11 +3,11 @@
 **Date:** 2026-08-27
 **Our version:** `inventory-ledger/1.0.0+schema.1+status.1`
 **Reference:** `Lab Code/RAID_Ledger_Baseline/inventory_ledger`, reports version `1.0-baseline`
-**Harness:** `ledger/scripts/crossvalidate.mjs`
+**Harness:** `scripts/crossvalidate.mjs`
 
 ## Why this exists
 
-Our status algorithm is written in TypeScript and runs client-side. Dr. Jones's baseline is
+Our status algorithm is written in TypeScript and runs client-side. Jones's baseline is
 stdlib Python and runs server-side. If the two disagree about what a ledger means, then two
 instances of the lab platform can never converge — which is the one property the whole
 append-only design is built to guarantee.
@@ -89,7 +89,7 @@ correctly.
 ## Reproducing
 
 ```bash
-node ledger/scripts/crossvalidate.mjs "Lab Code/RAID_Ledger_Baseline"
+node scripts/crossvalidate.mjs <path to Lab Code/RAID_Ledger_Baseline>
 ```
 
 Requires `python3` on the path. Exits non-zero if any field disagrees.

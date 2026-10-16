@@ -1,17 +1,11 @@
 name: ledger
 
-# Gates for the local-first ledger. Independent of the existing cloud app's
-# workflows: this pipeline only runs when ledger/ or its own definition changes.
+# Gates for the local-first ledger. The repository root is the program, so
+# every push and pull request runs the whole pipeline.
 on:
   push:
-    paths: ["ledger/**", ".github/workflows/ledger.yml"]
   pull_request:
-    paths: ["ledger/**", ".github/workflows/ledger.yml"]
   workflow_dispatch:
-
-defaults:
-  run:
-    working-directory: ledger
 
 jobs:
   verify:
@@ -23,7 +17,7 @@ jobs:
         with:
           node-version: "22"
           cache: npm
-          cache-dependency-path: ledger/package-lock.json
+          cache-dependency-path: package-lock.json
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
@@ -40,7 +34,7 @@ jobs:
         run: python -m unittest discover -s host -v
 
       # Gate 1's permanent regression gate. Our status algorithm must keep
-      # agreeing with Dr. Jones's reference implementation on identical input;
+      # agreeing with Jones's reference implementation on identical input;
       # if it ever stops, two instances of the lab platform can no longer
       # converge, and that has to fail the build rather than be noticed later.
       - name: Cross-validate against the reference implementation
@@ -63,7 +57,7 @@ jobs:
         if: failure()
         with:
           name: playwright-traces-linux
-          path: ledger/test-results/
+          path: test-results/
           retention-days: 7
 
   windows-exe:
@@ -76,14 +70,14 @@ jobs:
         with:
           node-version: "22"
           cache: npm
-          cache-dependency-path: ledger/package-lock.json
+          cache-dependency-path: package-lock.json
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
 
       - run: npm ci
       - run: npm run build
-      - run: pip install pyinstaller
+      - run: pip install "pyinstaller>=6,<7"
 
       # PyInstaller cannot cross-compile, which is the whole reason this job
       # exists: the .exe has to be produced on Windows.
@@ -126,12 +120,12 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: InventoryLedger-windows
-          path: ledger/build/InventoryLedger-windows.zip
+          path: build/InventoryLedger-windows.zip
           retention-days: 30
 
       - uses: actions/upload-artifact@v4
         if: failure()
         with:
           name: playwright-traces-windows
-          path: ledger/test-results/
+          path: test-results/
           retention-days: 7

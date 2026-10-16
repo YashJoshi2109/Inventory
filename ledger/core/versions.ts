@@ -4,7 +4,7 @@
  *
  * They are deliberately NOT ledger columns: the CSV column sets are the
  * cross-team API contract (manual section 2) and adding a column requires
- * Dr. Jones's sign-off. Version metadata rides in manifest.csv's existing
+ * Jones's sign-off. Version metadata rides in manifest.csv's existing
  * program_version field instead.
  */
 
