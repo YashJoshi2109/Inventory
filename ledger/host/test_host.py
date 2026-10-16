@@ -171,6 +171,24 @@ class TestPortSelection(unittest.TestCase):
         self.assertEqual(H.find_free_port(5002, "127.0.0.1"), 5002)
 
 
+class TestBundledAssets(unittest.TestCase):
+    """
+    The zip's fallback/ folder and the e2e source run both place dist/ BESIDE
+    host.py. Looking only in ../dist served "static assets missing" there.
+    """
+
+    def test_prefers_a_dist_folder_beside_host_py(self):
+        with tempfile.TemporaryDirectory() as d:
+            (Path(d) / "dist").mkdir()
+            self.assertEqual(H.bundled_dir(Path(d)), Path(d) / "dist")
+
+    def test_falls_back_to_the_source_tree_layout(self):
+        with tempfile.TemporaryDirectory() as d:
+            here = Path(d) / "host"
+            here.mkdir()
+            self.assertEqual(H.bundled_dir(here), (Path(d) / "dist").resolve())
+
+
 class TestHttpApi(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()

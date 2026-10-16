@@ -4,7 +4,7 @@ set -euo pipefail
 API_ROOT="${SMOKE_API_ROOT:-https://sierlab-inventory-backend.onrender.com}"
 API="${API_ROOT%/}/api/v1"
 USER="${SMOKE_LOGIN_USERNAME:-sear_admin}"
-PASS="${SMOKE_LOGIN_PASSWORD:-SearLab@2024}"
+PASS="${SMOKE_LOGIN_PASSWORD:?set SMOKE_LOGIN_PASSWORD in the environment; never hardcode it here}"
 
 echo "== Health $API_ROOT/health =="
 curl -sSf "$API_ROOT/health" | head -c 200

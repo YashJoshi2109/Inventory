@@ -1,3 +1,5 @@
+// Per-user sandbox message quota (how many copilot messages this user has left
+// in sandbox mode). Distinct from rateLimit.ts, which is an IP-based rate limit.
 import { apiClient } from "./client";
 
 export interface CopilotQuota {

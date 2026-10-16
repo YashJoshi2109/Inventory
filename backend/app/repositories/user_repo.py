@@ -1,3 +1,5 @@
+"""Data access for User / Role entities. User lookups eager-load roles (and each
+role) via chained ``selectinload``; these entities are global (no owner-scoping)."""
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -7,6 +9,8 @@ from app.repositories.base import BaseRepository
 
 
 class UserRepository(BaseRepository[User]):
+    """User lookups by email/username/id and listing, all with roles eager-loaded."""
+
     def __init__(self, session: AsyncSession) -> None:
         super().__init__(User, session)
 
@@ -46,6 +50,8 @@ class UserRepository(BaseRepository[User]):
 
 
 class RoleRepository(BaseRepository[Role]):
+    """Role lookups by name or id set, plus a full ordered listing."""
+
     def __init__(self, session: AsyncSession) -> None:
         super().__init__(Role, session)
 

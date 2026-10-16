@@ -1,3 +1,15 @@
+/**
+ * EnergyDashboard.tsx — live HVAC / solar energy monitor.
+ *
+ * Polls the backend energy API (fed by the HVAC collector → InfluxDB/Supabase)
+ * for the latest reading plus history, and renders the solar-coverage gauge,
+ * load split, and generation-vs-consumption trend.
+ *
+ * Lab open/closed is *inferred from live power draw* rather than a hard schedule:
+ * an active AC or a total load above threshold means the lab is in use, with the
+ * static `LAB_SCHEDULE` only as a fallback when live data is unavailable. That
+ * inference is the one non-obvious piece of logic in this file.
+ */
 import { useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import {
@@ -343,6 +355,27 @@ export function EnergyDashboard() {
   const influxLive = influxData?.live === true;
   const anyLive    = influxLive || !!data?.live;
 
+  /*
+   * InfluxDB / Postgres merge + derived stats.
+   *
+   * Two data sources: Postgres (`latest`, historical/API snapshot) and live
+   * InfluxDB (`influx`, real-time sensors). InfluxDB is treated as the source of
+   * truth for the live reading, so `mergedLatest` overrides Postgres field-by-field
+   * ONLY where the Influx value is non-null (`?? latest.<field>`), preserving the
+   * Postgres value wherever a sensor is missing.
+   *
+   * `influxDerivedLoad = solar_current_power_w − net_balance_w`: the InfluxDB
+   * balance sensor reports net (surplus/deficit), not total load. Since
+   * net = solar − load, load = solar − net. Deriving load this way (instead of
+   * using Postgres's total_consumption_w) keeps the displayed Load / Net / Solar
+   * numbers internally consistent with the live net sensor. It is null unless both
+   * inputs are present, in which case total_consumption_w falls back to Postgres.
+   *
+   * Efficiency (`efficiencyPct`) fallback order: prefer current solar as a % of
+   * current load (`currentSolarW / currentLoadW`) when both are > 0; otherwise fall
+   * back to today's solar peak over average load (`displaySolarPeak / displayAvgLoad`);
+   * otherwise null. All results are clamped to 100.
+   */
   // Merge: InfluxDB overrides Postgres where non-null
   // When InfluxDB balance sensor reports net, derive total load as solar - net
   // so displayed Load/Net/Solar numbers are internally consistent.

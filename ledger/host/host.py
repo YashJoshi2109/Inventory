@@ -76,12 +76,19 @@ def base_dir() -> Path:
     return Path(__file__).resolve().parent
 
 
-def bundled_dir() -> Path:
-    """Where PyInstaller unpacked our static assets, or the dev source tree."""
+def bundled_dir(here=None) -> Path:
+    """
+    Where PyInstaller unpacked our static assets, or the built bundle on disk.
+
+    Two on-disk layouts exist: the zip's fallback/ folder (and the e2e source
+    run) put dist/ beside host.py; the source tree has host/ beside dist/.
+    """
     meipass = getattr(sys, "_MEIPASS", None)
     if meipass:
         return Path(meipass) / "static"
-    return (Path(__file__).resolve().parent / ".." / "dist").resolve()
+    here = here or Path(__file__).resolve().parent
+    sibling = here / "dist"
+    return sibling if sibling.is_dir() else (here / ".." / "dist").resolve()
 
 
 # -- config ------------------------------------------------------------------

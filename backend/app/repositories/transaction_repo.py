@@ -1,3 +1,7 @@
+"""Data access for inventory transactions: InventoryEvent, StockLevel, and Alert
+entities. Uses ``joinedload``/``selectinload`` for related item/location/actor rows;
+owner-scoping (where applicable) goes through ``owner_filter``. Writes flush, not commit
+(see ``base``)."""
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 
@@ -14,6 +18,9 @@ from app.repositories.base import BaseRepository
 
 
 class InventoryEventRepository(BaseRepository[InventoryEvent]):
+    """Inventory event history: paginated/filtered queries, recent activity, and
+    consumption analytics (time series, top-consumed, counts since a cutoff)."""
+
     def __init__(self, session: AsyncSession) -> None:
         super().__init__(InventoryEvent, session)
 
@@ -69,7 +76,9 @@ class InventoryEventRepository(BaseRepository[InventoryEvent]):
     async def get_consumption_time_series(
         self, item_id: int, days: int = 90
     ) -> list[dict]:
-        """Daily OUT quantity for the past N days — used for forecasting."""
+        """Daily STOCK_OUT quantity for one item since a cutoff of now - ``days`` (UTC),
+        grouped/ordered by day. Used for forecasting. Only days with STOCK_OUT events
+        appear (no zero-fill for gaps); each row's summed qty is coerced to float."""
         cutoff = datetime.now(timezone.utc) - timedelta(days=days)
         result = await self.session.execute(
             select(
@@ -135,6 +144,8 @@ class InventoryEventRepository(BaseRepository[InventoryEvent]):
 
 
 class StockLevelRepository(BaseRepository[StockLevel]):
+    """Per item/location stock quantities: upsert deltas and batch totals (no N+1)."""
+
     def __init__(self, session: AsyncSession) -> None:
         super().__init__(StockLevel, session)
 
@@ -215,6 +226,8 @@ class StockLevelRepository(BaseRepository[StockLevel]):
 
 
 class AlertRepository(BaseRepository[Alert]):
+    """Alert queries: active alerts and counts, owner-scoped by joining to the item."""
+
     def __init__(self, session: AsyncSession) -> None:
         super().__init__(Alert, session)
 

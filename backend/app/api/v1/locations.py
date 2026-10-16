@@ -1,3 +1,5 @@
+"""Locations API: CRUD for storage areas and their locations. Reads and writes are
+owner-scoped via ``sandbox_owner_id`` and mutations are gated by ``require_roles``."""
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 
 from app.api.v1.auth import CurrentUser, require_roles

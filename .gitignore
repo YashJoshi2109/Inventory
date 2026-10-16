@@ -15,8 +15,12 @@ backend/uploads/
 # ─── HVAC Collector ───────────────────────────────────────────────────────────
 hvac_collector/.venv/
 hvac_collector/__pycache__/
-hvac_collector/*.csv          # local CSV backups — data lives in Supabase
-hvac_collector/tokens.json    # OAuth tokens (sensitive)
+# Git has no trailing comments: a "# ..." after a pattern becomes part of the
+# pattern, so these two lines previously matched nothing. Comments go on their own line.
+# Local CSV backups (already-tracked CSVs stay tracked until `git rm --cached`):
+hvac_collector/*.csv
+# OAuth tokens (sensitive):
+hvac_collector/tokens.json
 
 # ─── Node ─────────────────────────────────────────────────────────────────────
 node_modules/
@@ -46,6 +50,14 @@ Thumbs.db
 *.swp
 *.swo
 .env*.local
+
+# ─── Other teams' submissions ─────────────────────────────────────────────────
+# Final_Submission_HVAC_Dashboard.zip carries that team's .env files. Never commit it.
+Final_Submission_*.zip
+
+# ─── Python bytecode anywhere (the three root .pyc were untracked with `git rm --cached`) ─
+__pycache__/
+*.py[cod]
 
 # ─── Professor reference drop (2026-07 Prof Lab Code.zip) ────────────────────
 # 37MB of external reference material: spec docs, baseline reference impl,

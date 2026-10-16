@@ -1,3 +1,5 @@
+"""Data access for Area / Location entities, eager-loading child locations, area, and
+barcodes via ``selectinload``/``joinedload``; owner-scoping goes through ``owner_filter``."""
 from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload, joinedload
@@ -8,6 +10,8 @@ from app.repositories.base import BaseRepository
 
 
 class AreaRepository(BaseRepository[Area]):
+    """Area lookups (by code) and owner-scoped listings with nested locations/barcodes."""
+
     def __init__(self, session: AsyncSession) -> None:
         super().__init__(Area, session)
 
@@ -31,6 +35,8 @@ class AreaRepository(BaseRepository[Area]):
 
 
 class LocationRepository(BaseRepository[Location]):
+    """Location queries (by code, barcode, area) with area and barcodes eager-loaded."""
+
     def __init__(self, session: AsyncSession) -> None:
         super().__init__(Location, session)
 

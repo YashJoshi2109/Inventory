@@ -1,3 +1,14 @@
+/**
+ * useOffline — connectivity state + offline write-queue drainer.
+ *
+ * Tracks `navigator.onLine` via the window `online`/`offline` events (toasting
+ * on each transition) and exposes the count of pending queued mutations. When
+ * connectivity returns it calls `drainOfflineQueue()` to replay them; `syncNow`
+ * does the same on demand and is guarded against concurrent/offline runs.
+ *
+ * Pairs with `client.ts`, which is the producer side: its response interceptor
+ * enqueues failed offline POST/PATCH/DELETE requests that this hook later drains.
+ */
 import { useEffect, useState, useCallback } from "react";
 import { drainOfflineQueue } from "@/offline/queue";
 import { offlineQueue } from "@/offline/queue";
