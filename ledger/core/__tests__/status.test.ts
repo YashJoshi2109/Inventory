@@ -305,3 +305,40 @@ describe("computeStatus", () => {
     expect(r.stats.algorithmVersion).toBe(1);
   });
 });
+
+describe("quarantine and collisions", () => {
+  it("quarantines a row with an unreadable timestamp instead of letting it overwrite status", () => {
+    const r = computeStatus({
+      items: [CELL],
+      events: [
+        ev({ event_id: "INV01-000001", device_id: "INV01", seq: "1", user: "yash",
+             datetime_utc: "2026-07-05T14:00:05Z", event_type: "gtin",
+             value: "00614141123452", location_context: "LOC-SHELF-A", command_context: "place" }),
+        // A hand-edited row: "zzz" sorts after every real timestamp.
+        ev({ event_id: "INV01-000002", device_id: "INV01", seq: "2", user: "yash",
+             datetime_utc: "zzz", event_type: "gtin",
+             value: "00614141123452", location_context: "LOC-SHELF-D", command_context: "place" }),
+      ],
+      config: CONFIG,
+    });
+    const row = r.rows[0];
+    expect(row.location).toBe("LOC-SHELF-A");
+    expect(row.last_event_id).toBe("INV01-000001");
+    expect(r.malformed.map((x) => x.event_id)).toEqual(["INV01-000002"]);
+    expect(r.unknownScans).toEqual([]);
+  });
+
+  it("marks an item created independently on two devices as an id-collision conflict", () => {
+    const r = computeStatus({
+      items: [
+        CELL,
+        item({ event_id: "INV02-I-000001", item_id: "ITM-0001", action: "add",
+               description: "Charger", user: "maria", datetime_utc: "2026-07-05T13:30:00Z" }),
+      ],
+      events: [],
+      config: CONFIG,
+    });
+    expect(r.conflicts.map((c) => c.type)).toEqual(["id-collision"]);
+    expect(r.rows[0].status).toBe("conflict");
+  });
+});

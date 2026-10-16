@@ -55,7 +55,9 @@ exists for; it also smoke-tests the executable and uploads the zip as a build ar
 ```bash
 npm run build
 pyinstaller host/InventoryLedger.spec --distpath build/dist --workpath build/work --noconfirm
-npm run package          # assembles the shippable folder; fails if dev clutter leaks in
+npm run package -- --exe build/dist/InventoryLedger.exe --runtime build/runtime
+                         # assembles the shippable folder; fails if dev clutter leaks in,
+                         # or if the Python runtime the fallback promises is missing
 ```
 
 ## Verifying it
@@ -64,7 +66,7 @@ npm run package          # assembles the shippable folder; fails if dev clutter 
 |---|---|
 | `npm test` | 198 unit and integration tests across core, store, service, bridge, and app |
 | `npm run typecheck` | TypeScript is clean |
-| `python3 -m unittest discover -s host` | 26 host tests (run from `ledger/`, or `cd host && python3 -m unittest test_host`) |
+| `python3 -m unittest discover -s host` | 28 host tests (run from `ledger/`, or `cd host && python3 -m unittest test_host`) |
 | `npm run crossvalidate` | our status algorithm still agrees with Jones's baseline, field by field |
 | `npm run test:e2e` | 11 end-to-end tests against the real host, with every external request aborted |
 | `npm test -- bundle` | the built bundle reaches no external URL |

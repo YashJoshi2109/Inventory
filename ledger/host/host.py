@@ -352,6 +352,10 @@ def make_handler(host: Host):
 # and be maddening to diagnose, so they are skipped even when free.
 RESERVED_PORTS = {5002: "RFID Ledger", 5003: "Energy Ledger"}
 
+# Winsock exposes SO_EXCLUSIVEADDRUSE; no POSIX stack does. Its presence is the
+# reliable way to detect the socket semantics, not the platform name.
+_WINDOWS_SOCKETS = hasattr(socket, "SO_EXCLUSIVEADDRUSE")
+
 
 def find_free_port(preferred: int, bind: str) -> int:
     """Use the configured port when free, otherwise the next one that is."""
@@ -359,13 +363,33 @@ def find_free_port(preferred: int, bind: str) -> int:
         if candidate != preferred and candidate in RESERVED_PORTS:
             continue                       # belongs to another team's program
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-            s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            if _WINDOWS_SOCKETS:
+                # SO_REUSEADDR means something different on Windows: it lets this
+                # bind SUCCEED on a port another process is already listening on.
+                # A probe using it called such a port free, the new host bound
+                # beside a stale instance, and the browser's requests were split
+                # between two processes with two data folders. Ask the question
+                # Windows actually answers: "is this port exclusively mine?"
+                s.setsockopt(socket.SOL_SOCKET, socket.SO_EXCLUSIVEADDRUSE, 1)
+            else:
+                # POSIX: reuse a port still in TIME_WAIT from our own last run.
+                s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
             try:
                 s.bind((bind, candidate))
                 return candidate
             except OSError:
                 continue
     raise RuntimeError(f"no free port in {preferred}..{preferred + 19}")
+
+
+class LedgerHTTPServer(ThreadingHTTPServer):
+    """
+    http.server turns SO_REUSEADDR on for every HTTPServer. On Windows that is
+    the same hazard as in find_free_port: the server would bind a port a stale
+    instance still holds and share its traffic. Keep the POSIX convenience,
+    refuse the Windows sharing.
+    """
+    allow_reuse_address = not _WINDOWS_SOCKETS
 
 
 def main(argv=None):
@@ -375,7 +399,7 @@ def main(argv=None):
     port = find_free_port(host.port, host.bind)
     host.port = port
 
-    server = ThreadingHTTPServer((host.bind, port), make_handler(host))
+    server = LedgerHTTPServer((host.bind, port), make_handler(host))
     url = f"http://localhost:{port}"
 
     # flush=True throughout: stdout is block-buffered when it is not a

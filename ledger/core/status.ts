@@ -72,6 +72,13 @@ export interface StatusResult {
   rows: StatusRow[];
   conflicts: Conflict[];
   unknownScans: EventRow[];
+  /**
+   * Rows whose datetime_utc is not in the contract format. They are kept out of
+   * the state walk -- a malformed timestamp sorts arbitrarily, so letting such a
+   * row through could overwrite a correct current status -- and surfaced here so
+   * someone fixes the row instead of trusting a status it quietly corrupted.
+   */
+  malformed: EventRow[];
   warnings: CorrectionWarning[];
   stats: {
     eventsConsidered: number;
@@ -160,6 +167,7 @@ export function computeStatus(input: StatusInput): StatusResult {
   const accs = new Map<string, Acc>();
   const conflicts: Conflict[] = [];
   const unknownScans: EventRow[] = [];
+  const malformed: EventRow[] = [];
   const nonContractTypes = new Set<string>();
   let considered = 0;
   let amended = 0;
@@ -182,6 +190,11 @@ export function computeStatus(input: StatusInput): StatusResult {
       };
     }
 
+    // Quarantine before anything is mutated: the sort above used the raw string,
+    // so an unreadable timestamp may have landed this row after real history.
+    const ts = parseTimestamp(row.datetime_utc);
+    if (!Number.isFinite(ts)) { malformed.push(row); continue; }
+
     const item = registry.resolve(row.value);
     if (!item) { unknownScans.push(row); continue; }
     considered++;
@@ -189,7 +202,6 @@ export function computeStatus(input: StatusInput): StatusResult {
     const acc = accs.get(item.item_id) ?? newAcc();
     accs.set(item.item_id, acc);
 
-    const ts = parseTimestamp(row.datetime_utc);
     const cmd = row.command_context;
     const isRfid = row.event_type === "observation";
 
@@ -276,6 +288,20 @@ export function computeStatus(input: StatusInput): StatusResult {
     acc.lastSeen = row.datetime_utc;
   }
 
+  // An item_id minted on two devices is two records wearing one name. Status
+  // still shows the latest row, but the item is a conflict until an admin picks.
+  for (const collision of registry.collisions) {
+    const acc = accs.get(collision.item_id) ?? newAcc();
+    accs.set(collision.item_id, acc);
+    acc.conflicted = true;
+    conflicts.push({
+      type: "id-collision",
+      item_id: collision.item_id,
+      events: [],
+      detail: `created independently on ${collision.devices.join(" and ")}`,
+    });
+  }
+
   const rows: StatusRow[] = [];
   const itemsSorted = [...registry.byItemId].sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0));
   for (const [itemId, item] of itemsSorted) {
@@ -306,6 +332,7 @@ export function computeStatus(input: StatusInput): StatusResult {
     rows,
     conflicts,
     unknownScans,
+    malformed,
     warnings: corrections.warnings,
     stats: {
       eventsConsidered: considered,

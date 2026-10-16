@@ -99,6 +99,27 @@ export function HealthPanel({
         </table>
       ) : <p className="ok">None.</p>}
 
+      <h3>Rows with unreadable timestamps</h3>
+      <p className="muted small">
+        Kept out of status: a row whose time cannot be read could land anywhere in
+        history. Fix the row in the CSV, or have an admin void it.
+      </p>
+      {status && status.malformedRows.length > 0 ? (
+        <table>
+          <thead><tr><th>event_id</th><th>value</th><th>datetime_utc</th><th>by</th></tr></thead>
+          <tbody>
+            {status.malformedRows.map((r) => (
+              <tr key={r.event_id}>
+                <td className="mono">{r.event_id}</td>
+                <td className="mono">{r.value}</td>
+                <td className="mono">{r.datetime_utc}</td>
+                <td>{r.user}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      ) : <p className="ok">None.</p>}
+
       <h3>Conflicts</h3>
       {status && status.conflicts.length > 0 ? (
         <ul>

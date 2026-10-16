@@ -69,3 +69,55 @@ describe("item registry", () => {
     expect(reg.byItemId.get("ITM-1")?.action).toBe("retire");
   });
 });
+
+describe("serialized items sharing a GTIN", () => {
+  // Two physical assets of the same product. Only the serial tells them apart.
+  const twins = [
+    item({ event_id: "INV01-I-000001", item_id: "ITM-0001", action: "add", description: "Module A",
+           gtin: "00614141123452", serial_number: "SN-6789", datetime_utc: "2026-07-05T14:00:00Z" }),
+    item({ event_id: "INV01-I-000002", item_id: "ITM-0002", action: "add", description: "Module B",
+           gtin: "00614141123452", serial_number: "SN-6790", datetime_utc: "2026-07-05T14:01:00Z" }),
+  ];
+
+  it("resolves an SGTIN-96 EPC to the item whose serial matches, not the first GTIN owner", () => {
+    const reg = buildRegistry(twins);
+    // Same GTIN; the last hex digits carry the serial: ...1A85 = 6789, ...1A86 = 6790.
+    expect(reg.resolve("3074257BF40C0E4000001A85")?.item_id).toBe("ITM-0001");
+    expect(reg.resolve("3074257BF40C0E4000001A86")?.item_id).toBe("ITM-0002");
+  });
+
+  it("refuses to guess when the EPC serial matches none of the GTIN's items", () => {
+    const reg = buildRegistry(twins);
+    expect(reg.resolve("3074257BF40C0E4000001A87")).toBeNull();            // serial 6791
+  });
+
+  it("still joins by GTIN alone when exactly one item carries it", () => {
+    const reg = buildRegistry([
+      item({ event_id: "INV01-I-000001", item_id: "ITM-0001", action: "add", description: "Cell",
+             gtin: "00614141123452", serial_number: "SN-4415", datetime_utc: "2026-07-05T14:00:00Z" }),
+    ]);
+    expect(reg.resolve("3074257BF40C0E4000001A85")?.item_id).toBe("ITM-0001");
+  });
+});
+
+describe("item ids created independently on two devices", () => {
+  it("reports the collision instead of letting the later row silently win", () => {
+    const reg = buildRegistry([
+      item({ event_id: "INV01-I-000001", item_id: "ITM-0001", action: "add", description: "Cell",
+             datetime_utc: "2026-07-05T14:00:00Z" }),
+      item({ event_id: "INV02-I-000001", item_id: "ITM-0001", action: "add", description: "Charger",
+             datetime_utc: "2026-07-05T14:00:30Z" }),
+    ]);
+    expect(reg.collisions).toEqual([{ item_id: "ITM-0001", devices: ["INV01", "INV02"] }]);
+  });
+
+  it("does not treat a revision made on another device as a collision", () => {
+    const reg = buildRegistry([
+      item({ event_id: "INV01-I-000001", item_id: "ITM-0001", action: "add", description: "Cell",
+             datetime_utc: "2026-07-05T14:00:00Z" }),
+      item({ event_id: "INV02-I-000001", item_id: "ITM-0001", action: "revise", description: "Cell (rewrapped)",
+             datetime_utc: "2026-07-06T09:00:00Z" }),
+    ]);
+    expect(reg.collisions).toEqual([]);
+  });
+});

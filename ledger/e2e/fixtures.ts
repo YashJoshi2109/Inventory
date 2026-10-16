@@ -5,7 +5,7 @@
  * Both are the same program; testing whichever is present means the CI job that
  * builds the executable exercises the executable.
  */
-import { spawn, type ChildProcess } from "node:child_process";
+import { spawn, spawnSync, type ChildProcess } from "node:child_process";
 import { cpSync, existsSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve, dirname } from "node:path";
@@ -33,6 +33,39 @@ async function waitForHost(url: string, timeoutMs = 20_000): Promise<void> {
     await new Promise((r) => setTimeout(r, 200));
   }
   throw new Error(`host did not come up at ${url}`);
+}
+
+/**
+ * Wait until nothing answers at `url` any more. A stop that returns while the
+ * old process is still serving would let the next launch share its port.
+ */
+async function waitForHostGone(url: string, timeoutMs = 10_000): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    try {
+      await fetch(`${url}/api/meta`, { signal: AbortSignal.timeout(1000) });
+    } catch {
+      return;                        // connection refused: it is gone
+    }
+    await new Promise((r) => setTimeout(r, 200));
+  }
+  throw new Error(`a host is still answering at ${url} after stop()`);
+}
+
+/**
+ * End the host process and everything it spawned.
+ *
+ * A PyInstaller one-file executable is a bootloader parent plus a Python child.
+ * On Windows, `kill()` terminates only the parent: the child keeps serving on
+ * the same port and keeps the data directory open, which is exactly the stale
+ * instance these tests must never run beside. `taskkill /T` takes the tree.
+ */
+function killTree(p: ChildProcess): void {
+  if (process.platform === "win32" && p.pid) {
+    spawnSync("taskkill", ["/PID", String(p.pid), "/T", "/F"], { stdio: "ignore" });
+  } else {
+    p.kill();
+  }
 }
 
 /**
@@ -82,7 +115,10 @@ export async function startHost(existingDir?: string): Promise<RunningHost> {
     if (!proc) return;
     const p = proc;
     proc = null;
-    await new Promise<void>((r) => { p.once("exit", () => r()); p.kill(); setTimeout(r, 3000); });
+    const exited = new Promise<void>((r) => { p.once("exit", () => r()); setTimeout(r, 5000); });
+    killTree(p);
+    await exited;
+    if (url) await waitForHostGone(url);
   };
 
   await launch();
@@ -97,5 +133,6 @@ export async function startHost(existingDir?: string): Promise<RunningHost> {
 }
 
 export function cleanup(host: RunningHost): void {
-  rmSync(host.dir, { recursive: true, force: true });
+  // Windows releases a just-killed process's handles a beat after it exits.
+  rmSync(host.dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 250 });
 }

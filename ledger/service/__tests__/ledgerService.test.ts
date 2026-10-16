@@ -297,3 +297,15 @@ describe("bootstrap reconciliation", () => {
     expect(kept?.location_context).toBe("LOC-SHELF-A");
   });
 });
+
+describe("item id allocation under concurrency", () => {
+  it("never hands two overlapping addItem calls the same id", async () => {
+    const { service } = build();
+    const rows = await Promise.all([
+      service.addItem({ description: "One" }),
+      service.addItem({ description: "Two" }),
+      service.addItem({ description: "Three" }),
+    ]);
+    expect(new Set(rows.map((r) => r.item_id)).size).toBe(3);
+  });
+});

@@ -57,8 +57,10 @@ fails honestly over one that reads as finished:
   it is given them, and `ENERGY_COLUMNS` is a schema with no reader behind it.
 - `POST /api/mirror` never reports collisions, though its docstring says it does, and it
   accepts rows carrying another device's `device_id`.
-- EPC resolution matches the decoded GTIN and ignores the serial, so two units sharing a
-  GTIN resolve to the same item.
+- Item ids are `ITM-NNNN`, max+1 per device, the same rule as the baseline. Two devices
+  can mint the same id; `buildRegistry` now reports that as an `id-collision` conflict,
+  but nothing resolves it (Gate 4), and unique allocation needs a ruling from Jones
+  (`docs/QUESTIONS_FOR_DR_JONES_2026-08.md`, question 5, in the parent repository).
 - The RFID program writes zone names (`Zone A (Battery Storage)`); we expect `LOC-*` codes,
   and `core/normalize.ts` upper-cases them for display. The vocabulary is not yet agreed.
 - Acceptance test 8 has been satisfied by a probe-tested pattern scan, not by `gitleaks`.

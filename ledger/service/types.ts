@@ -69,6 +69,8 @@ export interface StatusView {
   rows: StatusRow[];
   conflicts: Conflict[];
   unknownScans: EventRow[];
+  /** Rows kept out of status because their timestamp is unreadable. */
+  malformedRows: EventRow[];
   nonContractEventTypes: string[];
   generatedAtMs: number;
 }

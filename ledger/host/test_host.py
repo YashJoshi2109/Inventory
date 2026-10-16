@@ -271,5 +271,32 @@ class TestHttpApi(unittest.TestCase):
             pass          # the client may normalise the path away; also fine
 
 
+class TestPortProbe(unittest.TestCase):
+    """
+    On Windows, SO_REUSEADDR lets a second socket bind a port another socket is
+    already LISTENING on. A probe that used it called such a port free, the new
+    host bound beside a stale instance, and requests were split between two
+    processes with two data folders -- which is what the Windows e2e run did.
+    """
+
+    def test_reports_a_port_with_a_live_listener_as_busy(self):
+        import socket
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as listener:
+            listener.bind(("127.0.0.1", 0))
+            listener.listen(1)
+            port = listener.getsockname()[1]
+            self.assertNotEqual(H.find_free_port(port, "127.0.0.1"), port)
+
+    def test_server_refuses_a_port_a_stale_instance_still_holds(self):
+        import socket
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as listener:
+            listener.bind(("127.0.0.1", 0))
+            listener.listen(1)
+            port = listener.getsockname()[1]
+            with self.assertRaises(OSError):
+                server = H.LedgerHTTPServer(("127.0.0.1", port), H.make_handler(None))
+                server.server_close()
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

@@ -10,8 +10,14 @@
  * file, or anything else a lab technician has no use for.
  *
  * Usage:
- *   node scripts/package.mjs --exe build/dist/InventoryLedger.exe --out build/InventoryLedger-windows.zip
+ *   node scripts/package.mjs --exe build/dist/InventoryLedger.exe --runtime build/runtime \
+ *                            --out build/InventoryLedger-windows.zip
  *   node scripts/package.mjs --stage-only --out build/stage        (no exe yet)
+ *
+ * --runtime is the unpacked python.org "embeddable" distribution for Windows.
+ * It becomes fallback/runtime, which RUN_ME.txt and Start_Inventory.bat both
+ * promise. A shippable zip without it is refused unless --no-runtime says that
+ * omission is deliberate, so the promise can never be broken by accident.
  */
 import { execFileSync } from "node:child_process";
 import {
@@ -29,7 +35,9 @@ function arg(name, fallback = null) {
   return i !== -1 && process.argv[i + 1] ? process.argv[i + 1] : fallback;
 }
 const stageOnly = process.argv.includes("--stage-only");
+const noRuntime = process.argv.includes("--no-runtime");
 const exePath = arg("--exe");
+const runtimePath = arg("--runtime");
 const outPath = arg("--out", join(LEDGER, "build", "InventoryLedger-windows.zip"));
 
 const stage = stageOnly ? resolve(outPath) : join(LEDGER, "build", "stage");
@@ -84,6 +92,17 @@ const fallback = join(stage, "fallback");
 mkdirSync(fallback, { recursive: true });
 cpSync(join(LEDGER, "host", "host.py"), join(fallback, "host.py"));
 cpSync(join(LEDGER, "dist"), join(fallback, "dist"), { recursive: true });
+if (runtimePath) {
+  const python = join(runtimePath, "python.exe");
+  if (!existsSync(python)) {
+    throw new Error(`--runtime ${runtimePath} has no python.exe; expected the unpacked python.org embeddable zip`);
+  }
+  cpSync(runtimePath, join(fallback, "runtime"), { recursive: true });
+} else if (!stageOnly && !noRuntime) {
+  throw new Error(
+    "--runtime <dir> is required: RUN_ME.txt promises a bundled Python in fallback\\runtime.\n" +
+    "Pass --no-runtime only for a build that is meant to ship without it.");
+}
 writeFileSync(join(fallback, "Start_Inventory.bat"),
   "@echo off\r\n" +
   "REM Fallback launcher for machines where antivirus blocks the unsigned exe.\r\n" +
@@ -99,9 +118,11 @@ writeFileSync(join(fallback, "Start_Inventory.bat"),
 writeFileSync(join(fallback, "README.txt"),
   "Fallback launcher. Identical program, started by the bundled Python instead\n" +
   "of the packaged exe. Use this only if Windows or antivirus blocks the exe.\n\n" +
-  "runtime\\ holds an unmodified embeddable Python from python.org and is added\n" +
-  "by the build. If it is absent, this folder still works on any machine that\n" +
-  "already has Python 3.9 or newer: python host.py\n", "utf8");
+  (runtimePath
+    ? "runtime\\ holds an unmodified embeddable Python from python.org, added by\n" +
+      "the build. Nothing to install.\n"
+    : "This build was assembled WITHOUT runtime\\. The folder still works on any\n" +
+      "machine that already has Python 3.9 or newer: python host.py\n"), "utf8");
 
 // -- report -------------------------------------------------------------------
 function walk(dir, prefix = "") {

@@ -1,6 +1,6 @@
 # Contract Questions — Inventory Team, August 2026
 
-Four places where `LAB_SELF_HOSTING_MANUAL.md` and the `RAID_Ledger_Baseline` reference
+Five places where `LAB_SELF_HOSTING_MANUAL.md` and the `RAID_Ledger_Baseline` reference
 implementation disagree, or where the contract is silent. We have implemented an answer for
 each so work could continue, and each is isolated to one function so a different ruling is a
 small change. We would rather have your ruling than keep our guess.
@@ -76,6 +76,40 @@ would rather be permissive in what we read and strict in what we write.
 
 **What we would like:** either add `serial` to the enum, or confirm the baseline should stop
 emitting it.
+
+---
+
+## 5. How should `item_id` be allocated across devices?
+
+**The contract** fixes the item-master columns and says "latest row per `item_id` wins", but
+says nothing about who mints an `item_id` or how.
+
+**The reference implementation** (`app.py`) allocates `ITM-NNNN` as max+1 over the item
+master it can see. We do the same, so the two allocate identically on one machine.
+
+**The problem** appears with two machines. Each starts at `ITM-0001`. When their item masters
+are later merged, "latest row wins" makes one lab's item silently become the other's, and
+every scan of the loser is attributed to the winner's record. This is the same class of
+failure the conflict queue exists for, but it happens one level up, in the master, not in
+the event log.
+
+**What we implemented:** detection, not resolution. `buildRegistry` reports an `item_id`
+that carries an `add` row from more than one device, and status shows that item as a
+conflict awaiting admin review. On a single device, allocation is serialized so two
+overlapping registrations cannot draw the same number. We did not change the id format.
+
+**What we would like:** a ruling on allocation. The options we see:
+
+1. Keep `ITM-NNNN` and treat cross-device clashes as conflicts for the admin to resolve
+   (what the program does now).
+2. Qualify the id by device (`ITM-INV01-0001`), which makes ids globally unique by
+   construction and never clashes, but changes what is printed on labels and what the
+   baseline produces.
+3. Allocate from a shared counter in the sync folder, which is unique but needs the
+   folder to be reachable at registration time, and the program must work offline.
+
+Option 1 costs an admin step per clash; option 2 is the smallest change to the code and
+the largest to the labels. Either is a one-function change on our side.
 
 ---
 

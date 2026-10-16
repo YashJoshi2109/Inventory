@@ -59,6 +59,8 @@ export class LedgerService {
   /** Ephemeral session state. Deliberately not persisted. */
   private user = "";
   private armed: Armed | null = null;
+  /** addItem calls queue behind this so two never read the same max id. */
+  private itemAllocation: Promise<void> = Promise.resolve();
 
   constructor(opts: LedgerServiceOptions) {
     this.store = opts.store;
@@ -215,7 +217,24 @@ export class LedgerService {
 
   // -- item master ---------------------------------------------------------
 
+  /**
+   * Item ids are ITM-NNNN, max+1 over the local master -- the same rule as
+   * Jones's reference implementation, so both allocate identically. Two
+   * overlapping calls would both read the same max, so allocation is serialized
+   * per service. Across devices the rule cannot be made unique without changing
+   * the contract; buildRegistry detects that case and reports it as an
+   * id-collision instead (docs/QUESTIONS_FOR_DR_JONES_2026-08.md, question 5).
+   */
   async addItem(input: {
+    description: string; category?: string; gtin?: string;
+    serial_number?: string; epc?: string;
+  }): Promise<ItemRow> {
+    const run = this.itemAllocation.then(() => this.allocateItem(input));
+    this.itemAllocation = run.then(() => undefined, () => undefined);
+    return run;
+  }
+
+  private async allocateItem(input: {
     description: string; category?: string; gtin?: string;
     serial_number?: string; epc?: string;
   }): Promise<ItemRow> {
@@ -284,6 +303,7 @@ export class LedgerService {
       rows: result.rows,
       conflicts: result.conflicts,
       unknownScans: result.unknownScans,
+      malformedRows: result.malformed,
       nonContractEventTypes: result.stats.nonContractEventTypes,
       generatedAtMs: this.nowMs(),
     };
