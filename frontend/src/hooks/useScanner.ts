@@ -42,15 +42,17 @@ export function useScanner({ onScan, onError, preferBackCamera = true, cooldownM
     }
   }, [preferBackCamera]);
 
+  // One "generation" per start(). A stop() or a newer start() bumps it, so the
+  // controls from an older, still-resolving decodeFromVideoDevice() are shut
+  // down the moment they arrive instead of leaking a second camera stream and
+  // decode loop. React StrictMode mounts twice; without this the first stream
+  // kept running under the second one.
+  const generationRef = useRef(0);
+
   const start = useCallback(async () => {
     if (!videoRef.current) return;
-    // If already scanning but controls are dead, reset so we can restart
-    if (state === "scanning" && !controlsRef.current) {
-      readerRef.current = null;
-      setState("idle");
-      return;
-    }
-    if (state === "scanning") return;
+    if (controlsRef.current) return;                 // already scanning
+    const generation = ++generationRef.current;
     setState("starting");
     setError(null);
 
@@ -66,44 +68,81 @@ export function useScanner({ onScan, onError, preferBackCamera = true, cooldownM
           BarcodeFormat.UPC_E,
         ]);
         readerRef.current = new BrowserMultiFormatReader(hints, {
-          delayBetweenScanAttempts: 100,
+          // 100 ms meant a full-frame multi-format decode ten times a second on
+          // the main thread. On phones that pinned the CPU and grew memory until
+          // the tab was reloaded. Four attempts a second still feels instant.
+          delayBetweenScanAttempts: 250,
+          delayBetweenScanSuccess: cooldownMs,
         });
       }
-      const deviceId = selectedCamera ?? undefined;
 
-      controlsRef.current = await readerRef.current.decodeFromVideoDevice(
-        deviceId,
-        videoRef.current,
-        (result, err) => {
-          if (result) {
-            const value = result.getText();
-            const now = Date.now();
-            const last = lastScanRef.current;
-            if (value === last.value && now - last.time < cooldownMs) {
-              return;
-            }
-            lastScanRef.current = { value, time: now };
-            onScanRef.current(value, result);
+      const onDecode = (result: Result | undefined, err: Error | undefined) => {
+        if (result) {
+          const value = result.getText();
+          const now = Date.now();
+          const last = lastScanRef.current;
+          if (value === last.value && now - last.time < cooldownMs) {
+            return;
           }
-          if (err && err.name !== "NotFoundException") {
-            // Ignore ChecksumException and FormatException — they're transient
-            if (err.name === "ChecksumException" || err.name === "FormatException") return;
-            const scanError = new Error(err.message);
-            setError(err.message);
-            onError?.(scanError);
-          }
+          lastScanRef.current = { value, time: now };
+          onScanRef.current(value, result);
         }
-      );
+        if (err && err.name !== "NotFoundException") {
+          // Ignore ChecksumException and FormatException — they're transient
+          if (err.name === "ChecksumException" || err.name === "FormatException") return;
+          const scanError = new Error(err.message);
+          setError(err.message);
+          onError?.(scanError);
+        }
+      };
+
+      // Ask for a modest frame: decoding works on luminance and does not need
+      // 4K, and every frame is copied into a canvas for ZXing.
+      const constraintsFor = (deviceId: string | null): MediaStreamConstraints => ({
+        video: {
+          ...(deviceId ? { deviceId: { exact: deviceId } } : { facingMode: "environment" }),
+          width: { ideal: 1280 },
+          height: { ideal: 720 },
+        },
+      });
+
+      let controls: IScannerControls;
+      try {
+        controls = await readerRef.current.decodeFromConstraints(
+          constraintsFor(selectedCamera), videoRef.current, onDecode,
+        );
+      } catch (e: unknown) {
+        // enumerateDevices() still lists a camera that has gone away (an iPhone
+        // Continuity Camera, a virtual camera, a stale id from before permission
+        // was granted). "Requested device not found" is the result. Fall back to
+        // any camera rather than dead-ending the page.
+        const name = e instanceof Error ? e.name : "";
+        const retryable = selectedCamera && (name === "OverconstrainedError" || name === "NotFoundError");
+        if (!retryable) throw e;
+        setSelectedCamera(null);
+        controls = await readerRef.current.decodeFromConstraints(
+          constraintsFor(null), videoRef.current, onDecode,
+        );
+      }
+
+      if (generation !== generationRef.current) {
+        // stop() or another start() happened while the camera was opening.
+        controls.stop();
+        return;
+      }
+      controlsRef.current = controls;
       setState("scanning");
     } catch (e: unknown) {
+      if (generation !== generationRef.current) return;   // superseded; not an error
       const msg = e instanceof Error ? e.message : "Camera access denied";
       setError(msg);
       setState("error");
       onError?.(new Error(msg));
     }
-  }, [state, selectedCamera, onError, cooldownMs]);
+  }, [selectedCamera, onError, cooldownMs]);
 
   const stop = useCallback(() => {
+    generationRef.current++;
     controlsRef.current?.stop();
     controlsRef.current = null;
     setState("stopped");
@@ -116,9 +155,37 @@ export function useScanner({ onScan, onError, preferBackCamera = true, cooldownM
   useEffect(() => {
     listCameras();
     return () => {
+      generationRef.current++;
       controlsRef.current?.stop();
+      controlsRef.current = null;
     };
   }, [listCameras]);
+
+  // A backgrounded tab keeps the camera and the decode loop alive otherwise,
+  // which is where the "scanner went off / page reloaded" reports came from on
+  // phones. Release the camera when hidden and pick it back up on return, but
+  // only if it was this handler that stopped it: a scanner the user stopped
+  // stays stopped.
+  const startRef = useRef(start);
+  startRef.current = start;
+  const pausedByVisibilityRef = useRef(false);
+  useEffect(() => {
+    const onVisibility = () => {
+      if (document.visibilityState === "hidden") {
+        if (!controlsRef.current) return;
+        generationRef.current++;
+        controlsRef.current.stop();
+        controlsRef.current = null;
+        pausedByVisibilityRef.current = true;
+        setState("stopped");
+      } else if (pausedByVisibilityRef.current) {
+        pausedByVisibilityRef.current = false;
+        void startRef.current();
+      }
+    };
+    document.addEventListener("visibilitychange", onVisibility);
+    return () => document.removeEventListener("visibilitychange", onVisibility);
+  }, []);
 
   return {
     videoRef,

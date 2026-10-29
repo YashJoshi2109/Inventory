@@ -15,7 +15,9 @@ from typing import Any
 from fastapi import APIRouter, Depends, Query, Request
 from sqlalchemy import text
 
+from app.api.v1 import energy_hub
 from app.api.v1.auth import CurrentUser, require_roles
+from app.core.config import settings
 from app.core.database import AsyncSessionLocal, DbSession
 from app.core.sandbox import is_sandbox_request
 from app.models.user import RoleName
@@ -138,17 +140,23 @@ BREAKER_EST    = 300    # W
 
 def _derive(row: dict[str, Any]) -> dict[str, Any]:
     """Add computed wattage / net-balance fields if the DB row lacks them."""
-    ac_mode = str(row.get("ac_power_mode") or "")
-    ac_w = row.get("ac_consumption_w") or (
-        AC_RUN_POWER if ac_mode not in ("POWER_OFF", "nan", "None", "") else 0
-    )
+    # "or" would turn a measured 0 W into the nameplate estimate, so every
+    # fallback below is on None only. An offline air conditioner draws 0 W.
+    ac_mode = str(row.get("ac_power_mode") or "").upper()
+    ac_w = row.get("ac_consumption_w")
+    if ac_w is None:
+        ac_w = AC_RUN_POWER if ac_mode not in ("POWER_OFF", "OFFLINE", "OFF", "NAN", "NONE", "") else 0
     hwh_running = row.get("hwh_running") in (True, "true", "True", 1)
-    hwh_w = row.get("hwh_consumption_w") or (
-        HWH_RUN_POWER if hwh_running else HWH_IDLE_POWER
-    )
-    total_w = row.get("total_consumption_w") or (ac_w + hwh_w + BASE_LOAD + BREAKER_EST)
+    hwh_w = row.get("hwh_consumption_w")
+    if hwh_w is None:
+        hwh_w = HWH_RUN_POWER if hwh_running else HWH_IDLE_POWER
+    total_w = row.get("total_consumption_w")
+    if total_w is None:
+        total_w = ac_w + hwh_w + BASE_LOAD + BREAKER_EST
     solar_w = float(row.get("solar_current_power_w") or 0)
-    net_w   = row.get("net_balance_w") or (solar_w - total_w)
+    net_w = row.get("net_balance_w")
+    if net_w is None:
+        net_w = solar_w - total_w
 
     return {
         **row,
@@ -195,6 +203,23 @@ async def get_dashboard(
     _sandbox = is_sandbox_request(request)
     owner_filter = "AND owner_id = :owner_id" if _sandbox else ""
     owner_params: dict[str, Any] = {"owner_id": current_user.id} if _sandbox else {}
+
+    # ── The lab's energy hub, when it answers ──────────────────────────────────
+    # Real data comes from the standalone HVAC dashboard that polls the devices.
+    # Sandbox users keep their own synthetic readings in Postgres.
+    if not _sandbox and settings.ENERGY_HUB_URL:
+        hub = await energy_hub.fetch_hub(
+            settings.ENERGY_HUB_URL, hours=hours, timeout_s=settings.ENERGY_HUB_TIMEOUT_S,
+        )
+        if hub is not None:
+            hub_latest = energy_hub.latest_from_hub(hub[0], ac_run_w=AC_RUN_POWER)
+            if hub_latest is not None:
+                return _dashboard_from_rows(
+                    hub_latest,
+                    [r for r in energy_hub.history_from_hub(hub[1], ac_run_w=AC_RUN_POWER)
+                     if r["timestamp"] >= since],
+                    source="energy-hub",
+                )
 
     # ── Latest reading ─────────────────────────────────────────────────────────
     latest_result = await session.execute(
@@ -289,6 +314,38 @@ async def get_dashboard(
             "savings_status":         "SURPLUS" if net_balance >= 0 else "DEFICIT",
         },
         "live": True,
+        "source": "postgres",
+    }
+
+
+def _dashboard_from_rows(
+    latest_row: dict[str, Any], history_rows: list[dict[str, Any]], *, source: str
+) -> dict[str, Any]:
+    """Shape in-memory rows (from the energy hub) exactly as the Postgres branch does."""
+    latest = _derive(latest_row)
+    latest["timestamp"] = latest["timestamp"].strftime("%Y-%m-%d %H:%M:%S")
+    rows = [_derive(r) for r in history_rows]
+    today_start = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
+    today = [r for r in rows if r["timestamp"] >= today_start] or rows
+    solar_peak = max((r["solar_current_power_w"] for r in today), default=0.0)
+    cons_avg = (sum(r["total_consumption_w"] for r in today) / len(today)) if today else 0.0
+    return {
+        "latest": latest,
+        "history": {
+            "labels":      [r["timestamp"].strftime("%H:%M") for r in rows],
+            "solar":       [r["solar_current_power_w"] for r in rows],
+            "ac":          [r["ac_consumption_w"] for r in rows],
+            "hwh":         [r["hwh_consumption_w"] for r in rows],
+            "consumption": [r["total_consumption_w"] for r in rows],
+            "net":         [r["net_balance_w"] for r in rows],
+        },
+        "stats": {
+            "solar_peak_today":      round(float(solar_peak), 1),
+            "total_consumption_avg": round(float(cons_avg), 1),
+            "savings_status":        "SURPLUS" if float(latest["net_balance_w"]) >= 0 else "DEFICIT",
+        },
+        "live": True,
+        "source": source,
     }
 
 

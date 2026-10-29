@@ -523,6 +523,12 @@ async def passkey_login_complete(
             pass
 
     if not stored:
+        # The credential id is a public identifier, so logging it is safe and it is
+        # the one fact that tells a stale keychain entry apart from a server bug.
+        _log.warning(
+            "Passkey login rejected: credential id %s is not registered (rp_id=%s, user_key=%s)",
+            cred_id_str, rp_id, user_key,
+        )
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Passkey not recognised. Please register your device first.",

@@ -149,16 +149,20 @@ function AnimatedNumber({ target, prefix = "", suffix = "" }: {
   suffix?: string;
 }) {
   const [display, setDisplay] = useState(0);
-  const prev = useRef(0);
+  // Where the counter currently sits. Updated on every frame, so a restart
+  // (StrictMode's mount/unmount/mount, or a refetch mid-animation) resumes
+  // from the visible value instead of skipping the animation and staying at 0.
+  const shown = useRef(0);
 
   useEffect(() => {
-    if (prev.current === target) return;
-    const from = prev.current;
-    prev.current = target;
-    const ctrl = animate(from, target, {
+    if (shown.current === target) return;
+    const ctrl = animate(shown.current, target, {
       duration: 1.1,
       ease: "easeOut",
-      onUpdate: (v) => setDisplay(Math.round(v)),
+      onUpdate: (v) => {
+        shown.current = v;
+        setDisplay(Math.round(v));
+      },
     });
     return () => ctrl.stop();
   }, [target]);
@@ -741,15 +745,16 @@ function ActivityRow({ event }: { event: InventoryEvent }) {
 // ── Animated watt value ───────────────────────────────────────────────────────
 function AnimatedWatt({ value }: { value: number }) {
   const [display, setDisplay] = useState(value);
-  const prev = useRef(value);
+  const shown = useRef(value);   // see AnimatedNumber: resume from the visible value
   useEffect(() => {
-    if (prev.current === value) return;
-    const from = prev.current;
-    prev.current = value;
-    const ctrl = animate(from, value, {
+    if (shown.current === value) return;
+    const ctrl = animate(shown.current, value, {
       duration: 0.9,
       ease: "easeOut",
-      onUpdate: (v) => setDisplay(Math.round(v)),
+      onUpdate: (v) => {
+        shown.current = v;
+        setDisplay(Math.round(v));
+      },
     });
     return () => ctrl.stop();
   }, [value]);

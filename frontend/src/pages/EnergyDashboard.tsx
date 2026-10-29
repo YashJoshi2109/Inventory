@@ -99,8 +99,10 @@ function solarPercent(solar: number, total: number): number {
   return Math.min(100, (solar / total) * 100);
 }
 
+// The energy hub reports OFFLINE, OFF and STANDBY for a unit drawing nothing.
+const AC_OFF_MODES = new Set(["", "NAN", "NONE", "OFF", "OFFLINE", "POWER_OFF", "STANDBY"]);
 const AC_ON = (mode: string | null) =>
-  mode != null && mode !== "POWER_OFF" && mode !== "nan" && mode !== "";
+  mode != null && !AC_OFF_MODES.has(mode.toUpperCase());
 
 // ── Sub-components ────────────────────────────────────────────────────────────
 
@@ -863,7 +865,11 @@ export function EnergyDashboard() {
                   </span>
                 </h2>
                 <p className="text-[11px] mt-0.5" style={{ color: "var(--text-muted)" }}>
-                  {influxLive ? "Live InfluxDB stream" : "Postgres history"}
+                  {influxLive
+                    ? "Live InfluxDB stream"
+                    : data?.source === "energy-hub"
+                      ? "Live from the lab energy hub"
+                      : "Postgres history"}
                 </p>
               </div>
               <div className="flex flex-wrap items-center gap-3 text-[11px]" style={{ color: "var(--text-secondary)" }}>
