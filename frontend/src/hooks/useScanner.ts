@@ -163,14 +163,24 @@ export function useScanner({ onScan, onError, preferBackCamera = true, cooldownM
 
   // A backgrounded tab keeps the camera and the decode loop alive otherwise,
   // which is where the "scanner went off / page reloaded" reports came from on
-  // phones. Release the camera when hidden; the page restarts it on return.
+  // phones. Release the camera when hidden and pick it back up on return, but
+  // only if it was this handler that stopped it: a scanner the user stopped
+  // stays stopped.
+  const startRef = useRef(start);
+  startRef.current = start;
+  const pausedByVisibilityRef = useRef(false);
   useEffect(() => {
     const onVisibility = () => {
-      if (document.visibilityState === "hidden" && controlsRef.current) {
+      if (document.visibilityState === "hidden") {
+        if (!controlsRef.current) return;
         generationRef.current++;
         controlsRef.current.stop();
         controlsRef.current = null;
+        pausedByVisibilityRef.current = true;
         setState("stopped");
+      } else if (pausedByVisibilityRef.current) {
+        pausedByVisibilityRef.current = false;
+        void startRef.current();
       }
     };
     document.addEventListener("visibilitychange", onVisibility);
