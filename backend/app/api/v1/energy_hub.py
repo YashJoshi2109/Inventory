@@ -35,6 +35,9 @@ _AC_OFF_MODES = {"", "NONE", "OFF", "OFFLINE", "POWER_OFF", "STANDBY"}
 FRESH_SECONDS = 60
 #: How long a stale payload is still served when the hub does not answer.
 STALE_SECONDS = 15 * 60
+#: After a failed fetch, how long further requests reuse that outcome instead of
+#: each waiting out the timeout in turn behind the lock.
+RETRY_AFTER_SECONDS = 30
 
 
 def _num(value: Any) -> float | None:
@@ -126,8 +129,14 @@ def history_from_hub(rows: list[dict[str, Any]], *, ac_run_w: float) -> list[dic
 
 # ── Fetching, with a stale-while-revalidate cache ───────────────────────────
 
-_cache: dict[str, Any] = {"at": 0.0, "hours": 0, "data": None, "history": None}
+_cache: dict[str, Any] = {"at": 0.0, "hours": 0, "data": None, "history": None, "failed_at": None}
 _lock = asyncio.Lock()
+
+
+def _cached_or_none(now: float) -> tuple[dict[str, Any], list[dict[str, Any]]] | None:
+    """What a failed refresh returns: the last payload while it is recent, else None."""
+    stale_ok = _cache["data"] is not None and now - _cache["at"] < STALE_SECONDS
+    return (_cache["data"], _cache["history"]) if stale_ok else None
 
 
 async def fetch_hub(
@@ -146,6 +155,11 @@ async def fetch_hub(
         now = time.monotonic()
         if _cache["data"] is not None and now - _cache["at"] < FRESH_SECONDS and _cache["hours"] >= hours:
             return _cache["data"], _cache["history"]
+        # Requests that queued behind a refresh that just failed share its
+        # outcome; otherwise each would wait out the timeout in turn.
+        failed_at = _cache["failed_at"]
+        if failed_at is not None and now - failed_at < RETRY_AFTER_SECONDS:
+            return _cached_or_none(now)
         try:
             async with httpx.AsyncClient(timeout=timeout_s) as client:
                 data_res, hist_res = await asyncio.gather(
@@ -159,9 +173,11 @@ async def fetch_hub(
             if not isinstance(data, dict) or not isinstance(history, list):
                 raise ValueError("unexpected payload shape")
         except Exception as exc:  # noqa: BLE001 — any failure means "use what we have"
-            stale_ok = _cache["data"] is not None and now - _cache["at"] < STALE_SECONDS
+            _cache["failed_at"] = time.monotonic()
+            cached = _cached_or_none(_cache["failed_at"])
             logger.warning("Energy hub %s unreachable (%s); %s", base, exc,
-                           "serving cached payload" if stale_ok else "falling back to Postgres")
-            return (_cache["data"], _cache["history"]) if stale_ok else None
-        _cache.update({"at": time.monotonic(), "hours": hours, "data": data, "history": history})
+                           "serving cached payload" if cached else "falling back to Postgres")
+            return cached
+        _cache.update({"at": time.monotonic(), "hours": hours, "data": data, "history": history,
+                       "failed_at": None})
         return data, history

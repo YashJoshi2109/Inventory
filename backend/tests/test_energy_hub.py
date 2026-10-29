@@ -49,3 +49,30 @@ def test_history_is_sorted_oldest_first_and_estimates_ac_from_mode():
     assert rows[1]["ac_consumption_w"] == 0.0                   # OFFLINE
     assert rows[0]["solar_current_power_w"] == 812.5
     assert rows[0]["hwh_consumption_w"] == 4500.0
+
+
+def test_failed_refresh_is_shared_for_retry_window(monkeypatch):
+    """Requests queued behind a failed fetch reuse its outcome instead of each timing out."""
+    import asyncio
+    from app.api.v1 import energy_hub as hub
+
+    calls = {"n": 0}
+
+    class _Client:
+        def __init__(self, *a, **k): pass
+        async def __aenter__(self): return self
+        async def __aexit__(self, *a): return False
+        async def get(self, *a, **k):
+            calls["n"] += 1
+            raise ConnectionError("down")
+
+    monkeypatch.setattr(hub.httpx, "AsyncClient", _Client)
+    monkeypatch.setitem(hub._cache, "data", None)
+    monkeypatch.setitem(hub._cache, "failed_at", None)
+
+    async def run():
+        return await asyncio.gather(*(hub.fetch_hub("http://hub.test", hours=1, timeout_s=1) for _ in range(5)))
+
+    results = asyncio.run(run())
+    assert results == [None] * 5
+    assert calls["n"] == 2          # one attempt (two GETs); the other four shared the failure
