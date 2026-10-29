@@ -1,12 +1,3 @@
-/**
- * Dashboard.tsx — main landing screen after login.
- *
- * Aggregates KPIs (total items, low-stock, recent movement) and the recent
- * activity feed from `dashboardApi` and `transactionsApi` via React Query, and
- * embeds the animated EcoEnergy widget. KPI figures use a framer-motion
- * `animate()` count-up; cards stagger in on view. Data is read-only here —
- * mutations happen on the Inventory/Scan screens and invalidate these queries.
- */
 import { useQuery } from "@tanstack/react-query";
 import { type ComponentType, useEffect, useMemo, useRef, useState } from "react";
 import { motion, animate } from "framer-motion";
@@ -372,8 +363,11 @@ function ActivityFlowChart() {
       const idx = Math.floor((t - cutoff) / msPerDay);
       const bucket = buckets[Math.min(idx, days - 1)];
       if (!bucket) continue;
-      if (ev.event_kind === "STOCK_IN" || ev.event_kind === "IMPORT")   bucket.in  += ev.quantity;
-      if (ev.event_kind === "STOCK_OUT" || ev.event_kind === "ADJUSTMENT") bucket.out += ev.quantity;
+      // The API serialises Decimal quantities as strings ("3.0000"); "+=" on a
+      // string concatenates, and Recharts then plots nothing for the day.
+      const qty = Number(ev.quantity) || 0;
+      if (ev.event_kind === "STOCK_IN" || ev.event_kind === "IMPORT")   bucket.in  += qty;
+      if (ev.event_kind === "STOCK_OUT" || ev.event_kind === "ADJUSTMENT") bucket.out += qty;
     }
     return buckets;
   }, [txPage, days]);
