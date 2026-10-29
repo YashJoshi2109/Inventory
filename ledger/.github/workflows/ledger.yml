@@ -1,0 +1,157 @@
+name: ledger
+
+# Gates for the local-first ledger. The repository root is the program, so
+# every push and pull request runs the whole pipeline.
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  verify:
+    name: verify (linux)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: package-lock.json
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - run: npm ci
+
+      - name: Unit and integration tests
+        run: npm test
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Host tests (standard library only, no pip)
+        run: python -m unittest discover -s host -v
+
+      # Gate 1's permanent regression gate. Our status algorithm must keep
+      # agreeing with Jones's reference implementation on identical input;
+      # if it ever stops, two instances of the lab platform can no longer
+      # converge, and that has to fail the build rather than be noticed later.
+      - name: Cross-validate against the reference implementation
+        run: npm run crossvalidate
+
+      - name: Build the PWA bundle
+        run: npm run build
+
+      # Re-run after the build so the bundle audit has something to audit.
+      - name: Bundle offline audit
+        run: npm test -- bundle
+
+      - name: Install Playwright browser
+        run: npx playwright install --with-deps chromium
+
+      - name: End-to-end, every external request blocked
+        run: npm run test:e2e
+
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: playwright-traces-linux
+          path: test-results/
+          retention-days: 7
+
+  windows-exe:
+    name: build and test the Windows executable
+    runs-on: windows-latest
+    needs: verify
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: package-lock.json
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - run: npm ci
+      - run: npm run build
+      - run: pip install "pyinstaller>=6,<7"
+
+      # The host's socket handling differs on Winsock (SO_REUSEADDR shares a
+      # listening port there), so the host tests have to run on Windows too.
+      - name: Host unit tests on Windows
+        run: python -m unittest discover -s host -v
+
+      # PyInstaller cannot cross-compile, which is the whole reason this job
+      # exists: the .exe has to be produced on Windows.
+      - name: Package the executable
+        run: pyinstaller host/InventoryLedger.spec --distpath build/dist --workpath build/work --noconfirm
+
+      - name: Smoke test the executable on a clean directory
+        shell: pwsh
+        run: |
+          # A one-file PyInstaller exe is a bootloader parent plus a Python child.
+          # Stop-Process on the parent leaves the child serving; taskkill /T
+          # takes the tree. The e2e run that follows must not find a stale host.
+          function Stop-Tree($id) { taskkill /PID $id /T /F | Out-Null }
+          New-Item -ItemType Directory -Force -Path build/smoke | Out-Null
+          Copy-Item build/dist/InventoryLedger.exe build/smoke/
+          Push-Location build/smoke
+          $p = Start-Process -FilePath .\InventoryLedger.exe -ArgumentList '--no-browser' -PassThru -RedirectStandardOutput run.log
+          Start-Sleep -Seconds 8
+          $log = Get-Content run.log -Raw
+          Write-Host $log
+          if (-not ($log -match 'localhost:(\d+)')) { Stop-Tree $p.Id; throw 'executable printed no URL' }
+          $port = $Matches[1]
+          $meta = Invoke-RestMethod "http://127.0.0.1:$port/api/meta"
+          Write-Host "device id: $($meta.deviceId)"
+          if (-not $meta.deviceId.StartsWith('INV')) { Stop-Tree $p.Id; throw 'no device id' }
+          $page = Invoke-WebRequest "http://127.0.0.1:$port/"
+          if ($page.StatusCode -ne 200) { Stop-Tree $p.Id; throw 'PWA not served' }
+          if (-not (Test-Path data)) { Stop-Tree $p.Id; throw 'no data directory created' }
+          Stop-Tree $p.Id
+          Start-Sleep -Seconds 2
+          $alive = $true
+          try { Invoke-RestMethod "http://127.0.0.1:$port/api/meta" -TimeoutSec 3 | Out-Null } catch { $alive = $false }
+          if ($alive) { throw "a host is still answering on port $port after taskkill; the e2e run would share it" }
+          Pop-Location
+          Write-Host 'executable smoke test passed'
+
+      - name: Install Playwright browser
+        run: npx playwright install --with-deps chromium
+
+      # The e2e fixture prefers the packaged executable when one exists, so this
+      # run drives the real .exe rather than the Python source.
+      - name: End-to-end against the packaged executable
+        run: npm run test:e2e
+
+      # RUN_ME.txt promises fallback\runtime\python.exe for machines whose
+      # antivirus blocks the unsigned exe. That is the python.org "embeddable"
+      # distribution, unmodified; the version matches the interpreter the exe
+      # itself was built with. The import check proves it carries every stdlib
+      # module host.py needs before it is shipped.
+      - name: Fetch the embeddable Python for the antivirus fallback
+        shell: pwsh
+        run: |
+          $v = '3.12.10'
+          Invoke-WebRequest "https://www.python.org/ftp/python/$v/python-$v-embed-amd64.zip" -OutFile build/python-embed.zip
+          Expand-Archive build/python-embed.zip -DestinationPath build/runtime -Force
+          & build/runtime/python.exe -c "import csv, json, configparser, http.server, socket, threading, uuid, webbrowser, mimetypes; print('embeddable runtime: stdlib ok')"
+
+      - name: Assemble the distributable zip
+        run: node scripts/package.mjs --exe build/dist/InventoryLedger.exe --runtime build/runtime --out build/InventoryLedger-windows.zip
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: InventoryLedger-windows
+          path: build/InventoryLedger-windows.zip
+          retention-days: 30
+
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: playwright-traces-windows
+          path: test-results/
+          retention-days: 7

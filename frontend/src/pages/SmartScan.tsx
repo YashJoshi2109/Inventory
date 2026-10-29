@@ -1,3 +1,16 @@
+/**
+ * SmartScan.tsx — context-aware barcode "smart apply" flow.
+ *
+ * Drives the UI as an explicit state machine over `SmartPhase`:
+ *   idle → item_scanned → location_scanned → previewing → committing → success
+ * Scanning an item barcode identifies it; scanning a location barcode next binds
+ * where the movement lands; the preview step shows the resolved SmartApplyResponse
+ * before the user commits. An unknown item barcode branches into `add_item`
+ * (auto-create) so a first-time scan is never a dead end.
+ *
+ * Note: this screen is barcode-driven, not camera-vision. The AI photo pipeline
+ * (Gemini/OpenRouter, quota handling) lives in the vision endpoints, not here.
+ */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Package, MapPin, CheckCircle2, XCircle, RotateCcw,

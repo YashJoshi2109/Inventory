@@ -1,0 +1,247 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>RAID Lab — Inventory Ledger</title>
+<style>
+/* Plain-Jane on purpose. Students: make it pretty, do not change the API. */
+:root{--b:#185FA5;--bg:#f4f5f7;--ok:#3B6D11;--warn:#854F0B;--bad:#A32D2D;--bdr:#ddd}
+*{box-sizing:border-box;margin:0;padding:0;font-family:'Segoe UI',system-ui,sans-serif}
+body{background:var(--bg);color:#1a1a1a;font-size:14px}
+header{background:var(--b);color:#fff;padding:10px 16px;display:flex;gap:16px;align-items:center;flex-wrap:wrap}
+header h1{font-size:16px;font-weight:600}
+header .who{margin-left:auto;display:flex;gap:8px;align-items:center}
+header input{padding:5px 8px;border:none;border-radius:4px}
+nav{background:#fff;border-bottom:1px solid var(--bdr);display:flex;gap:4px;padding:0 12px}
+nav button{padding:10px 14px;border:none;background:none;cursor:pointer;font-size:14px;border-bottom:3px solid transparent}
+nav button.on{border-color:var(--b);color:var(--b);font-weight:600}
+main{padding:16px;max-width:1200px;margin:0 auto}
+.card{background:#fff;border:1px solid var(--bdr);border-radius:8px;padding:14px;margin-bottom:14px}
+table{width:100%;border-collapse:collapse;font-size:13px}
+th,td{padding:6px 8px;border-bottom:1px solid #eee;text-align:left;vertical-align:top}
+th{cursor:pointer;background:#fafafa;user-select:none;white-space:nowrap}
+tr:hover td{background:#f8fbff}
+.filter{padding:6px 10px;width:280px;border:1px solid var(--bdr);border-radius:4px;margin-bottom:10px}
+.badge{display:inline-block;padding:1px 8px;border-radius:10px;font-size:11px;font-weight:600}
+.b-ok{background:#EAF3DE;color:var(--ok)}.b-warn{background:#FAEEDA;color:var(--warn)}
+.b-bad{background:#FCEBEB;color:var(--bad)}.b-info{background:#E6F1FB;color:var(--b)}
+.b-gray{background:#eee;color:#555}
+#scanbox{font-size:22px;padding:12px;width:100%;border:2px solid var(--b);border-radius:8px}
+.modes{display:flex;gap:8px;margin:10px 0}
+.modes button{padding:8px 14px;border:1px solid var(--bdr);border-radius:6px;background:#fff;cursor:pointer}
+.modes button.on{background:var(--b);color:#fff;border-color:var(--b)}
+#armed{margin:8px 0;font-weight:600}
+#feed div{padding:5px 8px;border-bottom:1px solid #eee;font-size:13px}
+button.act{padding:7px 12px;border:1px solid var(--bdr);border-radius:6px;background:#fff;cursor:pointer}
+button.primary{background:var(--b);color:#fff;border-color:var(--b)}
+input.f,select.f{padding:7px;border:1px solid var(--bdr);border-radius:4px;margin:3px 0;width:100%}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.small{font-size:12px;color:#666}
+#syncstat{font-size:12px}
+</style>
+</head>
+<body>
+<header>
+  <h1>RAID Lab — Inventory Ledger <span class="small" id="devid" style="color:#cde"></span></h1>
+  <span id="syncstat"></span>
+  <div class="who">
+    <label>Name:</label><input id="user" placeholder="your name" size="12">
+    <button class="act" onclick="syncNow()">Sync Now</button>
+  </div>
+</header>
+<nav id="tabs">
+  <button data-t="scan" class="on">Scan</button>
+  <button data-t="status">Status</button>
+  <button data-t="log">Event Log</button>
+  <button data-t="master">Item Master</button>
+  <button data-t="energy">Energy</button>
+  <button data-t="admin">Admin</button>
+</nav>
+<main>
+
+<section id="t-scan">
+  <div class="card">
+    <div class="modes">
+      <button id="m-auto" class="on" onclick="setMode('auto')">Auto (place via location scan)</button>
+      <button id="m-checkout" onclick="setMode('checkout')">Checkout</button>
+      <button id="m-return" onclick="setMode('return')">Return</button>
+    </div>
+    <input id="scanbox" placeholder="Scan a barcode here (keyboard-wedge scanners type + Enter)" autofocus>
+    <div id="armed"></div>
+    <div class="small">Scan a <b>location label</b> first to arm placement, then scan items.
+      Locations: <span id="locs"></span></div>
+  </div>
+  <div class="card" id="addcard" style="display:none">
+    <b>Unknown barcode — add as new item?</b>
+    <div class="grid2">
+      <input class="f" id="a-desc" placeholder="description (required)">
+      <input class="f" id="a-cat" placeholder="category">
+      <input class="f" id="a-gtin" placeholder="GTIN (optional)">
+      <input class="f" id="a-serial" placeholder="serial number (optional)">
+      <input class="f" id="a-epc" placeholder="EPC / RFID tag (optional)">
+    </div>
+    <button class="act primary" onclick="addItem()">Add to Item Master</button>
+    <button class="act" onclick="hide('addcard')">Dismiss</button>
+  </div>
+  <div class="card"><b>Recent scans</b><div id="feed"></div></div>
+</section>
+
+<section id="t-status" style="display:none">
+  <div class="card">
+    <input class="filter" id="f-status" placeholder="filter…" oninput="renderStatus()">
+    <button class="act" onclick="loadStatus()">Refresh</button>
+    <span class="small" id="statusmeta"></span>
+    <table id="tbl-status"></table>
+    <div id="unknowns"></div>
+  </div>
+</section>
+
+<section id="t-log" style="display:none">
+  <div class="card">
+    <input class="filter" id="f-log" placeholder="filter…" oninput="renderLog()">
+    <button class="act" onclick="loadLog()">Refresh</button>
+    <table id="tbl-log"></table>
+  </div>
+</section>
+
+<section id="t-master" style="display:none">
+  <div class="card">
+    <input class="filter" id="f-master" placeholder="filter…" oninput="renderMaster()">
+    <button class="act" onclick="loadMaster()">Refresh</button>
+    <table id="tbl-master"></table>
+  </div>
+</section>
+
+<section id="t-energy" style="display:none">
+  <div class="card">
+    <button class="act" onclick="loadEnergy()">Refresh</button>
+    <span class="small">Latest reading per source/metric, from synced energy ledgers.</span>
+    <table id="tbl-energy"></table>
+  </div>
+</section>
+
+<section id="t-admin" style="display:none">
+  <div class="card">
+    <b>Admin</b> <span class="small">(corrections are append-only rows — the ledger is never edited)</span><br><br>
+    <input class="f" id="pin" type="password" placeholder="admin PIN" style="width:200px"><br><br>
+    <div class="grid2">
+      <div>
+        <b>Void an event</b>
+        <input class="f" id="v-eid" placeholder="event_id e.g. INV01-000012">
+        <input class="f" id="v-reason" placeholder="reason">
+        <button class="act" onclick="voidEvent()">Void</button>
+      </div>
+      <div>
+        <b>Revise / retire an item</b>
+        <input class="f" id="i-id" placeholder="item_id e.g. ITM-0003">
+        <input class="f" id="i-desc" placeholder="new description (blank = keep)">
+        <button class="act" onclick="adminItem('revise')">Revise</button>
+        <button class="act" onclick="adminItem('retire')">Retire</button>
+      </div>
+    </div><br>
+    <b>Reconcile</b> — publish checkpoint (items + log + status) to the sync folder<br>
+    <button class="act primary" onclick="reconcile()">Publish reconciled checkpoint</button>
+    <div id="adminout" class="small"></div>
+  </div>
+</section>
+
+</main>
+<script>
+/* Students: this is intentionally minimal vanilla JS. Extend, don't obscure. */
+const $=id=>document.getElementById(id);
+let MODE='auto', STATUS=[], LOG=[], MASTER=[], META={};
+$('user').value=localStorage.getItem('raid_user')||'';
+$('user').oninput=e=>localStorage.setItem('raid_user',e.target.value);
+
+document.querySelectorAll('#tabs button').forEach(b=>b.onclick=()=>{
+  document.querySelectorAll('#tabs button').forEach(x=>x.classList.remove('on'));
+  b.classList.add('on');
+  document.querySelectorAll('main section').forEach(s=>s.style.display='none');
+  $('t-'+b.dataset.t).style.display='';
+  if(b.dataset.t==='status')loadStatus(); if(b.dataset.t==='log')loadLog();
+  if(b.dataset.t==='master')loadMaster(); if(b.dataset.t==='energy')loadEnergy();
+  if(b.dataset.t==='scan')$('scanbox').focus();
+});
+function hide(id){$(id).style.display='none'}
+async function api(path,body){
+  const r=await fetch(path,body?{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)}:{});
+  return r.json();
+}
+function setMode(m){MODE=m;['auto','checkout','return'].forEach(x=>$('m-'+x).classList.toggle('on',x===m));$('scanbox').focus()}
+
+async function meta(){
+  META=await api('/api/meta');
+  $('devid').textContent=META.device_id+' · v'+META.version;
+  $('locs').textContent=Object.entries(META.locations).map(([k,v])=>k+' ('+v+')').join(', ')||'none configured — edit config.ini';
+  $('syncstat').innerHTML=META.sync_reachable?'<span class="badge b-ok">sync folder OK</span>':'<span class="badge b-warn">sync folder unreachable — working locally</span>';
+}
+let lastScan=null;
+$('scanbox').addEventListener('keydown',async e=>{
+  if(e.key!=='Enter')return;
+  const v=$('scanbox').value.trim(); $('scanbox').value='';
+  if(!v)return;
+  const user=$('user').value.trim();
+  if(!user){feed('⚠ enter your name first (top right)');return}
+  const r=await api('/api/scan',{value:v,user,mode:MODE});
+  lastScan=v;
+  if(r.error){feed('⚠ '+r.error);return}
+  if(r.result==='armed'){$('armed').innerHTML='📍 Armed: placing items at <b>'+r.location_name+'</b> for '+r.arm_seconds+'s';
+    setTimeout(()=>$('armed').textContent='',r.arm_seconds*1000);feed('location '+r.location+' armed');return}
+  if(!r.known_item){$('addcard').style.display='';$('a-desc').focus();
+    feed('❓ unknown '+r.kind+' '+v+' — logged, add item below to register it');return}
+  feed('✔ '+r.item.item_id+' '+r.item.description+' → '+r.applied+(r.location?' @ '+r.location:''));
+});
+function feed(msg){const d=document.createElement('div');d.textContent=new Date().toLocaleTimeString()+'  '+msg;$('feed').prepend(d)}
+async function addItem(){
+  const user=$('user').value.trim();
+  const r=await api('/api/items/add',{user,description:$('a-desc').value,category:$('a-cat').value,
+    gtin:$('a-gtin').value||((lastScan&&/^\d+$/.test(lastScan))?lastScan:''),
+    serial_number:$('a-serial').value,
+    epc:$('a-epc').value||((lastScan&&/^[0-9A-Fa-f]{24}$/.test(lastScan))?lastScan:'')});
+  if(r.error){feed('⚠ '+r.error);return}
+  feed('➕ added '+r.item.item_id+' '+r.item.description);hide('addcard');
+  ['a-desc','a-cat','a-gtin','a-serial','a-epc'].forEach(i=>$(i).value='');
+}
+function mkTable(el,cols,rows,filter){
+  const f=(filter||'').toLowerCase();
+  const rs=rows.filter(r=>!f||JSON.stringify(r).toLowerCase().includes(f));
+  let h='<tr>'+cols.map(c=>'<th onclick="sortBy(\''+el+'\',\''+c+'\')">'+c+'</th>').join('')+'</tr>';
+  h+=rs.map(r=>'<tr>'+cols.map(c=>'<td>'+(r[c]??'')+'</td>').join('')+'</tr>').join('');
+  $(el).innerHTML=h;
+}
+const sortState={};
+function sortBy(el,c){
+  const arr=el==='tbl-status'?STATUS:el==='tbl-log'?LOG:MASTER;
+  sortState[el+c]=!sortState[el+c];
+  arr.sort((a,b)=>((a[c]??'')+'').localeCompare((b[c]??'')+'')*(sortState[el+c]?1:-1));
+  if(el==='tbl-status')renderStatus();else if(el==='tbl-log')renderLog();else renderMaster();
+}
+async function loadStatus(){const r=await api('/api/status');STATUS=r.status;
+  $('statusmeta').textContent='generated '+r.generated_at+' · '+STATUS.length+' items';
+  window.UNK=r.unknown_scans;renderStatus()}
+function renderStatus(){
+  const rows=STATUS.map(r=>({...r,
+    state:(r.conflict?'<span class="badge b-bad">CONFLICT</span> ':'')+r.state
+      +(r.source==='rfid'?' <span class="badge b-info">rfid</span>':''),
+  }));
+  mkTable('tbl-status',['item_id','description','category','state','confidence','last_seen','last_user','last_event_id'],rows,$('f-status').value);
+  $('unknowns').innerHTML=(window.UNK&&window.UNK.length)?'<br><b>Unknown scans (not in Item Master)</b>: '+window.UNK.slice(-10).map(u=>u.value).join(', '):'';
+}
+async function loadLog(){const r=await api('/api/events');LOG=r.events.reverse();renderLog()}
+function renderLog(){mkTable('tbl-log',['event_id','datetime_utc','user','event_type','value','location_context','command_context','confidence','notes'],LOG,$('f-log').value)}
+async function loadMaster(){const r=await api('/api/items');MASTER=r.items.reverse();renderMaster()}
+function renderMaster(){mkTable('tbl-master',['item_id','action','description','category','gtin','serial_number','epc','user','datetime_utc'],MASTER,$('f-master').value)}
+async function loadEnergy(){const r=await api('/api/energy');
+  const rows=r.latest.map(x=>({...x,quality:'<span class="badge '+(x.quality==='measured'?'b-ok':x.quality==='estimated'?'b-warn':'b-gray')+'">'+x.quality+'</span>'}));
+  mkTable('tbl-energy',['source_type','source_id','metric','value','unit','quality','datetime_utc'],rows,'')}
+async function syncNow(){const r=await api('/api/sync',{});feed(r.ok?'🔄 synced (pushed '+r.pushed.length+', pulled '+r.pulled+')':'⚠ '+r.error);meta()}
+async function voidEvent(){const r=await api('/api/admin/void',{pin:$('pin').value,event_id:$('v-eid').value,reason:$('v-reason').value});
+  $('adminout').textContent=JSON.stringify(r)}
+async function adminItem(action){const r=await api('/api/admin/item',{pin:$('pin').value,item_id:$('i-id').value,action,description:$('i-desc').value});
+  $('adminout').textContent=JSON.stringify(r)}
+async function reconcile(){const r=await api('/api/admin/reconcile',{pin:$('pin').value});$('adminout').textContent=JSON.stringify(r)}
+meta();setInterval(()=>{if($('t-status').style.display!=='none')loadStatus()},5000);
+</script>
+</body>
+</html>

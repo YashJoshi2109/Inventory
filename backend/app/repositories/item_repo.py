@@ -1,3 +1,5 @@
+"""Data access for Item / Category entities, eager-loading barcodes, category, and
+stock levels via ``selectinload``; owner-scoping is applied through ``owner_filter``."""
 from decimal import Decimal
 
 from sqlalchemy import select, func, or_
@@ -11,6 +13,8 @@ from app.repositories.base import BaseRepository
 
 
 class ItemRepository(BaseRepository[Item]):
+    """Item queries (by SKU, barcode, search, low-stock) with owner-scoped filtering."""
+
     def __init__(self, session: AsyncSession) -> None:
         super().__init__(Item, session)
 
@@ -130,6 +134,8 @@ class ItemRepository(BaseRepository[Item]):
 
 
 class CategoryRepository(BaseRepository[Category]):
+    """Category lookups and owner-scoped listings, including per-category item counts."""
+
     def __init__(self, session: AsyncSession) -> None:
         super().__init__(Category, session)
 

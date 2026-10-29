@@ -3,7 +3,7 @@
 > **AI-powered, mobile-first laboratory inventory management** — Real-time QR scanning, glassmorphism UI, demand forecasting, SmartScan vision AI, live energy monitoring, and full audit trail.
 
 [![Live App](https://img.shields.io/badge/Frontend-Vercel-black)](https://sierlab-inventory.vercel.app)
-[![API](https://img.shields.io/badge/Backend-Render-blue)](https://sear-lab-inventory.onrender.com)
+[![API](https://img.shields.io/badge/Backend-Cloud%20Run-4285F4)](https://cloud.google.com/run)
 [![License](https://img.shields.io/badge/License-MIT-green)](LICENSE)
 [![Python](https://img.shields.io/badge/Python-3.11-blue)](https://python.org)
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.115-009688)](https://fastapi.tiangolo.com)
@@ -12,8 +12,34 @@
 
 ---
 
+## Current direction — local-first ledger (read this first)
+
+Since July 2026 this repository has two halves, and the one under active development is
+**not** the cloud app described below.
+
+| | `ledger/` — **active** | the rest of this repo — maintained |
+|---|---|---|
+| What it is | `InventoryLedger.exe`: an offline, append-only CSV ledger program that a lab technician unzips and double-clicks | The deployed cloud web app (FastAPI + React + Postgres) |
+| Why | Dr. Jones's July 2026 directive: the lab needs a program that can be emailed as a zip and run with no internet, no install, and no database | It becomes the optional dashboard layer over the same reconciled CSV files |
+| Status | Gates 1–2 of 4 complete | In production, unchanged |
+| Start here | [`ledger/README.md`](ledger/README.md) | this document |
+
+Background reading, in order:
+
+1. [`ledger/docs/PROF_DIRECTIVE_2026-07.md`](ledger/docs/PROF_DIRECTIVE_2026-07.md) — the directive and the acceptance tests
+2. [`ledger/docs/specs/2026-08-27-dual-mode-ledger-design.md`](ledger/docs/specs/2026-08-27-dual-mode-ledger-design.md) — the design and the four approval gates
+3. [`ledger/ACCEPTANCE.md`](ledger/ACCEPTANCE.md) — every acceptance test, and what is proven versus unverified
+4. [`ledger/CROSSVALIDATION.md`](ledger/CROSSVALIDATION.md) — agreement with Jones's reference implementation
+5. [`docs/QUESTIONS_FOR_DR_JONES_2026-08.md`](docs/QUESTIONS_FOR_DR_JONES_2026-08.md) — four open contract questions
+
+Nothing in the cloud app has been removed or broken by this work: `ledger/` is a new,
+self-contained subtree with its own dependencies, tests, and CI workflow.
+
+---
+
 ## Table of Contents
 
+- [Current direction — local-first ledger](#current-direction--local-first-ledger-read-this-first)
 - [Overview](#overview)
 - [Features](#features)
 - [Architecture](#architecture)
@@ -78,7 +104,7 @@ SEAR Lab Inventory is a production-grade inventory system built for the **UTA SE
 
 | Feature | Description |
 |---------|-------------|
-| **Live Polling** | 15-second refresh from Supabase |
+| **Live Polling** | 15-second refresh; backend reads live telemetry from InfluxDB via a Grafana proxy (`/energy/grafana-live`) |
 | **Solar Gauge** | Animated SVG half-circle gauge showing solar coverage % |
 | **5-Min Aggregation** | Background task collapses raw readings → 96× less data |
 | **Dashboard Widget** | Framer Motion animated EcoEnergy widget on main dashboard |
@@ -101,6 +127,14 @@ SEAR Lab Inventory is a production-grade inventory system built for the **UTA SE
 | **Email OTP** | Magic-link fallback |
 | **JWT Sessions** | Signed access + refresh token pair |
 | **Role-Based Access** | Admin / Manager / Viewer with per-route enforcement |
+
+### Sandbox Mode
+
+| Feature | Description |
+|---------|-------------|
+| **Per-User Isolated Data** | Each user gets seeded demo data (items, locations, ~30 days energy) isolated from real inventory — ideal for kiosk/conference demos |
+| **`X-Sandbox-Mode` Header** | Frontend toggle sets this request header; the backend re-scopes **all** data via 3-state `owner_id` filtering (`None` → background tasks, `0` → real data, `>0` → that user's sandbox) |
+| **Copilot Quota** | 10 AI Copilot messages per sandbox session with a persistent DB counter + 429 overage block |
 
 ---
 
@@ -131,7 +165,7 @@ SEAR Lab Inventory is a production-grade inventory system built for the **UTA SE
 
 ### Key Design Decisions
 
-- **Single DB for relational + time-series** — PostgreSQL handles both inventory events and energy readings
+- **Relational + time-series split** — PostgreSQL handles inventory events and stored energy rows; **live** energy telemetry is read from **InfluxDB via a Grafana proxy** (`app/api/v1/energy_influx.py`, endpoint `/energy/grafana-live`). InfluxDB is Docker-internal; Grafana on port 3000 is the only externally reachable gateway. The legacy `energy.py` router (Postgres-backed readings) remains mounted for history/compatibility.
 - **5-minute aggregation** — background task collapses raw HVAC readings (every 15s) into per-bucket averages → 20× storage reduction per hour
 - **Image compression pipeline** — frontend compresses to ≤1280px, backend re-compresses to ≤1024px with Pillow → prevents OOM on 512 MB instances
 - **Per-user vision rate limiting** — keyed on `user_id` (not IP) so shared lab networks don't exhaust quota for everyone
@@ -371,6 +405,8 @@ Camera (≤1280px, JPEG 0.80)
 
 ## Energy Hub
 
+> **Data source:** live readings are queried from **InfluxDB** (measurement `energy_usage`) through the **Grafana `/api/ds/query` proxy** — see `app/api/v1/energy_influx.py` (`GET /energy/grafana-live`). InfluxDB is Docker-internal (`http://influxdb:8086`); Grafana at port 3000 is the only externally reachable gateway. Stored/historical rows and the 5-minute aggregation below live in PostgreSQL via the legacy `energy.py` router.
+
 Monitors real-time power from three sources:
 
 | Source | Device |
@@ -442,14 +478,16 @@ CREATE INDEX idx_energy_readings_timestamp ON energy_readings (timestamp DESC);
 
 ## Deployment
 
-### Backend — Render.com
+### Backend — Google Cloud Run
 
-1. New **Web Service** → connect GitHub repo
-2. Root Directory: `backend`
-3. Build: `pip install -r requirements.txt`
-4. Start: `uvicorn app.main:app --host 0.0.0.0 --port $PORT`
-5. Add all environment variables
-6. Instance: **512 MB minimum** (1 GB recommended)
+Deployed as a container to Cloud Run (migrated from Render). Artifacts: `backend/Dockerfile`, `backend/cloudbuild.yaml`, `backend/entrypoint.sh` (runs `alembic upgrade head` then launches uvicorn), and the `gcp-deploy.sh` helper.
+
+1. Build & push the image via `backend/cloudbuild.yaml` → Artifact Registry
+2. `gcloud run deploy inventory-backend --region <region> --image <artifact-registry-image>`
+3. Set all environment variables / secrets on the service
+4. Memory: **1 GiB** and **min-instances=1** (avoids cold starts + vision OOM)
+
+> `render.yaml` remains in the repo as a legacy fallback but is no longer the primary target.
 
 ### Frontend — Vercel
 
@@ -526,6 +564,32 @@ curl http://localhost:8000/api/v1/ai/vision/status \
 ```bash
 cd frontend && node_modules/.bin/tsc --noEmit
 ```
+
+---
+
+## Documentation Map
+
+| Document | Covers |
+|----------|--------|
+| `README.md` (this file) | Product overview, features, architecture, setup, API reference, deployment |
+| `backend/README.md` | Backend architecture — layered api→services→repositories→models, flush-not-commit transaction convention, sandbox `owner_id` scoping |
+| `frontend/README.md` | Frontend architecture — Zustand vs React Query split, scan-phase state machine, offline support |
+| `docs/MQTT.md`, `docs/MQTT-DEPLOYMENT.md` | MQTT event bus integration + deployment notes |
+| `docs/system-design.excalidraw` | System design diagram |
+| `IMPLEMENTATION_SUMMARY.md` | Historical snapshot of the first enhancement sprint (Mar 2026) — kept for change history |
+
+---
+
+## Known Limitations & Roadmap
+
+| Item | Status |
+|------|--------|
+| Sandbox scan latency | ⏳ Optimization pending |
+| MQTT events `import.completed`, `alert.low_stock`, `scan.performed` | ⏳ Not yet wired |
+| Browser live-MQTT dashboard (MQTT-over-WebSocket) | ❌ Not implemented |
+| React Native sandbox app | ⏸ Spec'd + scaffolded; pivoted to web-only |
+| Demand forecasting (`/ai/forecast/{id}`) | ⚠ Endpoint exists; maturity to confirm |
+| RFID (Unitech RP902) | ❌ Abandoned — Bluetooth/MFi iAP2 incompatibility |
 
 ---
 

@@ -66,6 +66,7 @@ _CHALLENGE_TTL_SECONDS = 300
 
 
 def _require_webauthn():
+    """Raise HTTP 501 if the optional ``webauthn`` package is not installed."""
     if not WEBAUTHN_AVAILABLE:
         raise HTTPException(
             status_code=status.HTTP_501_NOT_IMPLEMENTED,
@@ -176,6 +177,11 @@ def _encode_challenge_ticket(
     user_id: int | None = None,
     user_key: str | None = None,
 ) -> str:
+    """Pack challenge + rp_id (+ optional user id/key) into a short-lived signed JWT.
+
+    The challenge is stored base64url-encoded under ``ch``; the token expires after
+    ``_CHALLENGE_TTL_SECONDS`` and binds the register/complete steps together.
+    """
     now_ts = int(datetime.now(timezone.utc).timestamp())
     payload: dict[str, Any] = {
         "typ": "webauthn_challenge",
@@ -193,6 +199,11 @@ def _encode_challenge_ticket(
 
 
 def _decode_challenge_ticket(ticket: str, *, expected_kind: str) -> tuple[bytes, str, int | None, str | None]:
+    """Verify a challenge JWT and return (challenge bytes, rp_id, user_id, user_key).
+
+    The ``ch`` claim is base64url-decoded back to raw challenge bytes. Raises HTTP 400
+    if the token is expired/invalid, the wrong ``kind``, or malformed.
+    """
     try:
         payload = jwt.decode(ticket, settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
     except JWTError as exc:

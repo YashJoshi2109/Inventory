@@ -1,3 +1,6 @@
+"""Barcodes API: generate item/location labels (PDF sheets and Zebra ZPL) and GS1
+codes/EPCs, render barcode images, and email item QR labels. Owner-scoped via
+``sandbox_owner_id``/``owns`` and gated by ``require_roles``."""
 from datetime import datetime
 import logging
 

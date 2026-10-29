@@ -1,6 +1,13 @@
 
 # Implementation Summary - UTA SEAR Lab Inventory System Enhancements
 
+> **⚠️ Historical snapshot (March 28, 2026).** This document captures the *first*
+> enhancement sprint (OTP, animations, haptics, branding). It does **not** cover
+> the later work — SmartScan vision AI, GS1/barcode standard, live Energy Hub,
+> RAG-powered AI Copilot, per-user Sandbox mode, and the CI/CD migration to Cloud
+> Run. For the current, complete project status see the root `README.md` and the
+> latest meeting/status report. Kept here for change history.
+
 ## Overview
 Complete implementation of OTP service, bug fixes, premium animations, haptic feedback, and branding across the UTA SEAR Lab Inventory System.
 

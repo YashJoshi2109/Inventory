@@ -1,7 +1,10 @@
 import { test, expect } from "@playwright/test";
 
 const smokeUser = process.env.SMOKE_LOGIN_USERNAME || "sear_admin";
-const smokePass = process.env.SMOKE_LOGIN_PASSWORD || "SearLab@2024";
+const smokePass = process.env.SMOKE_LOGIN_PASSWORD;
+if (!smokePass) {
+  throw new Error("Set SMOKE_LOGIN_PASSWORD in the environment; the smoke password is never hardcoded.");
+}
 
 test.describe("Production UI (requires: npx playwright install chromium)", () => {
   test("sign in reaches dashboard", async ({ page }) => {

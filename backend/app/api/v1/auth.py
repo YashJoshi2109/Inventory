@@ -1,3 +1,19 @@
+"""Authentication & account API (``/api/v1/auth``).
+
+Implements the full auth surface for the app:
+
+* Registration + password login (bcrypt via ``app.core.security``), issuing a
+  signed JWT access/refresh token pair.
+* Email OTP — request a 6-digit code, verify it, mark ``email_verified``.
+* Token refresh — exchange a valid refresh token for a fresh access token.
+* Current-user profile (``GET /auth/me``) and profile/password updates.
+* Role-request workflow — self-registration is limited to viewer/manager; a
+  request for elevated access notifies existing managers by email.
+
+WebAuthn / passkey endpoints live in the sibling ``passkeys.py`` router. Role
+names are looked up case-insensitively (forms submit lowercase); the token's
+``role_names`` claim reflects the roles actually assigned after flush.
+"""
 from datetime import datetime, timezone
 import asyncio
 import logging

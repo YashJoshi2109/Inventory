@@ -1,3 +1,14 @@
+/**
+ * Auth store (zustand + persist).
+ *
+ * Holds the current user plus access/refresh JWTs and drives `isAuthenticated`.
+ * Persisted to localStorage under the key `sierlab-auth` (see `partialize` for
+ * exactly which fields survive a reload). `apiClient` reads `accessToken` for the
+ * Bearer header and calls `setTokens`/`logout` from its 401-refresh flow.
+ *
+ * Note: `hasRole` short-circuits to `true` for superusers (`user.is_superuser`),
+ * so a superuser passes every role check regardless of assigned roles.
+ */
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import type { User } from "@/types";

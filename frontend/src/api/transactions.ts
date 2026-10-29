@@ -1,3 +1,15 @@
+/**
+ * Inventory transactions, scan, dashboard, and AI API modules.
+ *
+ * scanApi.smartApply contract (POST /scans/smart-apply): infers the action
+ * (stock_in / stock_out / transfer) from item + location and applies it.
+ * - `dry_run: true` returns a preview only (no DB write); `dry_run: false`
+ *   (the default merged in below) commits the change.
+ * - When a stock-out/transfer is ambiguous across locations, the response comes
+ *   back with `requires_source_selection: true` and a list of `candidate_sources`
+ *   for the caller to disambiguate, then resubmit with `source_location_id`.
+ * - `force_action` overrides the inferred action.
+ */
 import { apiClient } from "./client";
 import type {
   InventoryEvent,

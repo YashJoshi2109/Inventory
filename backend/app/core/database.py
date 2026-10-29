@@ -1,3 +1,9 @@
+"""SQLAlchemy async engine, session factory, and the declarative ``Base``.
+
+Configures the async engine/pool (sized down under SSL for Supabase's connection
+limits) and exposes ``get_db``, the request-scoped session dependency. Repositories
+flush within a request; the ``get_db`` boundary owns the final commit/rollback.
+"""
 from collections.abc import AsyncGenerator
 from typing import Annotated
 
@@ -55,6 +61,11 @@ AsyncSessionLocal = async_sessionmaker(
 
 
 async def get_db() -> AsyncGenerator[AsyncSession, None]:
+    """Yield a request-scoped ``AsyncSession``, committing on success.
+
+    Repositories only ``flush`` during the request; this dependency owns the commit
+    boundary — it commits once the handler returns and rolls back on any exception.
+    """
     async with AsyncSessionLocal() as session:
         try:
             yield session

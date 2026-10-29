@@ -1,3 +1,6 @@
+"""Imports API: bulk item ingestion from uploaded CSV/Excel files. Validates and
+sanitizes columns before delegating to ``ImportService``; owner-scoped via
+``sandbox_owner_id`` and gated by ``require_roles``."""
 from fastapi import APIRouter, Depends, HTTPException, Request, UploadFile, File, status
 
 from app.api.v1.auth import CurrentUser, require_roles

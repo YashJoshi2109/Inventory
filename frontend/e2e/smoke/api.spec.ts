@@ -5,7 +5,10 @@ const apiURL =
   "https://sierlab-inventory-backend.onrender.com/api/v1";
 
 const smokeUser = process.env.SMOKE_LOGIN_USERNAME || "sear_admin";
-const smokePass = process.env.SMOKE_LOGIN_PASSWORD || "SearLab@2024";
+const smokePass = process.env.SMOKE_LOGIN_PASSWORD;
+if (!smokePass) {
+  throw new Error("Set SMOKE_LOGIN_PASSWORD in the environment; the smoke password is never hardcoded.");
+}
 
 function healthBaseFromApi(api: string): string {
   return api.replace(/\/api\/v1\/?$/i, "");

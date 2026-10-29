@@ -1,3 +1,5 @@
+"""Users API: user administration (create/update/list), role assignment, and password
+management (self-change and admin reset). Access is gated by admin/manager role checks."""
 from fastapi import APIRouter, Depends, HTTPException, status
 
 from app.api.v1.auth import CurrentUser, require_roles
