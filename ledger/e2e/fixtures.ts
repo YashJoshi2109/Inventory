@@ -6,7 +6,7 @@
  * builds the executable exercises the executable.
  */
 import { spawn, spawnSync, type ChildProcess } from "node:child_process";
-import { cpSync, existsSync, mkdtempSync, rmSync } from "node:fs";
+import { cpSync, existsSync, mkdtempSync, rmSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -79,6 +79,14 @@ function killTree(p: ChildProcess): void {
  */
 function installProgram(dir: string): { command: string; args: string[] } {
   if (existsSync(PACKAGED)) {
+    // A binary older than the host source is a different program from the one
+    // under test. Fail loudly: it once made every location scan "unrecognised"
+    // because an August build knew none of the October shelf codes.
+    const hostSource = join(LEDGER, "host", "host.py");
+    if (statSync(PACKAGED).mtimeMs < statSync(hostSource).mtimeMs) {
+      throw new Error(
+        `${PACKAGED} is older than ${hostSource}: rebuild it or delete it before running e2e`);
+    }
     const target = join(dir, process.platform === "win32" ? "InventoryLedger.exe" : "InventoryLedger");
     cpSync(PACKAGED, target);
     return { command: target, args: ["--no-browser"] };
