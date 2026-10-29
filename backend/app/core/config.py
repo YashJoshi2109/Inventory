@@ -104,6 +104,12 @@ class Settings(BaseSettings):
     GRAFANA_DATASOURCE_UID: str = "P2C2B70520A8E42FD"
     INFLUXDB_BUCKET: str = "energy_data"
 
+    # Energy hub — the lab's standalone HVAC dashboard (sear-labs/lab-energy-monitoring).
+    # /energy/dashboard reads its /api/data and /api/history first and falls back to the
+    # energy_readings table when it is unreachable. Empty disables the upstream.
+    ENERGY_HUB_URL: str = "https://lab-energy-monitoring.onrender.com"
+    ENERGY_HUB_TIMEOUT_S: float = 12.0
+
     # Sandbox mode — set to true on sandbox Cloud Run only
     SANDBOX_MODE: bool = False
     SANDBOX_COPILOT_LIMIT: int = 10

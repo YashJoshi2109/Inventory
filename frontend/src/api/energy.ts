@@ -49,6 +49,8 @@ export interface EnergyDashboardData {
   history: EnergyHistory;
   stats: EnergyStats;
   live: boolean;
+  /** "energy-hub" when served from the lab's HVAC dashboard, "postgres" otherwise. */
+  source?: "energy-hub" | "postgres";
 }
 
 export interface InfluxLatest {
